@@ -46,7 +46,7 @@ The current code in Stoix is **largely** taken from and moderately adapted from 
 Stoix currently offers the following building blocks for Single-Agent RL research:
 
 - 🥑 **Implementations of algorithms**: Implementations of PPO, DQN, C51, SAC, D4PG.
-- 🍬 **Environment Wrappers**: Wrappers for Gymnax, Jumanji, Brax, XMinigrid, and even JaxMARL (with Centralised Controllers).
+- 🍬 **Environment Wrappers**: Wrappers for [Gymnax][gymnax], [Jumanji][jumanji], [Brax][brax], [XMinigrid][xminigrid], and even [JaxMARL][jaxmarl] (with Centralised Controllers).
 - 🧪 **Statistically robust evaluation**: Stoix natively supports logging to json files which adhere to the standard suggested by [Gorsane et al. (2022)][toward_standard_eval]. This enables easy downstream experiment plotting and aggregation using the tools found in the [MARL-eval][marl_eval] library.
 
 ## Performance and Speed 🚀
@@ -134,5 +134,12 @@ We would like to thank the authors and developers of [Mava](mava) as this is ess
 [purejaxrl]: https://github.com/luchris429/purejaxrl
 [anakin_paper]: https://arxiv.org/abs/2104.06272
 [mava]: https://github.com/instadeepai/Mava
+[jaxmarl]: https://github.com/flairox/jaxmarl
+[toward_standard_eval]: https://arxiv.org/pdf/2209.10485.pdf
+[marl_eval]: https://github.com/instadeepai/marl-eval
+[gymnax]: https://github.com/RobertTLange/gymnax/
+[brax]: https://github.com/google/brax
+[xminigrid]: https://github.com/corl-team/xland-minigrid/
+
 
 Disclaimer: This is not an official InstaDeep product nor is any of the work putforward associated with InstaDeep in any official capacity.
