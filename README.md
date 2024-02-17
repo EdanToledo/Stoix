@@ -51,7 +51,7 @@ Stoix currently offers the following building blocks for Single-Agent RL researc
 
 ## Performance and Speed 🚀
 
-As the code in Stoix is in essense a port of Mava, for speed comparisons we point to there repo.
+As the code in Stoix is in essense a port of [Mava][mava], for speed comparisons we point to their repo. Additionally, please note that current networks and hyperparameters for algorithms have not been tuned.
 
 ## Installation 🎬
 
