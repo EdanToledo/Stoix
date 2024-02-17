@@ -1,0 +1,10 @@
+# ---Environment Configs---
+env_name: brax
+
+scenario:
+  name: humanoid
+  task_name: humanoid
+
+kwargs: {
+  backend: spring
+}

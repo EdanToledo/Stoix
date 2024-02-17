@@ -1,0 +1,9 @@
+# ---Environment Configs---
+env_name: mpe
+
+scenario:
+  name: MPE_simple_v3
+  task_name: mpe_simple
+
+kwargs:
+  num_agents : 2

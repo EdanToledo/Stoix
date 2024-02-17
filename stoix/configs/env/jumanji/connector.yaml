@@ -1,0 +1,15 @@
+# ---Environment Configs---
+env_name: jumanji
+observation_attribute : grid
+flatten_observation: True
+multi_agent : True
+
+scenario:
+  name: Connector-v2
+  task_name: connector
+
+kwargs:
+  generator:
+    _target_: jumanji.environments.routing.connector.generator.RandomWalkGenerator
+    grid_size: 6
+    num_agents: 2

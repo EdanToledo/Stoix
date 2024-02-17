@@ -1,0 +1,11 @@
+# ---Environment Configs---
+env_name: jumanji
+observation_attribute : grid
+flatten_observation: True
+multi_agent : False
+
+scenario:
+  name: Snake-v1
+  task_name: snake
+
+kwargs: {}

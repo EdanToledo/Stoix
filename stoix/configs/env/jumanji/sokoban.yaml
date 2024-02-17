@@ -1,0 +1,11 @@
+# ---Environment Configs---
+env_name: jumanji
+observation_attribute : grid
+flatten_observation: True
+multi_agent : False
+
+scenario:
+  name: Sokoban-v0
+  task_name: sokoban
+
+kwargs: {}

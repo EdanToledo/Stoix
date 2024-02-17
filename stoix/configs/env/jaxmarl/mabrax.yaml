@@ -1,0 +1,12 @@
+# ---Environment Configs---
+env_name: mabrax
+
+scenario:
+  name: ant_4x2
+  task_name: ant_4x2
+
+kwargs:
+  episode_length : 1000
+  action_repeat: 1
+  auto_reset: False
+  backend: spring

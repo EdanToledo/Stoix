@@ -1,0 +1,7 @@
+# ---Environment Configs---
+env_name: MiniGrid-Empty-6x6
+
+scenario:
+  task_name: minigrid_empty_6x6
+
+kwargs: {}

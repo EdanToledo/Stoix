@@ -1,0 +1,8 @@
+# ---Environment Configs---
+env_name: gymnax
+
+scenario:
+  name: Asterix-MinAtar
+  task_name: asterix
+
+kwargs: {}

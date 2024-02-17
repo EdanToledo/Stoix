@@ -1,0 +1,19 @@
+# ---Environment Configs---
+env_name: jumanji
+observation_attribute : agents_view
+flatten_observation: True
+multi_agent : True
+
+scenario:
+  name: RobotWarehouse-v0
+  task_name: robot_warehouse
+
+kwargs:
+  generator:
+    _target_: jumanji.environments.routing.robot_warehouse.generator.RandomGenerator
+    column_height: 8
+    shelf_rows: 2
+    shelf_columns: 3
+    num_agents: 4
+    sensor_range: 1
+    request_queue_size: 8

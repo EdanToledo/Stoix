@@ -1,0 +1,8 @@
+# ---Environment Configs---
+env_name: gymnax
+
+scenario:
+  name: MountainCar-v0
+  task_name: mountain_car
+
+kwargs: {}

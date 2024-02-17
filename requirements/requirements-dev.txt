@@ -7,7 +7,7 @@ livereload
 mkdocs==1.2.3
 mkdocs-git-revision-date-plugin
 mkdocs-include-markdown-plugin
-mkdocs-material
+mkdocs-material==8.2.7
 mkdocs-mermaid2-plugin==0.6.0
 mkdocstrings==0.18.0
 mknotebooks==0.7.1

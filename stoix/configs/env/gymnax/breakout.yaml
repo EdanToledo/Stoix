@@ -1,0 +1,8 @@
+# ---Environment Configs---
+env_name: gymnax
+
+scenario:
+  name: Breakout-MinAtar
+  task_name: breakout
+
+kwargs: {}

@@ -1,0 +1,11 @@
+# ---Environment Configs---
+env_name: jumanji
+observation_attribute : board
+flatten_observation: True
+multi_agent : False
+
+scenario:
+  name: Game2048-v1
+  task_name: game_2048
+
+kwargs: {}

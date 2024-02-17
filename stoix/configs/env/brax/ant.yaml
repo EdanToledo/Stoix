@@ -1,0 +1,10 @@
+# ---Environment Configs---
+env_name: brax
+
+scenario:
+  name: ant
+  task_name: ant
+
+kwargs: {
+  backend: spring
+}

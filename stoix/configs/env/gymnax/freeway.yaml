@@ -1,0 +1,8 @@
+# ---Environment Configs---
+env_name: gymnax
+
+scenario:
+  name: Freeway-MinAtar
+  task_name: freeway
+
+kwargs: {}

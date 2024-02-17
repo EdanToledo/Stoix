@@ -1,0 +1,7 @@
+# ---Environment Configs---
+env_name: MiniGrid-DoorKey-5x5
+
+scenario:
+  task_name: minigrid_doorkey_5x5
+
+kwargs: {}

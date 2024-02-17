@@ -1,0 +1,10 @@
+# ---Environment Configs---
+env_name: brax
+
+scenario:
+  name : halfcheetah
+  task_name: halfcheetah
+
+kwargs: {
+  backend: spring
+}

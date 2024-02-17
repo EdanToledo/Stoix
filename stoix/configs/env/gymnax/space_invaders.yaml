@@ -1,0 +1,8 @@
+# ---Environment Configs---
+env_name: gymnax
+
+scenario:
+  name: SpaceInvaders-MinAtar
+  task_name: space_invaders
+
+kwargs: {}
