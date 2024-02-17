@@ -1,0 +1,23 @@
+# --- Defaults FF-DQN ---
+
+total_timesteps: 1e8 # Set the total environment steps.
+# If unspecified, it's derived from num_updates; otherwise, num_updates adjusts based on this value.
+num_updates: ~ # Number of updates
+seed: 42
+
+# --- RL hyperparameters ---
+update_batch_size: 1 # Number of vectorised gradient updates per device.
+rollout_length: 8 # Number of environment steps per vectorised environment.
+epochs: 16 # Number of sgd steps per rollout.
+warmup_steps: 128  # Number of steps to collect before training.
+buffer_size: 100_000 # size of the replay buffer.
+batch_size: 128 # Number of samples to train on per device.
+q_lr: 1e-5  # the learning rate of the Q network network optimizer
+tau: 0.005  # smoothing coefficient for target networks
+gamma: 0.99  # discount factor
+max_grad_norm: 0.5 # Maximum norm of the gradients for a weight update.
+decay_learning_rates: False # Whether learning rates should be linearly decayed during training.
+training_epsilon: 0.1  # epsilon for the epsilon-greedy policy during training
+evaluation_epsilon: 0.00  # epsilon for the epsilon-greedy policy during evaluation
+max_abs_reward : 1000.0  # maximum absolute reward value
+huber_loss_parameter: 1.0  # parameter for the huber loss

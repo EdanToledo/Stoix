@@ -1,0 +1,7 @@
+defaults:
+  - logger: ff_d4pg
+  - arch: anakin
+  - system: ff_d4pg
+  - network: mlp_d4pg
+  - env: brax/ant
+  - _self_

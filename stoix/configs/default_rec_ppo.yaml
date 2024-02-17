@@ -1,0 +1,7 @@
+defaults:
+  - logger: rec_ppo
+  - arch: anakin
+  - system: rec_ppo
+  - network: rnn
+  - env: gymnax/cartpole
+  - _self_
