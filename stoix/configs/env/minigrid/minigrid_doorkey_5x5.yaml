@@ -1,7 +1,8 @@
 # ---Environment Configs---
-env_name: MiniGrid-DoorKey-5x5
-
+env_name: minigrid
+flatten_observation: True
 scenario:
+  name: MiniGrid-DoorKey-5x5
   task_name: minigrid_doorkey_5x5
 
 kwargs: {}

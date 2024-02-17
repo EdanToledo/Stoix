@@ -108,8 +108,8 @@ def make_xland_minigrid_env(env_name: str, config: DictConfig) -> Tuple[Environm
 
     eval_env, eval_env_params = xminigrid.make(env_name, **config.env.kwargs)
 
-    env = XMiniGridWrapper(env, env_params)
-    eval_env = XMiniGridWrapper(eval_env, eval_env_params)
+    env = XMiniGridWrapper(env, env_params, config.env.flatten_observation)
+    eval_env = XMiniGridWrapper(eval_env, eval_env_params, config.env.flatten_observation)
 
     env = AutoResetWrapper(env)
     env = RecordEpisodeMetrics(env)
