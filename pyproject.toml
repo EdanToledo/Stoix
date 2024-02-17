@@ -5,7 +5,7 @@ line-length = 100
 profile = "black"
 
 [tool.mypy]
-python_version = 3.9
+python_version = 3.10
 namespace_packages = true
 incremental = false
 cache_dir = ""

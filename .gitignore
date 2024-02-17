@@ -154,6 +154,7 @@ logs
 .DS_Store
 .devcontainer/devcontainer.json
 3.9
+3.10
 
 # PyCharm
 .idea/

@@ -30,7 +30,7 @@ setup(
     long_description_content_type="text/markdown",
     keywords="single-agent reinforcement-learning python jax",
     packages=setuptools.find_packages(),
-    python_requires=">=3.9",
+    python_requires=">=3.10",
     install_requires=_parse_requirements("requirements/requirements.txt"),
     extras_require={
         "dev": _parse_requirements("requirements/requirements-dev.txt"),
@@ -42,7 +42,7 @@ setup(
         "Intended Audience :: Science/Research",
         "Intended Audience :: Developers",
         "Operating System :: OS Independent",
-        "Programming Language :: Python :: 3.9",
+        "Programming Language :: Python :: 3.10",
         "Topic :: Scientific/Engineering :: Artificial Intelligence",
         "Topic :: Software Development :: Libraries :: Python Modules",
         "License :: OSI Approved :: Apache Software License",
