@@ -20,7 +20,6 @@ max_grad_norm: 0.5 # Maximum norm of the gradients for a weight update.
 decay_learning_rates: False # Whether learning rates should be linearly decayed during training.
 max_abs_reward : 20_000  # maximum absolute reward value
 exploration_sigma : 0.1  # standard deviation of the exploration noise
-huber_loss_parameter: 1.0  # parameter for the huber loss
 policy_noise: 0.2 # standard deviation of the policy noise
 policy_frequency: 2 # frequency of the policy update in the TD3 algorithm (delayed policy update)
 noise_clip: 0.5 # noise clip parameter of the Target Policy Smoothing Regularization

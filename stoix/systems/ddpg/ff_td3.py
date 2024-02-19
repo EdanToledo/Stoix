@@ -29,6 +29,7 @@ from rich.pretty import pprint
 from stoix.evaluator import evaluator_setup
 from stoix.networks.base import CompositeNetwork
 from stoix.networks.base import FeedForwardActor as Actor
+from stoix.networks.base import MultiNetwork
 from stoix.systems.ddpg.types import (
     ActorAndTarget,
     DDPGLearnerState,
@@ -48,7 +49,6 @@ from stoix.utils import make_env as environments
 from stoix.utils.checkpointing import Checkpointer
 from stoix.utils.jax import unreplicate_batch_dim, unreplicate_n_dims
 from stoix.utils.logger import LogEvent, StoixLogger
-from stoix.utils.loss import categorical_td_learning, double_q_learning, td_learning
 from stoix.utils.total_timestep_checker import check_total_timesteps
 from stoix.utils.training import make_learning_rate
 
@@ -184,15 +184,25 @@ def get_learner_fn(
                 target_q_params: FrozenDict,
                 target_actor_params: FrozenDict,
                 transitions: Transition,
+                rng_key: chex.PRNGKey,
             ) -> jnp.ndarray:
 
-                q_tm1 = q_apply_fn(
-                    q_params, transitions.obs, transitions.action
+                q_tm1 = q_apply_fn(q_params, transitions.obs, transitions.action)
+
+                clipped_noise = jnp.clip(
+                    (
+                        jax.random.normal(rng_key, transitions.action.shape)
+                        * config.system.policy_noise
+                    ),
+                    -config.system.noise_clip,
+                    config.system.noise_clip,
                 )
-                next_action = actor_apply_fn(target_actor_params, transitions.next_obs)
-                q_t = q_apply_fn(
-                    target_q_params, transitions.next_obs, next_action
+                next_action = (
+                    actor_apply_fn(target_actor_params, transitions.next_obs) + clipped_noise
                 )
+                next_action = jnp.clip(next_action, -1.0, 1.0)
+                q_t = q_apply_fn(target_q_params, transitions.next_obs, next_action)
+                next_v = jnp.min(q_t, axis=-1)
 
                 # Cast and clip rewards.
                 discount = 1.0 - transitions.done.astype(jnp.float32)
@@ -200,8 +210,10 @@ def get_learner_fn(
                 r_t = jnp.clip(
                     transitions.reward, -config.system.max_abs_reward, config.system.max_abs_reward
                 ).astype(jnp.float32)
-                
-                q_loss = td_learning(q_tm1, r_t, d_t, q_t, config.system.huber_loss_parameter)
+
+                target_q = jax.lax.stop_gradient(r_t + d_t * next_v)
+                q_error = q_tm1 - jnp.expand_dims(target_q, -1)
+                q_loss = 0.5 * jnp.mean(jnp.square(q_error))
 
                 loss_info = {
                     "q_loss": q_loss,
@@ -225,7 +237,7 @@ def get_learner_fn(
                 }
                 return actor_loss, loss_info
 
-            params, opt_states, buffer_state, key = update_state
+            params, opt_states, buffer_state, key, epoch_counter = update_state
 
             key, sample_key = jax.random.split(key, num=2)
 
@@ -242,12 +254,14 @@ def get_learner_fn(
             )
 
             # CALCULATE Q LOSS
+            key, q_loss_key = jax.random.split(key)
             q_grad_fn = jax.grad(_q_loss_fn, has_aux=True)
             q_grads, q_loss_info = q_grad_fn(
                 params.q_params.online,
                 params.q_params.target,
                 params.actor_params.target,
                 transitions,
+                q_loss_key,
             )
 
             # Compute the parallel mean (pmean) over the batch.
@@ -285,6 +299,11 @@ def get_learner_fn(
             q_new_params = QsAndTarget(q_new_online_params, new_target_q_params)
 
             # PACK NEW PARAMS AND OPTIMISER STATE
+            # Delayed policy updates
+            time_to_update = jnp.mod(epoch_counter, config.system.policy_frequency) == 0
+            actor_new_params = jax.lax.cond(
+                time_to_update, lambda _: actor_new_params, lambda _: params.actor_params, None
+            )
             new_params = DDPGParams(actor_new_params, q_new_params)
             new_opt_state = DDPGOptStates(actor_new_opt_state, q_new_opt_state)
 
@@ -294,16 +313,17 @@ def get_learner_fn(
                 "value_loss": q_loss_info["q_loss"],
                 "actor_loss": actor_loss_info["actor_loss"],
             }
-            return (new_params, new_opt_state, buffer_state, key), loss_info
+            return (new_params, new_opt_state, buffer_state, key, epoch_counter + 1), loss_info
 
-        update_state = (params, opt_states, buffer_state, key)
+        epoch_counter = jnp.array(0)
+        update_state = (params, opt_states, buffer_state, key, epoch_counter)
 
         # UPDATE EPOCHS
         update_state, loss_info = jax.lax.scan(
             _update_epoch, update_state, None, config.system.epochs
         )
 
-        params, opt_states, buffer_state, key = update_state
+        params, opt_states, buffer_state, key, epoch_counter = update_state
         learner_state = DDPGLearnerState(
             params, opt_states, buffer_state, key, env_state, last_timestep
         )
@@ -359,10 +379,9 @@ def learner_setup(
     actor_network = Actor(torso=actor_torso, action_head=actor_action_head)
     q_network_input = hydra.utils.instantiate(config.network.q_network.input_layer)
     q_network_torso = hydra.utils.instantiate(config.network.q_network.pre_torso)
-    q_network_head = hydra.utils.instantiate(
-        config.network.q_network.critic_head,
-    )
-    q_network = CompositeNetwork([q_network_input, q_network_torso, q_network_head])
+    q_network_head = hydra.utils.instantiate(config.network.q_network.critic_head)
+    single_q_network = CompositeNetwork([q_network_input, q_network_torso, q_network_head])
+    double_q_network = MultiNetwork([single_q_network, single_q_network])
 
     actor_lr = make_learning_rate(config.system.actor_lr, config, config.system.epochs)
     q_lr = make_learning_rate(config.system.q_lr, config, config.system.epochs)
@@ -389,7 +408,7 @@ def learner_setup(
     actor_params = ActorAndTarget(actor_online_params, actor_target_params)
 
     # Initialise critic params and optimiser state.
-    q_online_params = q_network.init(q_net_key, init_x, init_a)
+    q_online_params = double_q_network.init(q_net_key, init_x, init_a)
     q_target_params = q_online_params
 
     q_params = QsAndTarget(q_online_params, q_target_params)
@@ -400,7 +419,7 @@ def learner_setup(
     opt_states = DDPGOptStates(actor_opt_state, q_opt_state)
 
     vmapped_actor_network_apply_fn = actor_network.apply
-    vmapped_q_network_apply_fn = q_network.apply
+    vmapped_q_network_apply_fn = double_q_network.apply
 
     # Pack apply and update functions.
     apply_fns = (vmapped_actor_network_apply_fn, vmapped_q_network_apply_fn)
@@ -626,7 +645,7 @@ def run_experiment(_config: DictConfig) -> None:
     logger.stop()
 
 
-@hydra.main(config_path="../../configs", config_name="default_ff_ddpg.yaml", version_base="1.2")
+@hydra.main(config_path="../../configs", config_name="default_ff_td3.yaml", version_base="1.2")
 def hydra_entry_point(cfg: DictConfig) -> None:
     """Experiment entry point."""
     # Allow dynamic attributes.
@@ -635,7 +654,7 @@ def hydra_entry_point(cfg: DictConfig) -> None:
     # Run experiment.
     run_experiment(cfg)
 
-    print(f"{Fore.CYAN}{Style.BRIGHT}DDPG experiment completed{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}{Style.BRIGHT}TD3 experiment completed{Style.RESET_ALL}")
 
 
 if __name__ == "__main__":

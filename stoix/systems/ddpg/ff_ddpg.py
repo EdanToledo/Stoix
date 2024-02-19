@@ -48,7 +48,7 @@ from stoix.utils import make_env as environments
 from stoix.utils.checkpointing import Checkpointer
 from stoix.utils.jax import unreplicate_batch_dim, unreplicate_n_dims
 from stoix.utils.logger import LogEvent, StoixLogger
-from stoix.utils.loss import categorical_td_learning, double_q_learning, td_learning
+from stoix.utils.loss import td_learning
 from stoix.utils.total_timestep_checker import check_total_timesteps
 from stoix.utils.training import make_learning_rate
 
@@ -186,13 +186,9 @@ def get_learner_fn(
                 transitions: Transition,
             ) -> jnp.ndarray:
 
-                q_tm1 = q_apply_fn(
-                    q_params, transitions.obs, transitions.action
-                )
+                q_tm1 = q_apply_fn(q_params, transitions.obs, transitions.action)
                 next_action = actor_apply_fn(target_actor_params, transitions.next_obs)
-                q_t = q_apply_fn(
-                    target_q_params, transitions.next_obs, next_action
-                )
+                q_t = q_apply_fn(target_q_params, transitions.next_obs, next_action)
 
                 # Cast and clip rewards.
                 discount = 1.0 - transitions.done.astype(jnp.float32)
@@ -200,7 +196,7 @@ def get_learner_fn(
                 r_t = jnp.clip(
                     transitions.reward, -config.system.max_abs_reward, config.system.max_abs_reward
                 ).astype(jnp.float32)
-                
+
                 q_loss = td_learning(q_tm1, r_t, d_t, q_t, config.system.huber_loss_parameter)
 
                 loss_info = {
