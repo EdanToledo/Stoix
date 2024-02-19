@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Tuple
 
 import rlax
 
-from stoix.networks.distributions import DeterministicDistribution
+from stoix.networks.distributions import DeterministicNormalDistribution
 
 if TYPE_CHECKING:
     from dataclasses import dataclass
@@ -497,9 +497,9 @@ def learner_setup(
 class EvalActorWrapper:
     actor: Actor
 
-    def apply(self, params: FrozenDict, x: Observation) -> DeterministicDistribution:
+    def apply(self, params: FrozenDict, x: Observation) -> DeterministicNormalDistribution:
         action = self.actor.apply(params, x)
-        return DeterministicDistribution(loc=action)
+        return DeterministicNormalDistribution(loc=action)
 
 
 def run_experiment(_config: DictConfig) -> None:

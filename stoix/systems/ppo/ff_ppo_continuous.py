@@ -76,11 +76,11 @@ def get_learner_fn(
             key, policy_key = jax.random.split(key)
             actor_policy = actor_apply_fn(params.actor_params, last_timestep.observation)
             value = critic_apply_fn(params.critic_params, last_timestep.observation)
-            action = actor_policy.sample_unprocessed(seed=policy_key)
-            log_prob = actor_policy.log_prob_of_unprocessed(action)
+            action = actor_policy.sample(seed=policy_key)
+            log_prob = actor_policy.log_prob(action)
 
             # STEP ENVIRONMENT
-            env_state, timestep = jax.vmap(env.step, in_axes=(0, 0))(env_state, jnp.tanh(action))
+            env_state, timestep = jax.vmap(env.step, in_axes=(0, 0))(env_state, action)
 
             # LOG EPISODE METRICS
             done = timestep.last().reshape(-1)
@@ -114,7 +114,7 @@ def get_learner_fn(
                 """Update the network for a single minibatch."""
 
                 # UNPACK TRAIN STATE AND BATCH INFO
-                params, opt_states = train_state
+                params, opt_states, key = train_state
                 traj_batch, advantages, targets = batch_info
 
                 def _actor_loss_fn(
@@ -122,11 +122,12 @@ def get_learner_fn(
                     actor_opt_state: OptState,
                     traj_batch: PPOTransition,
                     gae: chex.Array,
+                    rng_key: chex.PRNGKey,
                 ) -> Tuple:
                     """Calculate the actor loss."""
                     # RERUN NETWORK
                     actor_policy = actor_apply_fn(actor_params, traj_batch.obs)
-                    log_prob = actor_policy.log_prob_of_unprocessed(traj_batch.action)
+                    log_prob = actor_policy.log_prob(traj_batch.action)
 
                     # CALCULATE ACTOR LOSS
                     ratio = jnp.exp(log_prob - traj_batch.log_prob)
@@ -142,7 +143,7 @@ def get_learner_fn(
                     )
                     loss_actor = -jnp.minimum(loss_actor1, loss_actor2)
                     loss_actor = loss_actor.mean()
-                    entropy = actor_policy.entropy().mean()
+                    entropy = actor_policy.entropy(seed=rng_key).mean()
 
                     total_loss_actor = loss_actor - config.system.ent_coef * entropy
                     return total_loss_actor, (loss_actor, entropy)
@@ -169,9 +170,14 @@ def get_learner_fn(
                     return critic_total_loss, (value_loss)
 
                 # CALCULATE ACTOR LOSS
+                key, actor_loss_key = jax.random.split(key)
                 actor_grad_fn = jax.value_and_grad(_actor_loss_fn, has_aux=True)
                 actor_loss_info, actor_grads = actor_grad_fn(
-                    params.actor_params, opt_states.actor_opt_state, traj_batch, advantages
+                    params.actor_params,
+                    opt_states.actor_opt_state,
+                    traj_batch,
+                    advantages,
+                    actor_loss_key,
                 )
 
                 # CALCULATE CRITIC LOSS
@@ -227,7 +233,7 @@ def get_learner_fn(
                     "actor_loss": actor_loss,
                     "entropy": entropy,
                 }
-                return (new_params, new_opt_state), loss_info
+                return (new_params, new_opt_state, key), loss_info
 
             params, opt_states, traj_batch, advantages, targets, key = update_state
             key, shuffle_key = jax.random.split(key)
@@ -246,8 +252,8 @@ def get_learner_fn(
             )
 
             # UPDATE MINIBATCHES
-            (params, opt_states), loss_info = jax.lax.scan(
-                _update_minibatch, (params, opt_states), minibatches
+            (params, opt_states, key), loss_info = jax.lax.scan(
+                _update_minibatch, (params, opt_states, key), minibatches
             )
 
             update_state = (params, opt_states, traj_batch, advantages, targets, key)
