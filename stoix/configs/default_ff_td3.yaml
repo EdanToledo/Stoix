@@ -1,0 +1,7 @@
+defaults:
+  - logger: ff_td3
+  - arch: anakin
+  - system: ff_td3
+  - network: mlp_td3
+  - env: brax/ant
+  - _self_

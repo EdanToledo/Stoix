@@ -84,6 +84,19 @@ def double_q_learning(
     return jnp.mean(batch_loss)
 
 
+def td_learning(
+    v_tm1: chex.Array,
+    r_t: chex.Array,
+    discount_t: chex.Array,
+    v_t: chex.Array,
+    huber_loss_parameter: chex.Array,
+) -> chex.Array:
+    """Calculates the temporal difference error. Each input is a batch."""
+    target_tm1 = r_t + discount_t * v_t
+    batch_loss = rlax.huber_loss(target_tm1 - v_tm1, huber_loss_parameter)
+    return jnp.mean(batch_loss)
+
+
 def categorical_td_learning(
     v_logits_tm1: chex.Array,
     v_atoms_tm1: chex.Array,

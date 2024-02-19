@@ -29,11 +29,11 @@ from rich.pretty import pprint
 from stoix.evaluator import evaluator_setup
 from stoix.networks.base import CompositeNetwork
 from stoix.networks.base import FeedForwardActor as Actor
-from stoix.systems.d4pg.types import (
+from stoix.systems.ddpg.types import (
     ActorAndTarget,
-    D4PGLearnerState,
-    D4PGOptStates,
-    D4PGParams,
+    DDPGLearnerState,
+    DDPGOptStates,
+    DDPGParams,
 )
 from stoix.systems.q_learning.types import QsAndTarget, Transition
 from stoix.systems.sac.types import ContinuousQApply
@@ -48,14 +48,14 @@ from stoix.utils import make_env as environments
 from stoix.utils.checkpointing import Checkpointer
 from stoix.utils.jax import unreplicate_batch_dim, unreplicate_n_dims
 from stoix.utils.logger import LogEvent, StoixLogger
-from stoix.utils.loss import categorical_td_learning
+from stoix.utils.loss import td_learning
 from stoix.utils.total_timestep_checker import check_total_timesteps
 from stoix.utils.training import make_learning_rate
 
 
 def get_default_behavior_policy(config: DictConfig, actor_apply_fn: ActorApply) -> Callable:
     def behavior_policy(
-        params: D4PGParams, observation: Observation, key: chex.PRNGKey
+        params: DDPGParams, observation: Observation, key: chex.PRNGKey
     ) -> chex.Array:
         action = actor_apply_fn(params, observation)
         if config.system.exploration_sigma != 0:
@@ -67,7 +67,7 @@ def get_default_behavior_policy(config: DictConfig, actor_apply_fn: ActorApply) 
 
 def get_warmup_fn(
     env: Environment,
-    params: D4PGParams,
+    params: DDPGParams,
     actor_apply_fn: ActorApply,
     buffer_add_fn: Callable,
     config: DictConfig,
@@ -127,7 +127,7 @@ def get_learner_fn(
     update_fns: Tuple[optax.TransformUpdateFn, optax.TransformUpdateFn],
     buffer_fns: Tuple[Callable, Callable],
     config: DictConfig,
-) -> LearnerFn[D4PGLearnerState]:
+) -> LearnerFn[DDPGLearnerState]:
     """Get the learner function."""
 
     # Get apply and update functions for actor and critic networks.
@@ -136,10 +136,10 @@ def get_learner_fn(
     buffer_add_fn, buffer_sample_fn = buffer_fns
     exploratory_actor_apply = get_default_behavior_policy(config, actor_apply_fn)
 
-    def _update_step(learner_state: D4PGLearnerState, _: Any) -> Tuple[D4PGLearnerState, Tuple]:
+    def _update_step(learner_state: DDPGLearnerState, _: Any) -> Tuple[DDPGLearnerState, Tuple]:
         def _env_step(
-            learner_state: D4PGLearnerState, _: Any
-        ) -> Tuple[D4PGLearnerState, Transition]:
+            learner_state: DDPGLearnerState, _: Any
+        ) -> Tuple[DDPGLearnerState, Transition]:
             """Step the environment."""
             params, opt_states, buffer_state, key, env_state, last_timestep = learner_state
 
@@ -161,7 +161,7 @@ def get_learner_fn(
                 last_timestep.observation, action, timestep.reward, done, real_next_obs, info
             )
 
-            learner_state = D4PGLearnerState(
+            learner_state = DDPGLearnerState(
                 params, opt_states, buffer_state, key, env_state, timestep
             )
             return learner_state, transition
@@ -186,13 +186,9 @@ def get_learner_fn(
                 transitions: Transition,
             ) -> jnp.ndarray:
 
-                _, q_logits_tm1, q_atoms_tm1 = q_apply_fn(
-                    q_params, transitions.obs, transitions.action
-                )
+                q_tm1 = q_apply_fn(q_params, transitions.obs, transitions.action)
                 next_action = actor_apply_fn(target_actor_params, transitions.next_obs)
-                _, q_logits_t, q_atoms_t = q_apply_fn(
-                    target_q_params, transitions.next_obs, next_action
-                )
+                q_t = q_apply_fn(target_q_params, transitions.next_obs, next_action)
 
                 # Cast and clip rewards.
                 discount = 1.0 - transitions.done.astype(jnp.float32)
@@ -201,14 +197,7 @@ def get_learner_fn(
                     transitions.reward, -config.system.max_abs_reward, config.system.max_abs_reward
                 ).astype(jnp.float32)
 
-                q_loss = categorical_td_learning(
-                    q_logits_tm1,
-                    q_atoms_tm1,
-                    r_t,
-                    d_t,
-                    q_logits_t,
-                    q_atoms_t,
-                )
+                q_loss = td_learning(q_tm1, r_t, d_t, q_t, config.system.huber_loss_parameter)
 
                 loss_info = {
                     "q_loss": q_loss,
@@ -223,7 +212,7 @@ def get_learner_fn(
             ) -> chex.Array:
                 o_t = transitions.obs
                 a_t = actor_apply_fn(actor_params, o_t)
-                q_value, _, _ = q_apply_fn(q_params, o_t, a_t)
+                q_value = q_apply_fn(q_params, o_t, a_t)
 
                 actor_loss = -jnp.mean(q_value)
 
@@ -292,8 +281,8 @@ def get_learner_fn(
             q_new_params = QsAndTarget(q_new_online_params, new_target_q_params)
 
             # PACK NEW PARAMS AND OPTIMISER STATE
-            new_params = D4PGParams(actor_new_params, q_new_params)
-            new_opt_state = D4PGOptStates(actor_new_opt_state, q_new_opt_state)
+            new_params = DDPGParams(actor_new_params, q_new_params)
+            new_opt_state = DDPGOptStates(actor_new_opt_state, q_new_opt_state)
 
             # PACK LOSS INFO
             loss_info = {
@@ -311,13 +300,13 @@ def get_learner_fn(
         )
 
         params, opt_states, buffer_state, key = update_state
-        learner_state = D4PGLearnerState(
+        learner_state = DDPGLearnerState(
             params, opt_states, buffer_state, key, env_state, last_timestep
         )
         metric = traj_batch.info
         return learner_state, (metric, loss_info)
 
-    def learner_fn(learner_state: D4PGLearnerState) -> ExperimentOutput[D4PGLearnerState]:
+    def learner_fn(learner_state: DDPGLearnerState) -> ExperimentOutput[DDPGLearnerState]:
         """Learner function.
 
         This function represents the learner, it updates the network parameters
@@ -342,7 +331,7 @@ def get_learner_fn(
 
 def learner_setup(
     env: Environment, keys: chex.Array, config: DictConfig
-) -> Tuple[LearnerFn[D4PGLearnerState], Actor, D4PGLearnerState]:
+) -> Tuple[LearnerFn[DDPGLearnerState], Actor, DDPGLearnerState]:
     """Initialise learner_fn, network, optimiser, environment and states."""
     # Get available TPU cores.
     n_devices = len(jax.devices())
@@ -368,9 +357,6 @@ def learner_setup(
     q_network_torso = hydra.utils.instantiate(config.network.q_network.pre_torso)
     q_network_head = hydra.utils.instantiate(
         config.network.q_network.critic_head,
-        num_atoms=config.system.num_atoms,
-        v_min=config.system.v_min,
-        v_max=config.system.v_max,
     )
     q_network = CompositeNetwork([q_network_input, q_network_torso, q_network_head])
 
@@ -406,8 +392,8 @@ def learner_setup(
 
     q_opt_state = q_optim.init(q_online_params)
 
-    params = D4PGParams(actor_params, q_params)
-    opt_states = D4PGOptStates(actor_opt_state, q_opt_state)
+    params = DDPGParams(actor_params, q_params)
+    opt_states = DDPGOptStates(actor_opt_state, q_opt_state)
 
     vmapped_actor_network_apply_fn = actor_network.apply
     vmapped_q_network_apply_fn = q_network.apply
@@ -464,7 +450,7 @@ def learner_setup(
             **config.logger.checkpointing.load_args,  # Other checkpoint args
         )
         # Restore the learner state from the checkpoint
-        restored_params, _ = loaded_checkpoint.restore_params(TParams=D4PGParams)
+        restored_params, _ = loaded_checkpoint.restore_params(TParams=DDPGParams)
         # Update the params
         params = restored_params
 
@@ -486,7 +472,7 @@ def learner_setup(
     env_states, timesteps, keys, buffer_states = warmup(
         env_states, timesteps, buffer_states, warmup_keys
     )
-    init_learner_state = D4PGLearnerState(
+    init_learner_state = DDPGLearnerState(
         params, opt_states, buffer_states, step_keys, env_states, timesteps
     )
 
@@ -636,7 +622,7 @@ def run_experiment(_config: DictConfig) -> None:
     logger.stop()
 
 
-@hydra.main(config_path="../../configs", config_name="default_ff_d4pg.yaml", version_base="1.2")
+@hydra.main(config_path="../../configs", config_name="default_ff_ddpg.yaml", version_base="1.2")
 def hydra_entry_point(cfg: DictConfig) -> None:
     """Experiment entry point."""
     # Allow dynamic attributes.
@@ -645,7 +631,7 @@ def hydra_entry_point(cfg: DictConfig) -> None:
     # Run experiment.
     run_experiment(cfg)
 
-    print(f"{Fore.CYAN}{Style.BRIGHT}D4PG experiment completed{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}{Style.BRIGHT}DDPG experiment completed{Style.RESET_ALL}")
 
 
 if __name__ == "__main__":
