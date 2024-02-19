@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING, Any, Callable, Dict, Generic, Tuple, TypeVar
 
 import chex
-from distrax import Distribution
+from distrax import DistributionLike
 from flax.core.frozen_dict import FrozenDict
 from jumanji.types import TimeStep
 from typing_extensions import NamedTuple, TypeAlias
@@ -96,9 +96,9 @@ RNNObservation: TypeAlias = Tuple[Observation, Done]
 LearnerFn = Callable[[StoixState], ExperimentOutput[StoixState]]
 EvalFn = Callable[[FrozenDict, chex.PRNGKey], ExperimentOutput[StoixState]]
 
-ActorApply = Callable[[FrozenDict, Observation], Distribution]
+ActorApply = Callable[[FrozenDict, Observation], DistributionLike]
 CriticApply = Callable[[FrozenDict, Observation], Value]
 RecActorApply = Callable[
-    [FrozenDict, HiddenState, RNNObservation], Tuple[HiddenState, Distribution]
+    [FrozenDict, HiddenState, RNNObservation], Tuple[HiddenState, DistributionLike]
 ]
 RecCriticApply = Callable[[FrozenDict, HiddenState, RNNObservation], Tuple[HiddenState, Value]]

@@ -18,4 +18,6 @@ protobuf~=3.20
 rlax
 tdqm
 tensorboard_logger
+tensorflow
+tensorflow_probability
 xminigrid @ git+https://github.com/corl-team/xland-minigrid.git@main

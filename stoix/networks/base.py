@@ -123,7 +123,7 @@ class RecurrentActor(nn.Module):
         self,
         policy_hidden_state: chex.Array,
         observation_done: RNNObservation,
-    ) -> Tuple[chex.Array, distrax.Categorical]:
+    ) -> Tuple[chex.Array, distrax.DistributionLike]:
         """Forward pass."""
         observation, done = observation_done
 

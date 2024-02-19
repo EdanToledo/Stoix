@@ -56,10 +56,10 @@ def get_warmup_fn(
             # SELECT ACTION
             key, policy_key = jax.random.split(key)
             actor_policy = actor_apply_fn(params.actor_params, last_timestep.observation)
-            action = actor_policy.sample_unprocessed(seed=policy_key)
+            action = actor_policy.sample(seed=policy_key)
 
             # STEP ENVIRONMENT
-            env_state, timestep = jax.vmap(env.step, in_axes=(0, 0))(env_state, jnp.tanh(action))
+            env_state, timestep = jax.vmap(env.step, in_axes=(0, 0))(env_state, action)
 
             # LOG EPISODE METRICS
             done = timestep.last().reshape(-1)
@@ -112,10 +112,10 @@ def get_learner_fn(
             key, policy_key = jax.random.split(key)
             actor_policy = actor_apply_fn(params.actor_params, last_timestep.observation)
 
-            action = actor_policy.sample_unprocessed(seed=policy_key)
+            action = actor_policy.sample(seed=policy_key)
 
             # STEP ENVIRONMENT
-            env_state, timestep = jax.vmap(env.step, in_axes=(0, 0))(env_state, jnp.tanh(action))
+            env_state, timestep = jax.vmap(env.step, in_axes=(0, 0))(env_state, action)
 
             # LOG EPISODE METRICS
             done = timestep.last().reshape(-1)
@@ -152,8 +152,8 @@ def get_learner_fn(
             ) -> jnp.ndarray:
                 """Eq 18 from https://arxiv.org/pdf/1812.05905.pdf."""
                 actor_policy = actor_apply_fn(actor_params, transitions.obs)
-                action = actor_policy.sample_unprocessed(seed=key)
-                log_prob = actor_policy.log_prob_of_unprocessed(action)
+                action = actor_policy.sample(seed=key)
+                log_prob = actor_policy.log_prob(action)
                 alpha = jnp.exp(log_alpha)
                 alpha_loss = alpha * jax.lax.stop_gradient(-log_prob - config.system.target_entropy)
 
@@ -173,8 +173,8 @@ def get_learner_fn(
             ) -> jnp.ndarray:
                 q_old_action = q_apply_fn(q_params, transitions.obs, transitions.action)
                 next_actor_policy = actor_apply_fn(actor_params, transitions.next_obs)
-                next_action = next_actor_policy.sample_unprocessed(seed=key)
-                next_log_prob = next_actor_policy.log_prob_of_unprocessed(next_action)
+                next_action = next_actor_policy.sample(seed=key)
+                next_log_prob = next_actor_policy.log_prob(next_action)
                 next_q = q_apply_fn(target_q_params, transitions.next_obs, next_action)
                 next_v = jnp.min(next_q, axis=-1) - alpha * next_log_prob
                 target_q = jax.lax.stop_gradient(
@@ -197,8 +197,8 @@ def get_learner_fn(
                 key: chex.PRNGKey,
             ) -> chex.Array:
                 actor_policy = actor_apply_fn(actor_params, transitions.obs)
-                action = actor_policy.sample_unprocessed(seed=key)
-                log_prob = actor_policy.log_prob_of_unprocessed(action)
+                action = actor_policy.sample(seed=key)
+                log_prob = actor_policy.log_prob(action)
                 q_action = q_apply_fn(q_params, transitions.obs, action)
                 min_q = jnp.min(q_action, axis=-1)
                 actor_loss = alpha * log_prob - min_q
