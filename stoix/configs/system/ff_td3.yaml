@@ -1,0 +1,26 @@
+# --- Defaults FF-D4PG ---
+
+total_timesteps: 1e8 # Set the total environment steps.
+# If unspecified, it's derived from num_updates; otherwise, num_updates adjusts based on this value.
+num_updates: ~ # Number of updates
+seed: 42
+
+# --- RL hyperparameters ---
+update_batch_size: 1 # Number of vectorised gradient updates per device.
+rollout_length: 8 # Number of environment steps per vectorised environment.
+epochs: 16 # Number of sgd steps per rollout.
+warmup_steps: 256  # Number of steps to collect before training.
+buffer_size: 1_000_000 # size of the replay buffer.
+batch_size: 256 # Number of samples to train on per device.
+actor_lr: 1e-4  # the learning rate of the policy network optimizer
+q_lr: 1e-4  # the learning rate of the Q network network optimizer
+tau: 0.01  # smoothing coefficient for target networks
+gamma: 0.99  # discount factor
+max_grad_norm: 0.5 # Maximum norm of the gradients for a weight update.
+decay_learning_rates: False # Whether learning rates should be linearly decayed during training.
+max_abs_reward : 20_000  # maximum absolute reward value
+exploration_sigma : 0.1  # standard deviation of the exploration noise
+huber_loss_parameter: 1.0  # parameter for the huber loss
+policy_noise: 0.2 # standard deviation of the policy noise
+policy_frequency: 2 # frequency of the policy update in the TD3 algorithm (delayed policy update)
+noise_clip: 0.5 # noise clip parameter of the Target Policy Smoothing Regularization

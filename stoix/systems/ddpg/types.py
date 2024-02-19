@@ -18,19 +18,19 @@ class ActorAndTarget(NamedTuple):
     target: FrozenDict
 
 
-class D4PGParams(NamedTuple):
+class DDPGParams(NamedTuple):
     actor_params: ActorAndTarget
     q_params: QsAndTarget
 
 
-class D4PGOptStates(NamedTuple):
+class DDPGOptStates(NamedTuple):
     actor_opt_state: optax.OptState
     q_opt_state: optax.OptState
 
 
-class D4PGLearnerState(NamedTuple):
-    params: D4PGParams
-    opt_states: D4PGOptStates
+class DDPGLearnerState(NamedTuple):
+    params: DDPGParams
+    opt_states: DDPGOptStates
     buffer_state: BufferState
     key: chex.PRNGKey
     env_state: LogEnvState
