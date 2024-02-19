@@ -119,3 +119,36 @@ def categorical_td_learning(
     td_error = tfd.Categorical(probs=target).cross_entropy(tfd.Categorical(logits=v_logits_tm1))
 
     return jnp.mean(td_error)
+
+
+def munchausen_q_learning(
+    q_tm1: chex.Array,
+    q_tm1_target: chex.Array,
+    a_tm1: chex.Array,
+    r_t: chex.Array,
+    d_t: chex.Array,
+    q_t_target: chex.Array,
+    entropy_temperature: chex.Array,
+    munchausen_coefficient: chex.Array,
+    clip_value_min: chex.Array,
+    huber_loss_parameter: chex.Array,
+) -> chex.Array:
+    action_one_hot = jax.nn.one_hot(a_tm1, q_tm1.shape[-1])
+    q_tm1_a = jnp.sum(q_tm1 * action_one_hot, axis=-1)
+    # Compute double Q-learning loss.
+    # Munchausen term : tau * log_pi(a|s)
+    munchausen_term = entropy_temperature * jax.nn.log_softmax(
+        q_tm1_target / entropy_temperature, axis=-1
+    )
+    munchausen_term_a = jnp.sum(action_one_hot * munchausen_term, axis=-1)
+    munchausen_term_a = jnp.clip(munchausen_term_a, a_min=clip_value_min, a_max=0.0)
+
+    # Soft Bellman operator applied to q
+    next_v = entropy_temperature * jax.nn.logsumexp(q_t_target / entropy_temperature, axis=-1)
+    target_q = jax.lax.stop_gradient(
+        r_t + munchausen_coefficient * munchausen_term_a + d_t * next_v
+    )
+
+    batch_loss = rlax.huber_loss(target_q - q_tm1_a, huber_loss_parameter)
+    batch_loss = jnp.mean(batch_loss)
+    return batch_loss

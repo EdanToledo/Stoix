@@ -1,0 +1,7 @@
+defaults:
+  - logger: ff_dqn
+  - arch: anakin
+  - system: ff_mdqn
+  - network: mlp_dqn
+  - env: gymnax/cartpole
+  - _self_
