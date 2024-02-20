@@ -218,3 +218,20 @@ class DistributionalContinuousQNetwork(nn.Module):
         q_value = jnp.sum(q_dist * atoms, axis=-1)
         atoms = jnp.broadcast_to(atoms, (*q_value.shape, self.num_atoms))
         return q_value, q_logits, atoms
+
+
+class QuantileDiscreteQNetwork(nn.Module):
+    action_dim: int
+    epsilon: float
+    num_quantiles: int
+    kernel_init: Initializer = lecun_normal()
+
+    @nn.compact
+    def __call__(self, embedding: chex.Array) -> Tuple[distrax.EpsilonGreedy, chex.Array]:
+        q_logits = nn.Dense(self.action_dim * self.num_quantiles, kernel_init=self.kernel_init)(
+            embedding
+        )
+        q_dist = jnp.reshape(q_logits, (-1, self.action_dim, self.num_quantiles))
+        q_values = jnp.mean(q_dist, axis=-1)
+        q_values = jax.lax.stop_gradient(q_values)
+        return distrax.EpsilonGreedy(preferences=q_values, epsilon=self.epsilon), q_dist
