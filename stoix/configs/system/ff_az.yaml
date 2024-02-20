@@ -9,15 +9,16 @@ seed: 42
 actor_lr: 3e-4 # Learning rate for actor network
 critic_lr: 3e-4 # Learning rate for critic network
 update_batch_size: 1 # Number of vectorised gradient updates per device.
-rollout_length: 16 # Number of environment steps per vectorised environment.
+rollout_length: 8 # Number of environment steps per vectorised environment.
 epochs: 1 # Number of epochs per training data batch.
-num_minibatches: 8 # Number of minibatches per epoch.
+num_minibatches: 4 # Number of minibatches per epoch.
 gamma: 0.99 # Discounting factor.
 gae_lambda: 0.95 # Lambda value for GAE computation.
-ent_coef: 0.001 # Entropy regularisation term for loss function.
+ent_coef: 0.0 # Entropy regularisation term for loss function.
 vf_coef: 1.0 # Critic weight in
 clip_eps: 0.2 # Clipping value for value function updates.
 max_grad_norm: 0.5 # Maximum norm of the gradients for a weight update.
 decay_learning_rates: False # Whether learning rates should be linearly decayed during training.
-num_simulations: 10 # Number of simulations to run.
+num_simulations: 5 # Number of simulations to run.
 max_depth: ~ # Maximum depth of the search tree.
+search_method : gumbel # Search method to use. Options: gumbel, muzero.

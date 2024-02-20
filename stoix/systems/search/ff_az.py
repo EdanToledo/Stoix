@@ -15,7 +15,6 @@ from colorama import Fore, Style
 from flax.core.frozen_dict import FrozenDict
 from jumanji.env import Environment
 from omegaconf import DictConfig, OmegaConf
-from optax._src.base import OptState
 from rich.pretty import pprint
 
 from stoix.networks.base import FeedForwardActor as Actor
@@ -26,7 +25,12 @@ from stoix.systems.ppo.types import (
     LearnerState,
 )
 from stoix.systems.search.evaluator import search_evaluator_setup
-from stoix.systems.search.types import AZTransition, RootFnApply, SearchApply
+from stoix.systems.search.types import (
+    AZTransition,
+    EnvironmentStep,
+    RootFnApply,
+    SearchApply,
+)
 from stoix.types import ActorApply, CriticApply, ExperimentOutput, LearnerFn
 from stoix.utils import make_env as environments
 from stoix.utils.checkpointing import Checkpointer
@@ -67,7 +71,7 @@ def make_root_fn(actor_apply_fn: ActorApply, critic_apply_fn: CriticApply) -> Ro
 
 
 def make_recurrent_fn(
-    environment_model: Environment,
+    environment_step: EnvironmentStep,
     actor_apply_fn: ActorApply,
     critic_apply_fn: CriticApply,
 ) -> mctx.RecurrentFn:
@@ -78,9 +82,7 @@ def make_recurrent_fn(
         state_embedding: chex.ArrayTree,
     ) -> Tuple[mctx.RecurrentFnOutput, chex.ArrayTree]:
 
-        next_state_embedding, next_timestep = jax.vmap(environment_model.step)(
-            state_embedding, action
-        )
+        next_state_embedding, next_timestep = environment_step(state_embedding, action)
 
         pi = actor_apply_fn(params.actor_params, next_timestep.observation)
         value = critic_apply_fn(params.critic_params, next_timestep.observation)
@@ -159,7 +161,7 @@ def get_learner_fn(
         v_t = traj_batch.value
         d_t = 1.0 - traj_batch.done.astype(jnp.float32)
         d_t = (d_t * config.system.gamma).astype(jnp.float32)
-        advantages, targets = calculate_gae(v_t, r_t, d_t, last_val, config.system.gae_lambda)
+        _, targets = calculate_gae(v_t, r_t, d_t, last_val, config.system.gae_lambda)
 
         def _update_epoch(update_state: Tuple, _: Any) -> Tuple:
             """Update the network for a single epoch."""
@@ -169,13 +171,11 @@ def get_learner_fn(
 
                 # UNPACK TRAIN STATE AND BATCH INFO
                 params, opt_states = train_state
-                traj_batch, advantages, targets = batch_info
+                traj_batch, targets = batch_info
 
                 def _actor_loss_fn(
                     actor_params: FrozenDict,
-                    actor_opt_state: OptState,
                     traj_batch: AZTransition,
-                    gae: chex.Array,
                 ) -> Tuple:
                     """Calculate the actor loss."""
                     # RERUN NETWORK
@@ -194,7 +194,6 @@ def get_learner_fn(
 
                 def _critic_loss_fn(
                     critic_params: FrozenDict,
-                    critic_opt_state: OptState,
                     traj_batch: AZTransition,
                     targets: chex.Array,
                 ) -> Tuple:
@@ -212,14 +211,12 @@ def get_learner_fn(
 
                 # CALCULATE ACTOR LOSS
                 actor_grad_fn = jax.value_and_grad(_actor_loss_fn, has_aux=True)
-                actor_loss_info, actor_grads = actor_grad_fn(
-                    params.actor_params, opt_states.actor_opt_state, traj_batch, advantages
-                )
+                actor_loss_info, actor_grads = actor_grad_fn(params.actor_params, traj_batch)
 
                 # CALCULATE CRITIC LOSS
                 critic_grad_fn = jax.value_and_grad(_critic_loss_fn, has_aux=True)
                 critic_loss_info, critic_grads = critic_grad_fn(
-                    params.critic_params, opt_states.critic_opt_state, traj_batch, targets
+                    params.critic_params, traj_batch, targets
                 )
 
                 # Compute the parallel mean (pmean) over the batch.
@@ -271,13 +268,13 @@ def get_learner_fn(
                 }
                 return (new_params, new_opt_state), loss_info
 
-            params, opt_states, traj_batch, advantages, targets, key = update_state
+            params, opt_states, traj_batch, targets, key = update_state
             key, shuffle_key = jax.random.split(key)
 
             # SHUFFLE MINIBATCHES
             batch_size = config.system.rollout_length * config.arch.num_envs
             permutation = jax.random.permutation(shuffle_key, batch_size)
-            batch = (traj_batch, advantages, targets)
+            batch = (traj_batch, targets)
             batch = jax.tree_util.tree_map(lambda x: merge_leading_dims(x, 2), batch)
             shuffled_batch = jax.tree_util.tree_map(
                 lambda x: jnp.take(x, permutation, axis=0), batch
@@ -292,17 +289,17 @@ def get_learner_fn(
                 _update_minibatch, (params, opt_states), minibatches
             )
 
-            update_state = (params, opt_states, traj_batch, advantages, targets, key)
+            update_state = (params, opt_states, traj_batch, targets, key)
             return update_state, loss_info
 
-        update_state = (params, opt_states, traj_batch, advantages, targets, key)
+        update_state = (params, opt_states, traj_batch, targets, key)
 
         # UPDATE EPOCHS
         update_state, loss_info = jax.lax.scan(
             _update_epoch, update_state, None, config.system.epochs
         )
 
-        params, opt_states, traj_batch, advantages, targets, key = update_state
+        params, opt_states, traj_batch, targets, key = update_state
         learner_state = LearnerState(params, opt_states, key, env_state, last_timestep)
         metric = traj_batch.info
         return learner_state, (metric, loss_info)
@@ -322,6 +319,18 @@ def get_learner_fn(
         )
 
     return learner_fn
+
+
+def parse_search_method(config: DictConfig) -> Any:
+    """Parse search method from config."""
+    if config.system.search_method.lower() == "muzero":
+        search_method = mctx.muzero_policy
+    elif config.system.search_method.lower() == "gumbel":
+        search_method = mctx.gumbel_muzero_policy
+    else:
+        raise ValueError(f"Search method {config.system.search_method} not supported.")
+
+    return search_method
 
 
 def learner_setup(
@@ -385,11 +394,13 @@ def learner_setup(
     vmapped_critic_network_apply_fn = critic_network.apply
 
     root_fn = make_root_fn(vmapped_actor_network_apply_fn, vmapped_critic_network_apply_fn)
+    environment_model_step = jax.vmap(model_env.step)
     model_recurrent_fn = make_recurrent_fn(
-        model_env, vmapped_actor_network_apply_fn, vmapped_critic_network_apply_fn
+        environment_model_step, vmapped_actor_network_apply_fn, vmapped_critic_network_apply_fn
     )
+    search_method = parse_search_method(config)
     search_apply_fn = functools.partial(
-        mctx.muzero_policy,
+        search_method,
         recurrent_fn=model_recurrent_fn,
         num_simulations=config.system.num_simulations,
         max_depth=config.system.max_depth,

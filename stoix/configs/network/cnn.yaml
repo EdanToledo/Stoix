@@ -12,9 +12,11 @@ actor_network:
 
 critic_network:
   pre_torso:
-    _target_: stoix.networks.CNNTorso
+    _target_: stoix.networks.torso.CNNTorso
     channel_sizes: [32, 32]
     kernel_sizes: [3, 3]
     strides: [1, 1]
     use_layer_norm: False
     activation: relu
+  critic_head:
+    _target_: stoix.networks.heads.ScalarCriticHead
