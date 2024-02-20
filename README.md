@@ -45,7 +45,7 @@ The current code in Stoix is **largely** taken from and moderately adapted from 
 
 Stoix currently offers the following building blocks for Single-Agent RL research:
 
-- 🥑 **Implementations of algorithms**: Implementations of PPO, DQN, C51, SAC, D4PG.
+- 🥑 **Implementations of algorithms**: Implementations of PPO, DQN, C51, M-DQN, QR-DQN, SAC, DDPG, TD3, D4PG.
 - 🍬 **Environment Wrappers**: Wrappers for [Gymnax][gymnax], [Jumanji][jumanji], [Brax][brax], [XMinigrid][xminigrid], and even [JaxMARL][jaxmarl] (with Centralised Controllers).
 - 🧪 **Statistically robust evaluation**: Stoix natively supports logging to json files which adhere to the standard suggested by [Gorsane et al. (2022)][toward_standard_eval]. This enables easy downstream experiment plotting and aggregation using the tools found in the [MARL-eval][marl_eval] library.
 
