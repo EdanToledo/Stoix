@@ -10,6 +10,7 @@ jax
 jaxlib
 jaxmarl
 jumanji @ git+https://github.com/instadeepai/jumanji.git@main
+mctx
 neptune
 numpy
 omegaconf

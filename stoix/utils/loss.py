@@ -69,6 +69,24 @@ def categorical_double_q_learning(
     return q_loss
 
 
+def q_learning(
+    q_tm1: chex.Array,
+    a_tm1: chex.Array,
+    r_t: chex.Array,
+    d_t: chex.Array,
+    q_t: chex.Array,
+    huber_loss_parameter: chex.Array,
+) -> jnp.ndarray:
+    """Computes the double Q-learning loss. Each input is a batch."""
+    batch_indices = jnp.arange(a_tm1.shape[0])
+    # Compute Q-learning n-step TD-error.
+    target_tm1 = r_t + d_t * jnp.max(q_t, axis=-1)
+    td_error = target_tm1 - q_tm1[batch_indices, a_tm1]
+    batch_loss = rlax.huber_loss(td_error, huber_loss_parameter)
+
+    return jnp.mean(batch_loss)
+
+
 def double_q_learning(
     q_tm1: chex.Array,
     q_t_value: chex.Array,
