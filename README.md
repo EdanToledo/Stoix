@@ -31,7 +31,7 @@
 
 ## Welcome to Stoix! 🏛️
 
-Stoix provides simplified code for quickly iterating on ideas in single-agent reinforcement learning with useful implementations of popular single-agent RL algorithms in JAX allowing for easy parallelisation across devices with JAX's `pmap`. All implementations are fully compilable with JAX's `jit` thus making training and environment execution very fast. However, this requires environments written in JAX.
+Stoix provides simplified code for quickly iterating on ideas in single-agent reinforcement learning with useful implementations of popular single-agent RL algorithms in JAX allowing for easy parallelisation across devices with JAX's `pmap`. All implementations are fully compilable with JAX's `jit` thus making training and environment execution very fast. However, this requires environments written in JAX. Algorithms have not been hyper-optimised and are useful as a starting point for research and/or for initial baselines.
 
 To join us in these efforts, please feel free to reach out, raise issues or read our [contribution guidelines](#contributing-) (or just star 🌟 to stay up to date with the latest developments)!
 
@@ -39,13 +39,13 @@ Stoix is fully in JAX with substantial speed improvement compared to other popul
 
 ## Code Philosophy 🧘
 
-The current code in Stoix is **largely** taken from and moderately adapted from [Mava](mava). Like Mava, Stoix is not designed to be a highly modular library and is not meant to be imported. Our repository focuses on simplicity and clarity in its implementations while utilising the advantages offered by JAX such as `pmap` and `vmap`, making it an excellent resource for researchers and practitioners to build upon. Stoix follows a similar design philosophy to [CleanRL][cleanrl] and [PureJaxRL][purejaxrl], where we allow for some code duplication to enable readability, easy reuse, and fast adaptation.
+The current code in Stoix is initially **largely** taken and subsequently adapted from [Mava](mava). As Mava develops, Stoix will hopefully adopt their optimisations. Like Mava, Stoix is not designed to be a highly modular library and is not meant to be imported. Our repository focuses on simplicity and clarity in its implementations while utilising the advantages offered by JAX such as `pmap` and `vmap`, making it an excellent resource for researchers and practitioners to build upon. Stoix follows a similar design philosophy to [CleanRL][cleanrl] and [PureJaxRL][purejaxrl], where we allow for some code duplication to enable readability, easy reuse, and fast adaptation.
 
 ## Overview 🦜
 
 Stoix currently offers the following building blocks for Single-Agent RL research:
 
-- 🥑 **Implementations of algorithms**: Implementations of PPO, DQN, C51, M-DQN, QR-DQN, SAC, DDPG, TD3, D4PG.
+- 🥑 **Implementations of algorithms**: Implementations of PPO, DQN, C51, M-DQN, QR-DQN, DQN-Reg, SAC, DDPG, TD3, D4PG, AlphaZero, DPO.
 - 🍬 **Environment Wrappers**: Wrappers for [Gymnax][gymnax], [Jumanji][jumanji], [Brax][brax], [XMinigrid][xminigrid], and even [JaxMARL][jaxmarl] (with Centralised Controllers).
 - 🧪 **Statistically robust evaluation**: Stoix natively supports logging to json files which adhere to the standard suggested by [Gorsane et al. (2022)][toward_standard_eval]. This enables easy downstream experiment plotting and aggregation using the tools found in the [MARL-eval][marl_eval] library.
 
