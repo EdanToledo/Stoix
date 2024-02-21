@@ -25,7 +25,7 @@ from stoix.utils import make_env as environments
 from stoix.utils.checkpointing import Checkpointer
 from stoix.utils.jax import unreplicate_batch_dim, unreplicate_n_dims
 from stoix.utils.logger import LogEvent, StoixLogger
-from stoix.utils.loss import q_learning
+from stoix.utils.loss import double_q_learning
 from stoix.utils.total_timestep_checker import check_total_timesteps
 from stoix.utils.training import make_learning_rate
 
@@ -138,7 +138,8 @@ def get_learner_fn(
             ) -> jnp.ndarray:
 
                 q_tm1 = q_apply_fn(q_params, transitions.obs).preferences
-                q_t = q_apply_fn(target_q_params, transitions.next_obs).preferences
+                q_t_value = q_apply_fn(target_q_params, transitions.next_obs).preferences
+                q_t_selector = q_apply_fn(q_params, transitions.next_obs).preferences
 
                 # Cast and clip rewards.
                 discount = 1.0 - transitions.done.astype(jnp.float32)
@@ -147,22 +148,22 @@ def get_learner_fn(
                     transitions.reward, -config.system.max_abs_reward, config.system.max_abs_reward
                 ).astype(jnp.float32)
                 a_tm1 = transitions.action
-
-                # Compute Q-learning loss.
-                batch_loss = q_learning(
+                # Compute double Q-learning loss.
+                batch_loss = double_q_learning(
                     q_tm1,
+                    q_t_value,
                     a_tm1,
                     r_t,
                     d_t,
-                    q_t,
+                    q_t_selector,
                     config.system.huber_loss_parameter,
                 )
 
                 loss_info = {
-                    "q_loss": batch_loss,
+                    "q_loss": jnp.mean(batch_loss),
                 }
 
-                return batch_loss, loss_info
+                return jnp.mean(batch_loss), loss_info
 
             params, opt_states, buffer_state, key = update_state
 
@@ -503,7 +504,7 @@ def run_experiment(_config: DictConfig) -> None:
     logger.stop()
 
 
-@hydra.main(config_path="../../configs", config_name="default_ff_dqn.yaml", version_base="1.2")
+@hydra.main(config_path="../../configs", config_name="default_ff_ddqn.yaml", version_base="1.2")
 def hydra_entry_point(cfg: DictConfig) -> None:
     """Experiment entry point."""
     # Allow dynamic attributes.
@@ -512,7 +513,7 @@ def hydra_entry_point(cfg: DictConfig) -> None:
     # Run experiment.
     run_experiment(cfg)
 
-    print(f"{Fore.CYAN}{Style.BRIGHT}DQN experiment completed{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}{Style.BRIGHT}DDQN experiment completed{Style.RESET_ALL}")
 
 
 if __name__ == "__main__":

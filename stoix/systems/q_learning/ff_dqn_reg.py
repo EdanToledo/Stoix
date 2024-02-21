@@ -149,7 +149,7 @@ def get_learner_fn(
                 a_tm1 = transitions.action
 
                 # Compute Q-learning loss.
-                batch_loss = q_learning(
+                batch_td_loss = q_learning(
                     q_tm1,
                     a_tm1,
                     r_t,
@@ -157,6 +157,10 @@ def get_learner_fn(
                     q_t,
                     config.system.huber_loss_parameter,
                 )
+
+                q_regularizer_loss = q_tm1[jnp.arange(a_tm1.shape[0]), a_tm1].mean()
+
+                batch_loss = config.system.regularizer_coeff * q_regularizer_loss + batch_td_loss
 
                 loss_info = {
                     "q_loss": batch_loss,
@@ -503,7 +507,7 @@ def run_experiment(_config: DictConfig) -> None:
     logger.stop()
 
 
-@hydra.main(config_path="../../configs", config_name="default_ff_dqn.yaml", version_base="1.2")
+@hydra.main(config_path="../../configs", config_name="default_ff_dqn_reg.yaml", version_base="1.2")
 def hydra_entry_point(cfg: DictConfig) -> None:
     """Experiment entry point."""
     # Allow dynamic attributes.
@@ -512,7 +516,7 @@ def hydra_entry_point(cfg: DictConfig) -> None:
     # Run experiment.
     run_experiment(cfg)
 
-    print(f"{Fore.CYAN}{Style.BRIGHT}DQN experiment completed{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}{Style.BRIGHT}DQN-Reg experiment completed{Style.RESET_ALL}")
 
 
 if __name__ == "__main__":
