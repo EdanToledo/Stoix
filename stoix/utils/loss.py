@@ -30,6 +30,25 @@ def ppo_loss(
     return loss_actor
 
 
+def dpo_loss(
+    pi_log_prob_t: chex.Array,
+    b_pi_log_prob_t: chex.Array,
+    gae_t: chex.Array,
+    alpha: float,
+    beta: float,
+) -> chex.Array:
+    log_diff = pi_log_prob_t - b_pi_log_prob_t
+    gae_t = (gae_t - gae_t.mean()) / (gae_t.std() + 1e-8)
+    ratio = jnp.exp(log_diff)
+    is_pos = (gae_t >= 0.0).astype(jnp.float32)
+    r1 = ratio - 1.0
+    drift1 = jax.nn.relu(r1 * gae_t - alpha * jax.nn.tanh(r1 * gae_t / alpha))
+    drift2 = jax.nn.relu(log_diff * gae_t - beta * jax.nn.tanh(log_diff * gae_t / beta))
+    drift = drift1 * is_pos + drift2 * (1 - is_pos)
+    loss_actor = -(ratio * gae_t - drift).mean()
+    return loss_actor
+
+
 def clipped_value_loss(
     pred_value_t: chex.Array, behavior_value_t: chex.Array, targets_t: chex.Array, epsilon: float
 ) -> chex.Array:

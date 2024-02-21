@@ -33,7 +33,7 @@ from stoix.utils.jax import (
     unreplicate_n_dims,
 )
 from stoix.utils.logger import LogEvent, StoixLogger
-from stoix.utils.loss import ppo_loss
+from stoix.utils.loss import dpo_loss
 from stoix.utils.multistep import calculate_gae
 from stoix.utils.total_timestep_checker import check_total_timesteps
 from stoix.utils.training import make_learning_rate
@@ -131,8 +131,8 @@ def get_learner_fn(
                     log_prob = actor_policy.log_prob(traj_batch.action)
 
                     # CALCULATE ACTOR LOSS
-                    loss_actor = ppo_loss(
-                        log_prob, traj_batch.log_prob, gae, config.system.clip_eps
+                    loss_actor = dpo_loss(
+                        log_prob, traj_batch.log_prob, gae, config.system.alpha, config.system.beta
                     )
                     entropy = actor_policy.entropy(seed=rng_key).mean()
 
@@ -539,7 +539,7 @@ def run_experiment(_config: DictConfig) -> None:
 
 
 @hydra.main(
-    config_path="../../configs", config_name="default_ff_ppo_continuous.yaml", version_base="1.2"
+    config_path="../../configs", config_name="default_ff_dpo_continuous.yaml", version_base="1.2"
 )
 def hydra_entry_point(cfg: DictConfig) -> None:
     """Experiment entry point."""
@@ -549,7 +549,7 @@ def hydra_entry_point(cfg: DictConfig) -> None:
     # Run experiment.
     run_experiment(cfg)
 
-    print(f"{Fore.CYAN}{Style.BRIGHT}PPO experiment completed{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}{Style.BRIGHT}DPO experiment completed{Style.RESET_ALL}")
 
 
 if __name__ == "__main__":
