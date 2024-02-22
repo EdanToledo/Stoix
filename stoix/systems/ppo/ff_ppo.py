@@ -12,7 +12,6 @@ from colorama import Fore, Style
 from flax.core.frozen_dict import FrozenDict
 from jumanji.env import Environment
 from omegaconf import DictConfig, OmegaConf
-from optax._src.base import OptState
 from rich.pretty import pprint
 
 from stoix.evaluator import evaluator_setup
@@ -120,7 +119,6 @@ def get_learner_fn(
 
                 def _actor_loss_fn(
                     actor_params: FrozenDict,
-                    actor_opt_state: OptState,
                     traj_batch: PPOTransition,
                     gae: chex.Array,
                 ) -> Tuple:
@@ -140,7 +138,6 @@ def get_learner_fn(
 
                 def _critic_loss_fn(
                     critic_params: FrozenDict,
-                    critic_opt_state: OptState,
                     traj_batch: PPOTransition,
                     targets: chex.Array,
                 ) -> Tuple:
@@ -159,13 +156,13 @@ def get_learner_fn(
                 # CALCULATE ACTOR LOSS
                 actor_grad_fn = jax.value_and_grad(_actor_loss_fn, has_aux=True)
                 actor_loss_info, actor_grads = actor_grad_fn(
-                    params.actor_params, opt_states.actor_opt_state, traj_batch, advantages
+                    params.actor_params, traj_batch, advantages
                 )
 
                 # CALCULATE CRITIC LOSS
                 critic_grad_fn = jax.value_and_grad(_critic_loss_fn, has_aux=True)
                 critic_loss_info, critic_grads = critic_grad_fn(
-                    params.critic_params, opt_states.critic_opt_state, traj_batch, targets
+                    params.critic_params, traj_batch, targets
                 )
 
                 # Compute the parallel mean (pmean) over the batch.

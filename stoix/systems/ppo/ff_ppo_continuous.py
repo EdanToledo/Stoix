@@ -12,7 +12,6 @@ from colorama import Fore, Style
 from flax.core.frozen_dict import FrozenDict
 from jumanji.env import Environment
 from omegaconf import DictConfig, OmegaConf
-from optax._src.base import OptState
 from rich.pretty import pprint
 
 from stoix.evaluator import evaluator_setup
@@ -33,7 +32,7 @@ from stoix.utils.jax import (
     unreplicate_n_dims,
 )
 from stoix.utils.logger import LogEvent, StoixLogger
-from stoix.utils.loss import ppo_loss
+from stoix.utils.loss import clipped_value_loss, ppo_loss
 from stoix.utils.multistep import calculate_gae
 from stoix.utils.total_timestep_checker import check_total_timesteps
 from stoix.utils.training import make_learning_rate
@@ -120,7 +119,6 @@ def get_learner_fn(
 
                 def _actor_loss_fn(
                     actor_params: FrozenDict,
-                    actor_opt_state: OptState,
                     traj_batch: PPOTransition,
                     gae: chex.Array,
                     rng_key: chex.PRNGKey,
@@ -141,7 +139,6 @@ def get_learner_fn(
 
                 def _critic_loss_fn(
                     critic_params: FrozenDict,
-                    critic_opt_state: OptState,
                     traj_batch: PPOTransition,
                     targets: chex.Array,
                 ) -> Tuple:
@@ -150,12 +147,9 @@ def get_learner_fn(
                     value = critic_apply_fn(critic_params, traj_batch.obs)
 
                     # CALCULATE VALUE LOSS
-                    value_pred_clipped = traj_batch.value + (value - traj_batch.value).clip(
-                        -config.system.clip_eps, config.system.clip_eps
+                    value_loss = clipped_value_loss(
+                        value, traj_batch.value, targets, config.system.clip_eps
                     )
-                    value_losses = jnp.square(value - targets)
-                    value_losses_clipped = jnp.square(value_pred_clipped - targets)
-                    value_loss = 0.5 * jnp.maximum(value_losses, value_losses_clipped).mean()
 
                     critic_total_loss = config.system.vf_coef * value_loss
                     return critic_total_loss, (value_loss)
@@ -165,7 +159,6 @@ def get_learner_fn(
                 actor_grad_fn = jax.value_and_grad(_actor_loss_fn, has_aux=True)
                 actor_loss_info, actor_grads = actor_grad_fn(
                     params.actor_params,
-                    opt_states.actor_opt_state,
                     traj_batch,
                     advantages,
                     actor_loss_key,
@@ -174,7 +167,7 @@ def get_learner_fn(
                 # CALCULATE CRITIC LOSS
                 critic_grad_fn = jax.value_and_grad(_critic_loss_fn, has_aux=True)
                 critic_loss_info, critic_grads = critic_grad_fn(
-                    params.critic_params, opt_states.critic_opt_state, traj_batch, targets
+                    params.critic_params, traj_batch, targets
                 )
 
                 # Compute the parallel mean (pmean) over the batch.
