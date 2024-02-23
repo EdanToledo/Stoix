@@ -6,9 +6,9 @@ actor_network:
     use_layer_norm: True
     activation: silu
   action_head:
-    _target_: stoix.networks.heads.LinearOutputHead
+    _target_: stoix.networks.heads.DeterministicHead
   post_processor:
-    _target_: stoix.networks.postprocessors.TanhToSpec
+    _target_: stoix.networks.postprocessors.ScalePostProcessor
 
 q_network:
   input_layer:

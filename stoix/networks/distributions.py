@@ -1,4 +1,4 @@
-from typing import Any, Optional, Sequence
+from typing import Any, Optional
 
 import chex
 import jax.numpy as jnp
@@ -8,7 +8,6 @@ import tensorflow_probability.substrates.jax as tfp
 from tensorflow_probability.substrates.jax.distributions import (
     Categorical,
     Distribution,
-    MultivariateNormalDiag,
     TransformedDistribution,
 )
 
@@ -71,18 +70,6 @@ class TanhTransformedDistribution(TransformedDistribution):
         td_properties = super()._parameter_properties(dtype, num_classes=num_classes)
         del td_properties["bijector"]
         return td_properties
-
-
-class DeterministicNormalDistribution(MultivariateNormalDiag):
-    """Deterministic normal distribution. Always returns the mean."""
-
-    def sample(
-        self,
-        seed: chex.PRNGKey = None,
-        sample_shape: Sequence[int] = (),
-        name: str = "sample",
-    ) -> chex.Array:
-        return self.loc
 
 
 @tf_tfp.experimental.auto_composite_tensor
