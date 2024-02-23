@@ -9,6 +9,7 @@ from flax import linen as nn
 from flax.linen.initializers import Initializer, lecun_normal, orthogonal
 from tensorflow_probability.substrates.jax.distributions import (
     Categorical,
+    Deterministic,
     Independent,
     MultivariateNormalDiag,
     Normal,
@@ -70,7 +71,7 @@ class MultivariateNormalDiagHead(nn.Module):
         return MultivariateNormalDiag(loc=loc, scale_diag=scale)
 
 
-class LinearOutputHead(nn.Module):
+class DeterministicHead(nn.Module):
     action_dim: int
     kernel_init: Initializer = orthogonal(0.01)
 
@@ -79,7 +80,7 @@ class LinearOutputHead(nn.Module):
 
         x = nn.Dense(self.action_dim, kernel_init=self.kernel_init)(embedding)
 
-        return x
+        return Deterministic(x)
 
 
 class ScalarCriticHead(nn.Module):

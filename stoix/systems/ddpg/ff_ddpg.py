@@ -1,15 +1,6 @@
 import copy
 import time
-from typing import TYPE_CHECKING, Any, Callable, Dict, Tuple
-
-import rlax
-
-from stoix.networks.distributions import DeterministicNormalDistribution
-
-if TYPE_CHECKING:
-    from dataclasses import dataclass
-else:
-    from chex import dataclass
+from typing import Any, Callable, Dict, Tuple
 
 import chex
 import flashbax as fbx
@@ -18,6 +9,7 @@ import hydra
 import jax
 import jax.numpy as jnp
 import optax
+import rlax
 from colorama import Fore, Style
 from flashbax.buffers.trajectory_buffer import BufferState
 from flax.core.frozen_dict import FrozenDict
@@ -29,6 +21,7 @@ from rich.pretty import pprint
 from stoix.evaluator import evaluator_setup
 from stoix.networks.base import CompositeNetwork
 from stoix.networks.base import FeedForwardActor as Actor
+from stoix.networks.postprocessors import tanh_to_spec
 from stoix.systems.ddpg.types import (
     ActorAndTarget,
     DDPGLearnerState,
@@ -57,7 +50,7 @@ def get_default_behavior_policy(config: DictConfig, actor_apply_fn: ActorApply) 
     def behavior_policy(
         params: DDPGParams, observation: Observation, key: chex.PRNGKey
     ) -> chex.Array:
-        action = actor_apply_fn(params, observation)
+        action = actor_apply_fn(params, observation).mode()
         if config.system.exploration_sigma != 0:
             action = rlax.add_gaussian_noise(key, action, config.system.exploration_sigma)
         return action
@@ -187,7 +180,7 @@ def get_learner_fn(
             ) -> jnp.ndarray:
 
                 q_tm1 = q_apply_fn(q_params, transitions.obs, transitions.action)
-                next_action = actor_apply_fn(target_actor_params, transitions.next_obs)
+                next_action = actor_apply_fn(target_actor_params, transitions.next_obs).mode()
                 q_t = q_apply_fn(target_q_params, transitions.next_obs, next_action)
 
                 # Cast and clip rewards.
@@ -211,7 +204,7 @@ def get_learner_fn(
                 transitions: Transition,
             ) -> chex.Array:
                 o_t = transitions.obs
-                a_t = actor_apply_fn(actor_params, o_t)
+                a_t = actor_apply_fn(actor_params, o_t).mode()
                 q_value = q_apply_fn(q_params, o_t, a_t)
 
                 actor_loss = -jnp.mean(q_value)
@@ -349,10 +342,14 @@ def learner_setup(
         config.network.actor_network.action_head, action_dim=action_dim
     )
     action_head_post_processor = hydra.utils.instantiate(
-        config.network.actor_network.post_processor, minimum=-1.0, maximum=1.0
+        config.network.actor_network.post_processor,
+        minimum=-1.0,
+        maximum=1.0,
+        scale_fn=tanh_to_spec,
     )
     actor_action_head = CompositeNetwork([actor_action_head, action_head_post_processor])
     actor_network = Actor(torso=actor_torso, action_head=actor_action_head)
+
     q_network_input = hydra.utils.instantiate(config.network.q_network.input_layer)
     q_network_torso = hydra.utils.instantiate(config.network.q_network.pre_torso)
     q_network_head = hydra.utils.instantiate(
@@ -479,15 +476,6 @@ def learner_setup(
     return learn, actor_network, init_learner_state
 
 
-@dataclass
-class EvalActorWrapper:
-    actor: Actor
-
-    def apply(self, params: FrozenDict, x: Observation) -> DeterministicNormalDistribution:
-        action = self.actor.apply(params, x)
-        return DeterministicNormalDistribution(loc=action)
-
-
 def run_experiment(_config: DictConfig) -> None:
     """Runs experiment."""
     config = copy.deepcopy(_config)
@@ -512,13 +500,11 @@ def run_experiment(_config: DictConfig) -> None:
         env, (key, actor_net_key, q_net_key), config
     )
 
-    eval_actor_network = EvalActorWrapper(actor=actor_network)
-
     # Setup evaluator.
     evaluator, absolute_metric_evaluator, (trained_params, eval_keys) = evaluator_setup(
         eval_env=eval_env,
         key_e=key_e,
-        network=eval_actor_network,
+        network=actor_network,
         params=learner_state.params.actor_params.online,
         config=config,
     )
