@@ -80,7 +80,9 @@ class BraxJumanjiWrapper(BraxWrapper):
                 new_state.step_count,
             ),
             extras={
-                "final_observation": Observation(new_state.info["final_obs"], self._legal_action_mask, new_state.step_count)
+                "final_observation": Observation(
+                    new_state.info["final_obs"], self._legal_action_mask, new_state.step_count
+                )
             },
         )
 
@@ -114,7 +116,11 @@ class BraxJumanjiWrapper(BraxWrapper):
             reward=state.reward,
             discount=discount,
             observation=Observation(state.obs, self._legal_action_mask, state.step_count),
-            extras={"final_observation": Observation(state.info["final_obs"], self._legal_action_mask, state.step_count)},
+            extras={
+                "final_observation": Observation(
+                    state.info["final_obs"], self._legal_action_mask, state.step_count
+                )
+            },
         )
 
         return state, next_timestep

@@ -69,7 +69,9 @@ def get_warmup_fn(
             info = timestep.extras["episode_metrics"]
             real_next_obs = timestep.extras["final_observation"]
 
-            transition = Transition(last_timestep.observation, action, timestep.reward, done, real_next_obs, info)
+            transition = Transition(
+                last_timestep.observation, action, timestep.reward, done, real_next_obs, info
+            )
 
             return (env_state, timestep, key), transition
 
@@ -83,7 +85,9 @@ def get_warmup_fn(
 
         return env_states, timesteps, keys, buffer_states
 
-    batched_warmup_step: Callable = jax.vmap(warmup, in_axes=(0, 0, 0, 0), out_axes=(0, 0, 0, 0), axis_name="batch")
+    batched_warmup_step: Callable = jax.vmap(
+        warmup, in_axes=(0, 0, 0, 0), out_axes=(0, 0, 0, 0), axis_name="batch"
+    )
 
     return batched_warmup_step
 
@@ -121,13 +125,19 @@ def get_learner_fn(
             info = timestep.extras["episode_metrics"]
             real_next_obs = timestep.extras["final_observation"]
 
-            transition = Transition(last_timestep.observation, action, timestep.reward, done, real_next_obs, info)
+            transition = Transition(
+                last_timestep.observation, action, timestep.reward, done, real_next_obs, info
+            )
 
-            learner_state = MPOLearnerState(params, opt_states, buffer_state, key, env_state, timestep)
+            learner_state = MPOLearnerState(
+                params, opt_states, buffer_state, key, env_state, timestep
+            )
             return learner_state, transition
 
         # STEP ENVIRONMENT FOR ROLLOUT LENGTH
-        learner_state, traj_batch = jax.lax.scan(_env_step, learner_state, None, config.system.rollout_length)
+        learner_state, traj_batch = jax.lax.scan(
+            _env_step, learner_state, None, config.system.rollout_length
+        )
 
         params, opt_states, buffer_state, key, env_state, last_timestep = learner_state
 
@@ -147,7 +157,9 @@ def get_learner_fn(
             ) -> chex.Array:
                 online_actor_policy = actor_apply_fn(online_actor_params, transitions.obs)
                 target_actor_policy = actor_apply_fn(target_actor_params, transitions.obs)
-                target_sampled_actions = target_actor_policy.sample(seed=key, sample_shape=config.system.num_samples)
+                target_sampled_actions = target_actor_policy.sample(
+                    seed=key, sample_shape=config.system.num_samples
+                )
                 target_sampled_q_values = jax.vmap(q_apply_fn, in_axes=(None, None, 0))(
                     target_q_params, transitions.obs, target_sampled_actions
                 )
@@ -183,17 +195,21 @@ def get_learner_fn(
                         seed=rng_key, sample_shape=config.system.policy_eval_num_samples
                     )
                 else:
-                    next_actions = actor_apply_fn(target_actor_params, transitions.next_obs).mode()[jnp.newaxis, ...]
-                q_t = jax.vmap(q_apply_fn, in_axes=(None, None, 0))(target_q_params, transitions.next_obs, next_actions)
+                    next_actions = actor_apply_fn(target_actor_params, transitions.next_obs).mode()[
+                        jnp.newaxis, ...
+                    ]
+                q_t = jax.vmap(q_apply_fn, in_axes=(None, None, 0))(
+                    target_q_params, transitions.next_obs, next_actions
+                )
                 # Compute the mean over the sampled action dimension.
                 q_t = jnp.mean(q_t, axis=0)
 
                 # Cast and clip rewards.
                 discount = 1.0 - transitions.done.astype(jnp.float32)
                 d_t = (discount * config.system.gamma).astype(jnp.float32)
-                r_t = jnp.clip(transitions.reward, -config.system.max_abs_reward, config.system.max_abs_reward).astype(
-                    jnp.float32
-                )
+                r_t = jnp.clip(
+                    transitions.reward, -config.system.max_abs_reward, config.system.max_abs_reward
+                ).astype(jnp.float32)
 
                 q_loss = td_learning(q_tm1, r_t, d_t, q_t, config.system.huber_loss_parameter)
 
@@ -236,9 +252,13 @@ def get_learner_fn(
             # This calculation is inspired by the Anakin architecture demo notebook.
             # available at https://tinyurl.com/26tdzs5x
             # This pmean could be a regular mean as the batch axis is on the same device.
-            actor_dual_grads, actor_loss_info = jax.lax.pmean((actor_dual_grads, actor_loss_info), axis_name="batch")
+            actor_dual_grads, actor_loss_info = jax.lax.pmean(
+                (actor_dual_grads, actor_loss_info), axis_name="batch"
+            )
             # pmean over devices.
-            actor_dual_grads, actor_loss_info = jax.lax.pmean((actor_dual_grads, actor_loss_info), axis_name="device")
+            actor_dual_grads, actor_loss_info = jax.lax.pmean(
+                (actor_dual_grads, actor_loss_info), axis_name="device"
+            )
 
             q_grads, q_loss_info = jax.lax.pmean((q_grads, q_loss_info), axis_name="batch")
             q_grads, q_loss_info = jax.lax.pmean((q_grads, q_loss_info), axis_name="device")
@@ -246,7 +266,9 @@ def get_learner_fn(
             actor_grads, dual_grads = actor_dual_grads
 
             # UPDATE ACTOR PARAMS AND OPTIMISER STATE
-            actor_updates, actor_new_opt_state = actor_update_fn(actor_grads, opt_states.actor_opt_state)
+            actor_updates, actor_new_opt_state = actor_update_fn(
+                actor_grads, opt_states.actor_opt_state
+            )
             actor_new_online_params = optax.apply_updates(params.actor_params.online, actor_updates)
 
             # UPDATE DUAL PARAMS AND OPTIMISER STATE
@@ -282,10 +304,14 @@ def get_learner_fn(
         update_state = (params, opt_states, buffer_state, key)
 
         # UPDATE EPOCHS
-        update_state, loss_info = jax.lax.scan(_update_epoch, update_state, None, config.system.epochs)
+        update_state, loss_info = jax.lax.scan(
+            _update_epoch, update_state, None, config.system.epochs
+        )
 
         params, opt_states, buffer_state, key = update_state
-        learner_state = MPOLearnerState(params, opt_states, buffer_state, key, env_state, last_timestep)
+        learner_state = MPOLearnerState(
+            params, opt_states, buffer_state, key, env_state, last_timestep
+        )
         metric = traj_batch.info
         return learner_state, (metric, loss_info)
 
@@ -327,7 +353,9 @@ def learner_setup(
 
     # Define actor_network, q_network and optimiser.
     actor_torso = hydra.utils.instantiate(config.network.actor_network.pre_torso)
-    actor_action_head = hydra.utils.instantiate(config.network.actor_network.action_head, action_dim=action_dim)
+    actor_action_head = hydra.utils.instantiate(
+        config.network.actor_network.action_head, action_dim=action_dim
+    )
     actor_network = Actor(torso=actor_torso, action_head=actor_action_head)
     q_network_input = hydra.utils.instantiate(config.network.q_network.input_layer)
     q_network_torso = hydra.utils.instantiate(config.network.q_network.pre_torso)
@@ -369,12 +397,18 @@ def learner_setup(
 
     log_temperature = jnp.full([1], config.system.init_log_temperature, dtype=jnp.float32)
 
-    log_alpha_mean = jnp.full(dual_variable_shape, config.system.init_log_alpha_mean, dtype=jnp.float32)
+    log_alpha_mean = jnp.full(
+        dual_variable_shape, config.system.init_log_alpha_mean, dtype=jnp.float32
+    )
 
-    log_alpha_stddev = jnp.full(dual_variable_shape, config.system.init_log_alpha_stddev, dtype=jnp.float32)
+    log_alpha_stddev = jnp.full(
+        dual_variable_shape, config.system.init_log_alpha_stddev, dtype=jnp.float32
+    )
 
     if config.system.action_penalization:
-        log_penalty_temperature = jnp.full([1], config.system.init_log_temperature, dtype=jnp.float32)
+        log_penalty_temperature = jnp.full(
+            [1], config.system.init_log_temperature, dtype=jnp.float32
+        )
     else:
         log_penalty_temperature = None
 
@@ -434,11 +468,15 @@ def learner_setup(
     warmup = jax.pmap(warmup, axis_name="device")
 
     # Initialise environment states and timesteps: across devices and batches.
-    key, *env_keys = jax.random.split(key, n_devices * config.system.update_batch_size * config.arch.num_envs + 1)
+    key, *env_keys = jax.random.split(
+        key, n_devices * config.system.update_batch_size * config.arch.num_envs + 1
+    )
     env_states, timesteps = jax.vmap(env.reset, in_axes=(0))(
         jnp.stack(env_keys),
     )
-    reshape_states = lambda x: x.reshape((n_devices, config.system.update_batch_size, config.arch.num_envs) + x.shape[1:])
+    reshape_states = lambda x: x.reshape(
+        (n_devices, config.system.update_batch_size, config.arch.num_envs) + x.shape[1:]
+    )
     # (devices, update batch size, num_envs, ...)
     env_states = jax.tree_map(reshape_states, env_states)
     timesteps = jax.tree_map(reshape_states, timesteps)
@@ -469,8 +507,12 @@ def learner_setup(
     # Initialise learner state.
     params, opt_states, buffer_states, step_keys, warmup_keys = replicate_learner
     # Warmup the buffer.
-    env_states, timesteps, keys, buffer_states = warmup(env_states, timesteps, buffer_states, warmup_keys)
-    init_learner_state = MPOLearnerState(params, opt_states, buffer_states, step_keys, env_states, timesteps)
+    env_states, timesteps, keys, buffer_states = warmup(
+        env_states, timesteps, buffer_states, warmup_keys
+    )
+    init_learner_state = MPOLearnerState(
+        params, opt_states, buffer_states, step_keys, env_states, timesteps
+    )
 
     return learn, actor_network, init_learner_state
 
@@ -490,10 +532,14 @@ def run_experiment(_config: DictConfig) -> None:
     env, eval_env = environments.make(config=config)
 
     # PRNG keys.
-    key, key_e, actor_net_key, q_net_key = jax.random.split(jax.random.PRNGKey(config["system"]["seed"]), num=4)
+    key, key_e, actor_net_key, q_net_key = jax.random.split(
+        jax.random.PRNGKey(config["system"]["seed"]), num=4
+    )
 
     # Setup learner.
-    learn, actor_network, learner_state = learner_setup(env, (key, actor_net_key, q_net_key), config)
+    learn, actor_network, learner_state = learner_setup(
+        env, (key, actor_net_key, q_net_key), config
+    )
 
     # Setup evaluator.
     evaluator, absolute_metric_evaluator, (trained_params, eval_keys) = evaluator_setup(
@@ -603,7 +649,9 @@ def run_experiment(_config: DictConfig) -> None:
     logger.stop()
 
 
-@hydra.main(config_path="../../configs", config_name="default_ff_mpo_continuous.yaml", version_base="1.2")
+@hydra.main(
+    config_path="../../configs", config_name="default_ff_mpo_continuous.yaml", version_base="1.2"
+)
 def hydra_entry_point(cfg: DictConfig) -> None:
     """Experiment entry point."""
     # Allow dynamic attributes.

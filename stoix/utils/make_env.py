@@ -50,7 +50,9 @@ def make_jumanji_env(
         env_kwargs["generator"] = generator
     env = jumanji.make(env_name, **env_kwargs)
     eval_env = jumanji.make(env_name, **env_kwargs)
-    env, eval_env = JumanjiWrapper(env, config.env.observation_attribute, config.env.flatten_observation), JumanjiWrapper(
+    env, eval_env = JumanjiWrapper(
+        env, config.env.observation_attribute, config.env.flatten_observation
+    ), JumanjiWrapper(
         eval_env,
         config.env.observation_attribute,
         config.env.flatten_observation,
@@ -141,7 +143,9 @@ def make_brax_env(env_name: str, config: DictConfig) -> Tuple[Environment, Envir
     return env, eval_env
 
 
-def make_jaxmarl_env(env_name: str, config: DictConfig, add_global_state: bool = False) -> Tuple[Environment, Environment]:
+def make_jaxmarl_env(
+    env_name: str, config: DictConfig, add_global_state: bool = False
+) -> Tuple[Environment, Environment]:
     """
      Create a JAXMARL environment.
 

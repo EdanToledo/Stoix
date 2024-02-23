@@ -42,7 +42,9 @@ class TruncationAutoResetWrapper(Wrapper):
         extras["final_observation"] = timestep.observation
 
         # Replace observation with reset observation.
-        timestep = timestep.replace(observation=reset_timestep.observation, extras=extras)  # type: ignore
+        timestep = timestep.replace(
+            observation=reset_timestep.observation, extras=extras
+        )  # type: ignore
 
         return state, timestep
 

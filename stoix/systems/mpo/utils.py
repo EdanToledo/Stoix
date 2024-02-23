@@ -145,7 +145,9 @@ def clip_dual_params(params: DualParams, per_dim_constraining: bool) -> DualPara
         return clipped_params
     else:
         return clipped_params._replace(
-            log_penalty_temperature=jnp.maximum(_MIN_LOG_TEMPERATURE, params.log_penalty_temperature)
+            log_penalty_temperature=jnp.maximum(
+                _MIN_LOG_TEMPERATURE, params.log_penalty_temperature
+            )
         )
 
 
@@ -179,9 +181,10 @@ def mpo_loss(
         epsilon_stddev: KL constraint on the stddev of the Gaussian policy, the one associated with
             the dual variable called alpha_mean.
         per_dim_constraining: whether to enforce the KL constraint on each dimension independently;
-            this is the default. Otherwise the overall KL is constrained, which allows some dimensions
-                to change more at the expense of others staying put.
-        action_penalization: whether to use a KL constraint to penalize actions via the MO-MPO algorithm.
+            this is the default. Otherwise the overall KL is constrained, which allows some
+            dimensions to change more at the expense of others staying put.
+        action_penalization: whether to use a KL constraint to penalize actions via the MO-MPO
+            algorithm.
         epsilon_penalty: KL constraint on the probability of violating the action constraint.
 
     Returns:
@@ -225,7 +228,9 @@ def mpo_loss(
 
     if action_penalization:
         # Transform action penalization temperature.
-        penalty_temperature = jax.nn.softplus(dual_params.log_penalty_temperature) + _MPO_FLOAT_EPSILON
+        penalty_temperature = (
+            jax.nn.softplus(dual_params.log_penalty_temperature) + _MPO_FLOAT_EPSILON
+        )
 
         # Compute action penalization cost.
         # Note: the cost is zero in [-1, 1] and quadratic beyond.
@@ -238,7 +243,9 @@ def mpo_loss(
 
         # Only needed for diagnostics: Compute estimated actualized KL between the
         # non-parametric and current target policies.
-        penalty_kl_nonparametric = compute_nonparametric_kl_from_normalized_weights(penalty_normalized_weights)
+        penalty_kl_nonparametric = compute_nonparametric_kl_from_normalized_weights(
+            penalty_normalized_weights
+        )
 
         # Combine normalized weights.
         normalized_weights += penalty_normalized_weights
@@ -251,8 +258,12 @@ def mpo_loss(
     fixed_mean_distribution = Independent(Normal(loc=target_mean, scale=online_scale))
 
     # Compute the decomposed policy losses.
-    loss_policy_mean = compute_cross_entropy_loss(target_sampled_actions, normalized_weights, fixed_stddev_distribution)
-    loss_policy_stddev = compute_cross_entropy_loss(target_sampled_actions, normalized_weights, fixed_mean_distribution)
+    loss_policy_mean = compute_cross_entropy_loss(
+        target_sampled_actions, normalized_weights, fixed_stddev_distribution
+    )
+    loss_policy_stddev = compute_cross_entropy_loss(
+        target_sampled_actions, normalized_weights, fixed_mean_distribution
+    )
 
     # Compute the decomposed KL between the target and online policies.
     if per_dim_constraining:
@@ -267,8 +278,12 @@ def mpo_loss(
         kl_stddev = target_action_distribution.kl_divergence(fixed_mean_distribution)  # Shape [B].
 
     # Compute the alpha-weighted KL-penalty and dual losses to adapt the alphas.
-    loss_kl_mean, loss_alpha_mean = compute_parametric_kl_penalty_and_dual_loss(kl_mean, alpha_mean, epsilon_mean)
-    loss_kl_stddev, loss_alpha_stddev = compute_parametric_kl_penalty_and_dual_loss(kl_stddev, alpha_stddev, epsilon_stddev)
+    loss_kl_mean, loss_alpha_mean = compute_parametric_kl_penalty_and_dual_loss(
+        kl_mean, alpha_mean, epsilon_mean
+    )
+    loss_kl_stddev, loss_alpha_stddev = compute_parametric_kl_penalty_and_dual_loss(
+        kl_stddev, alpha_stddev, epsilon_stddev
+    )
 
     # Combine losses.
     loss_policy = loss_policy_mean + loss_policy_stddev
@@ -289,7 +304,9 @@ def mpo_loss(
         loss_temperature=jnp.mean(loss_temperature),
         # KL measurements.
         kl_q_rel=jnp.mean(kl_nonparametric) / epsilon,
-        penalty_kl_q_rel=((jnp.mean(penalty_kl_nonparametric) / epsilon_penalty) if action_penalization else None),
+        penalty_kl_q_rel=(
+            (jnp.mean(penalty_kl_nonparametric) / epsilon_penalty) if action_penalization else None
+        ),
         kl_mean_rel=jnp.mean(kl_mean, axis=0) / epsilon_mean,
         kl_stddev_rel=jnp.mean(kl_stddev, axis=0) / epsilon_stddev,
         # Q measurements.

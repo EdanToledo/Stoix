@@ -98,5 +98,7 @@ EvalFn = Callable[[FrozenDict, chex.PRNGKey], ExperimentOutput[StoixState]]
 
 ActorApply = Callable[[FrozenDict, Observation], DistributionLike]
 CriticApply = Callable[[FrozenDict, Observation], Value]
-RecActorApply = Callable[[FrozenDict, HiddenState, RNNObservation], Tuple[HiddenState, DistributionLike]]
+RecActorApply = Callable[
+    [FrozenDict, HiddenState, RNNObservation], Tuple[HiddenState, DistributionLike]
+]
 RecCriticApply = Callable[[FrozenDict, HiddenState, RNNObservation], Tuple[HiddenState, Value]]

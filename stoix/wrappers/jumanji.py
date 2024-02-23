@@ -38,7 +38,9 @@ class JumanjiWrapper(Wrapper):
         state, timestep = self._env.reset(key)
         obs = timestep.observation._asdict()[self._observation_attribute]
         timestep = timestep.replace(
-            observation=Observation(obs.reshape(self._obs_shape), self._legal_action_mask, state.step_count),
+            observation=Observation(
+                obs.reshape(self._obs_shape), self._legal_action_mask, state.step_count
+            ),
             extras={},
         )
         return state, timestep
@@ -47,7 +49,9 @@ class JumanjiWrapper(Wrapper):
         state, timestep = self._env.step(state, action)
         obs = timestep.observation._asdict()[self._observation_attribute]
         timestep = timestep.replace(
-            observation=Observation(obs.reshape(self._obs_shape), self._legal_action_mask, state.step_count),
+            observation=Observation(
+                obs.reshape(self._obs_shape), self._legal_action_mask, state.step_count
+            ),
             extras={},
         )
         return state, timestep

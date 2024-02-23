@@ -67,7 +67,9 @@ def get_learner_fn(
             _ (Any): The current metrics info.
         """
 
-        def _env_step(learner_state: RNNLearnerState, _: Any) -> Tuple[RNNLearnerState, RNNPPOTransition]:
+        def _env_step(
+            learner_state: RNNLearnerState, _: Any
+        ) -> Tuple[RNNLearnerState, RNNPPOTransition]:
             """Step the environment."""
             (
                 params,
@@ -82,15 +84,21 @@ def get_learner_fn(
             key, policy_key = jax.random.split(key)
 
             # Add a batch dimension to the observation.
-            batched_observation = jax.tree_util.tree_map(lambda x: x[jnp.newaxis, :], last_timestep.observation)
+            batched_observation = jax.tree_util.tree_map(
+                lambda x: x[jnp.newaxis, :], last_timestep.observation
+            )
             ac_in = (
                 batched_observation,
                 last_done[jnp.newaxis, :],
             )
 
             # Run the network.
-            policy_hidden_state, actor_policy = actor_apply_fn(params.actor_params, hstates.policy_hidden_state, ac_in)
-            critic_hidden_state, value = critic_apply_fn(params.critic_params, hstates.critic_hidden_state, ac_in)
+            policy_hidden_state, actor_policy = actor_apply_fn(
+                params.actor_params, hstates.policy_hidden_state, ac_in
+            )
+            critic_hidden_state, value = critic_apply_fn(
+                params.critic_params, hstates.critic_hidden_state, ac_in
+            )
 
             # Sample action from the policy and squeeze out the batch dimension.
             action = actor_policy.sample(seed=policy_key)
@@ -134,7 +142,9 @@ def get_learner_fn(
         initial_hstates = learner_state.hstates
 
         # STEP ENVIRONMENT FOR ROLLOUT LENGTH
-        learner_state, traj_batch = jax.lax.scan(_env_step, learner_state, None, config.system.rollout_length)
+        learner_state, traj_batch = jax.lax.scan(
+            _env_step, learner_state, None, config.system.rollout_length
+        )
 
         # CALCULATE ADVANTAGE
         (
@@ -148,7 +158,9 @@ def get_learner_fn(
         ) = learner_state
 
         # Add a batch dimension to the observation.
-        batched_last_observation = jax.tree_util.tree_map(lambda x: x[jnp.newaxis, :], last_timestep.observation)
+        batched_last_observation = jax.tree_util.tree_map(
+            lambda x: x[jnp.newaxis, :], last_timestep.observation
+        )
         ac_in = (
             batched_last_observation,
             last_done[jnp.newaxis, :],
@@ -188,10 +200,14 @@ def get_learner_fn(
                     # RERUN NETWORK
 
                     obs_and_done = (traj_batch.obs, traj_batch.done)
-                    _, actor_policy = actor_apply_fn(actor_params, traj_batch.hstates.policy_hidden_state[0], obs_and_done)
+                    _, actor_policy = actor_apply_fn(
+                        actor_params, traj_batch.hstates.policy_hidden_state[0], obs_and_done
+                    )
                     log_prob = actor_policy.log_prob(traj_batch.action)
 
-                    loss_actor = ppo_loss(log_prob, traj_batch.log_prob, gae, config.system.clip_eps)
+                    loss_actor = ppo_loss(
+                        log_prob, traj_batch.log_prob, gae, config.system.clip_eps
+                    )
                     entropy = actor_policy.entropy().mean()
 
                     total_loss = loss_actor - config.system.ent_coef * entropy
@@ -205,40 +221,60 @@ def get_learner_fn(
                     """Calculate the critic loss."""
                     # RERUN NETWORK
                     obs_and_done = (traj_batch.obs, traj_batch.done)
-                    _, value = critic_apply_fn(critic_params, traj_batch.hstates.critic_hidden_state[0], obs_and_done)
+                    _, value = critic_apply_fn(
+                        critic_params, traj_batch.hstates.critic_hidden_state[0], obs_and_done
+                    )
 
                     # CALCULATE VALUE LOSS
-                    value_loss = clipped_value_loss(value, traj_batch.value, targets, config.system.clip_eps)
+                    value_loss = clipped_value_loss(
+                        value, traj_batch.value, targets, config.system.clip_eps
+                    )
 
                     total_loss = config.system.vf_coef * value_loss
                     return total_loss, (value_loss)
 
                 # CALCULATE ACTOR LOSS
                 actor_grad_fn = jax.value_and_grad(_actor_loss_fn, has_aux=True)
-                actor_loss_info, actor_grads = actor_grad_fn(params.actor_params, traj_batch, advantages)
+                actor_loss_info, actor_grads = actor_grad_fn(
+                    params.actor_params, traj_batch, advantages
+                )
 
                 # CALCULATE CRITIC LOSS
                 critic_grad_fn = jax.value_and_grad(_critic_loss_fn, has_aux=True)
-                critic_loss_info, critic_grads = critic_grad_fn(params.critic_params, traj_batch, targets)
+                critic_loss_info, critic_grads = critic_grad_fn(
+                    params.critic_params, traj_batch, targets
+                )
 
                 # Compute the parallel mean (pmean) over the batch.
                 # This calculation is inspired by the Anakin architecture demo notebook.
                 # available at https://tinyurl.com/26tdzs5x
                 # This pmean could be a regular mean as the batch axis is on the same device.
-                actor_grads, actor_loss_info = jax.lax.pmean((actor_grads, actor_loss_info), axis_name="batch")
+                actor_grads, actor_loss_info = jax.lax.pmean(
+                    (actor_grads, actor_loss_info), axis_name="batch"
+                )
                 # pmean over devices.
-                actor_grads, actor_loss_info = jax.lax.pmean((actor_grads, actor_loss_info), axis_name="device")
+                actor_grads, actor_loss_info = jax.lax.pmean(
+                    (actor_grads, actor_loss_info), axis_name="device"
+                )
 
-                critic_grads, critic_loss_info = jax.lax.pmean((critic_grads, critic_loss_info), axis_name="batch")
+                critic_grads, critic_loss_info = jax.lax.pmean(
+                    (critic_grads, critic_loss_info), axis_name="batch"
+                )
                 # pmean over devices.
-                critic_grads, critic_loss_info = jax.lax.pmean((critic_grads, critic_loss_info), axis_name="device")
+                critic_grads, critic_loss_info = jax.lax.pmean(
+                    (critic_grads, critic_loss_info), axis_name="device"
+                )
 
                 # UPDATE ACTOR PARAMS AND OPTIMISER STATE
-                actor_updates, actor_new_opt_state = actor_update_fn(actor_grads, opt_states.actor_opt_state)
+                actor_updates, actor_new_opt_state = actor_update_fn(
+                    actor_grads, opt_states.actor_opt_state
+                )
                 actor_new_params = optax.apply_updates(params.actor_params, actor_updates)
 
                 # UPDATE CRITIC PARAMS AND OPTIMISER STATE
-                critic_updates, critic_new_opt_state = critic_update_fn(critic_grads, opt_states.critic_opt_state)
+                critic_updates, critic_new_opt_state = critic_update_fn(
+                    critic_grads, opt_states.critic_opt_state
+                )
                 critic_new_params = optax.apply_updates(params.critic_params, critic_updates)
 
                 new_params = ActorCriticParams(actor_new_params, critic_new_params)
@@ -271,7 +307,9 @@ def get_learner_fn(
 
             # SHUFFLE MINIBATCHES
             batch = (traj_batch, advantages, targets)
-            num_recurrent_chunks = config.system.rollout_length // config.system.recurrent_chunk_size
+            num_recurrent_chunks = (
+                config.system.rollout_length // config.system.recurrent_chunk_size
+            )
             batch = jax.tree_util.tree_map(
                 lambda x: x.reshape(
                     config.system.recurrent_chunk_size,
@@ -280,16 +318,24 @@ def get_learner_fn(
                 ),
                 batch,
             )
-            permutation = jax.random.permutation(shuffle_key, config.arch.num_envs * num_recurrent_chunks)
-            shuffled_batch = jax.tree_util.tree_map(lambda x: jnp.take(x, permutation, axis=1), batch)
+            permutation = jax.random.permutation(
+                shuffle_key, config.arch.num_envs * num_recurrent_chunks
+            )
+            shuffled_batch = jax.tree_util.tree_map(
+                lambda x: jnp.take(x, permutation, axis=1), batch
+            )
             reshaped_batch = jax.tree_util.tree_map(
-                lambda x: jnp.reshape(x, (x.shape[0], config.system.num_minibatches, -1, *x.shape[2:])),
+                lambda x: jnp.reshape(
+                    x, (x.shape[0], config.system.num_minibatches, -1, *x.shape[2:])
+                ),
                 shuffled_batch,
             )
             minibatches = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 1, 0), reshaped_batch)
 
             # UPDATE MINIBATCHES
-            (params, opt_states), loss_info = jax.lax.scan(_update_minibatch, (params, opt_states), minibatches)
+            (params, opt_states), loss_info = jax.lax.scan(
+                _update_minibatch, (params, opt_states), minibatches
+            )
 
             update_state = (
                 params,
@@ -314,7 +360,9 @@ def get_learner_fn(
         )
 
         # UPDATE EPOCHS
-        update_state, loss_info = jax.lax.scan(_update_epoch, update_state, None, config.system.ppo_epochs)
+        update_state, loss_info = jax.lax.scan(
+            _update_epoch, update_state, None, config.system.ppo_epochs
+        )
 
         params, opt_states, _, traj_batch, advantages, targets, key = update_state
         learner_state = RNNLearnerState(
@@ -378,16 +426,26 @@ def learner_setup(
     # Define network and optimisers.
     actor_pre_torso = hydra.utils.instantiate(config.network.actor_network.pre_torso)
     actor_post_torso = hydra.utils.instantiate(config.network.actor_network.post_torso)
-    actor_action_head = hydra.utils.instantiate(config.network.actor_network.action_head, action_dim=num_actions)
+    actor_action_head = hydra.utils.instantiate(
+        config.network.actor_network.action_head, action_dim=num_actions
+    )
     critic_pre_torso = hydra.utils.instantiate(config.network.critic_network.pre_torso)
     critic_post_torso = hydra.utils.instantiate(config.network.critic_network.post_torso)
     critic_head = hydra.utils.instantiate(config.network.critic_network.critic_head)
 
-    actor_network = Actor(pre_torso=actor_pre_torso, post_torso=actor_post_torso, action_head=actor_action_head)
-    critic_network = Critic(pre_torso=critic_pre_torso, post_torso=critic_post_torso, critic_head=critic_head)
+    actor_network = Actor(
+        pre_torso=actor_pre_torso, post_torso=actor_post_torso, action_head=actor_action_head
+    )
+    critic_network = Critic(
+        pre_torso=critic_pre_torso, post_torso=critic_post_torso, critic_head=critic_head
+    )
 
-    actor_lr = make_learning_rate(config.system.actor_lr, config, config.system.ppo_epochs, config.system.num_minibatches)
-    critic_lr = make_learning_rate(config.system.critic_lr, config, config.system.ppo_epochs, config.system.num_minibatches)
+    actor_lr = make_learning_rate(
+        config.system.actor_lr, config, config.system.ppo_epochs, config.system.num_minibatches
+    )
+    critic_lr = make_learning_rate(
+        config.system.critic_lr, config, config.system.ppo_epochs, config.system.num_minibatches
+    )
 
     actor_optim = optax.chain(
         optax.clip_by_global_norm(config.system.max_grad_norm),
@@ -450,11 +508,15 @@ def learner_setup(
         hstates = restored_hstates if restored_hstates else hstates
 
     # Initialise environment states and timesteps: across devices and batches.
-    key, *env_keys = jax.random.split(key, n_devices * config.system.update_batch_size * config.arch.num_envs + 1)
+    key, *env_keys = jax.random.split(
+        key, n_devices * config.system.update_batch_size * config.arch.num_envs + 1
+    )
     env_states, timesteps = jax.vmap(env.reset, in_axes=(0))(
         jnp.stack(env_keys),
     )
-    reshape_states = lambda x: x.reshape((n_devices, config.system.update_batch_size, config.arch.num_envs) + x.shape[1:])
+    reshape_states = lambda x: x.reshape(
+        (n_devices, config.system.update_batch_size, config.arch.num_envs) + x.shape[1:]
+    )
     # (devices, update batch size, num_envs, ...)
     env_states = jax.tree_map(reshape_states, env_states)
     timesteps = jax.tree_map(reshape_states, timesteps)
@@ -512,10 +574,14 @@ def run_experiment(_config: DictConfig) -> None:
     env, eval_env = environments.make(config)
 
     # PRNG keys.
-    key, key_e, actor_net_key, critic_net_key = jax.random.split(jax.random.PRNGKey(config.system.seed), num=4)
+    key, key_e, actor_net_key, critic_net_key = jax.random.split(
+        jax.random.PRNGKey(config.system.seed), num=4
+    )
 
     # Setup learner.
-    learn, actor_network, learner_state = learner_setup(env, (key, actor_net_key, critic_net_key), config)
+    learn, actor_network, learner_state = learner_setup(
+        env, (key, actor_net_key, critic_net_key), config
+    )
 
     # Setup evaluator.
     evaluator, absolute_metric_evaluator, (trained_params, eval_keys) = evaluator_setup(

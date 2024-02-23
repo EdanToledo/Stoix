@@ -51,7 +51,9 @@ def get_ff_evaluator_fn(
             # Select action.
             key, policy_key = jax.random.split(key)
 
-            pi = apply_fn(params, jax.tree_map(lambda x: x[jnp.newaxis, ...], last_timestep.observation))
+            pi = apply_fn(
+                params, jax.tree_map(lambda x: x[jnp.newaxis, ...], last_timestep.observation)
+            )
 
             if config.arch.evaluation_greedy:
                 action = pi.mode()
@@ -201,7 +203,9 @@ def get_rnn_evaluator_fn(
             eval_metrics["won_episode"] = jnp.all(final_state.timestep.reward >= 1.0).astype(int)
         return eval_metrics
 
-    def evaluator_fn(trained_params: FrozenDict, key: chex.PRNGKey) -> ExperimentOutput[RNNEvalState]:
+    def evaluator_fn(
+        trained_params: FrozenDict, key: chex.PRNGKey
+    ) -> ExperimentOutput[RNNEvalState]:
         """Evaluator function."""
 
         # Initialise environment states and timesteps.
@@ -217,7 +221,9 @@ def get_rnn_evaluator_fn(
         step_keys = jnp.stack(step_keys).reshape(eval_batch, -1)
 
         # Initialise hidden state.
-        init_hstate = scanned_rnn.initialize_carry(eval_batch, config.network.actor_network.pre_torso.layer_sizes[-1])
+        init_hstate = scanned_rnn.initialize_carry(
+            eval_batch, config.network.actor_network.pre_torso.layer_sizes[-1]
+        )
         init_hstate = jnp.expand_dims(init_hstate, axis=1)
 
         # Initialise dones.

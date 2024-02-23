@@ -20,7 +20,9 @@ class PostProcessedDistribution(Distribution):
     For example, for an algorithm that requires taking the log probability of the samples, the
     distribution should be transformed using a bijector, not a postprocessor."""
 
-    def __init__(self, distribution: Distribution, postprocessor: Callable[[chex.Array], chex.Array]):
+    def __init__(
+        self, distribution: Distribution, postprocessor: Callable[[chex.Array], chex.Array]
+    ):
         self.distribution = distribution
         self.postprocessor = postprocessor
 
