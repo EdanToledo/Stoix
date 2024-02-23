@@ -61,9 +61,7 @@ class Checkpointer:
         )
 
         orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
-        checkpoint_str = (
-            checkpoint_uid if checkpoint_uid else datetime.now().strftime("%Y%m%d%H%M%S")
-        )
+        checkpoint_str = checkpoint_uid if checkpoint_uid else datetime.now().strftime("%Y%m%d%H%M%S")
 
         options = orbax.checkpoint.CheckpointManagerOptions(
             create=True,
@@ -160,9 +158,7 @@ class Checkpointer:
         ), "Loaded checkpoint was created with a different major version of the checkpointer."
 
         # Restore the checkpoint, either the n-th (if specified) or just the latest
-        restored_checkpoint = self._manager.restore(
-            timestep if timestep else self._manager.latest_step()
-        )
+        restored_checkpoint = self._manager.restore(timestep if timestep else self._manager.latest_step())
 
         # Dictionary of the restored learner state
         restored_learner_state_raw = restored_checkpoint["learner_state"]

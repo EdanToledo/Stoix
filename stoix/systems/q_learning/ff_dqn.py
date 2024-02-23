@@ -58,9 +58,7 @@ def get_warmup_fn(
             done = timestep.last().reshape(-1)
             info = timestep.extras["episode_metrics"]
 
-            transition = Transition(
-                last_timestep.observation, action, timestep.reward, done, timestep.observation, info
-            )
+            transition = Transition(last_timestep.observation, action, timestep.reward, done, timestep.observation, info)
 
             return (env_state, timestep, key), transition
 
@@ -74,9 +72,7 @@ def get_warmup_fn(
 
         return env_states, timesteps, keys, buffer_states
 
-    batched_warmup_step: Callable = jax.vmap(
-        warmup, in_axes=(0, 0, 0, 0), out_axes=(0, 0, 0, 0), axis_name="batch"
-    )
+    batched_warmup_step: Callable = jax.vmap(warmup, in_axes=(0, 0, 0, 0), out_axes=(0, 0, 0, 0), axis_name="batch")
 
     return batched_warmup_step
 
@@ -109,19 +105,13 @@ def get_learner_fn(
             done = timestep.last().reshape(-1)
             info = timestep.extras["episode_metrics"]
 
-            transition = Transition(
-                last_timestep.observation, action, timestep.reward, done, timestep.observation, info
-            )
+            transition = Transition(last_timestep.observation, action, timestep.reward, done, timestep.observation, info)
 
-            learner_state = DQNLearnerState(
-                q_params, opt_states, buffer_state, key, env_state, timestep
-            )
+            learner_state = DQNLearnerState(q_params, opt_states, buffer_state, key, env_state, timestep)
             return learner_state, transition
 
         # STEP ENVIRONMENT FOR ROLLOUT LENGTH
-        learner_state, traj_batch = jax.lax.scan(
-            _env_step, learner_state, None, config.system.rollout_length
-        )
+        learner_state, traj_batch = jax.lax.scan(_env_step, learner_state, None, config.system.rollout_length)
 
         params, opt_states, buffer_state, key, env_state, last_timestep = learner_state
 
@@ -143,9 +133,9 @@ def get_learner_fn(
                 # Cast and clip rewards.
                 discount = 1.0 - transitions.done.astype(jnp.float32)
                 d_t = (discount * config.system.gamma).astype(jnp.float32)
-                r_t = jnp.clip(
-                    transitions.reward, -config.system.max_abs_reward, config.system.max_abs_reward
-                ).astype(jnp.float32)
+                r_t = jnp.clip(transitions.reward, -config.system.max_abs_reward, config.system.max_abs_reward).astype(
+                    jnp.float32
+                )
                 a_tm1 = transitions.action
 
                 # Compute Q-learning loss.
@@ -191,9 +181,7 @@ def get_learner_fn(
             q_updates, q_new_opt_state = q_update_fn(q_grads, opt_states)
             q_new_online_params = optax.apply_updates(params.online, q_updates)
             # Target network polyak update.
-            new_target_q_params = optax.incremental_update(
-                q_new_online_params, params.target, config.system.tau
-            )
+            new_target_q_params = optax.incremental_update(q_new_online_params, params.target, config.system.tau)
             q_new_params = QsAndTarget(q_new_online_params, new_target_q_params)
 
             # PACK NEW PARAMS AND OPTIMISER STATE
@@ -209,14 +197,10 @@ def get_learner_fn(
         update_state = (params, opt_states, buffer_state, key)
 
         # UPDATE EPOCHS
-        update_state, loss_info = jax.lax.scan(
-            _update_epoch, update_state, None, config.system.epochs
-        )
+        update_state, loss_info = jax.lax.scan(_update_epoch, update_state, None, config.system.epochs)
 
         params, opt_states, buffer_state, key = update_state
-        learner_state = DQNLearnerState(
-            params, opt_states, buffer_state, key, env_state, last_timestep
-        )
+        learner_state = DQNLearnerState(params, opt_states, buffer_state, key, env_state, last_timestep)
         metric = traj_batch.info
         return learner_state, (metric, loss_info)
 
@@ -326,15 +310,11 @@ def learner_setup(
     warmup = jax.pmap(warmup, axis_name="device")
 
     # Initialise environment states and timesteps: across devices and batches.
-    key, *env_keys = jax.random.split(
-        key, n_devices * config.system.update_batch_size * config.arch.num_envs + 1
-    )
+    key, *env_keys = jax.random.split(key, n_devices * config.system.update_batch_size * config.arch.num_envs + 1)
     env_states, timesteps = jax.vmap(env.reset, in_axes=(0))(
         jnp.stack(env_keys),
     )
-    reshape_states = lambda x: x.reshape(
-        (n_devices, config.system.update_batch_size, config.arch.num_envs) + x.shape[1:]
-    )
+    reshape_states = lambda x: x.reshape((n_devices, config.system.update_batch_size, config.arch.num_envs) + x.shape[1:])
     # (devices, update batch size, num_envs, ...)
     env_states = jax.tree_map(reshape_states, env_states)
     timesteps = jax.tree_map(reshape_states, timesteps)
@@ -365,12 +345,8 @@ def learner_setup(
     # Initialise learner state.
     params, opt_states, buffer_states, step_keys, warmup_keys = replicate_learner
     # Warmup the buffer.
-    env_states, timesteps, keys, buffer_states = warmup(
-        env_states, timesteps, buffer_states, warmup_keys
-    )
-    init_learner_state = DQNLearnerState(
-        params, opt_states, buffer_states, step_keys, env_states, timesteps
-    )
+    env_states, timesteps, keys, buffer_states = warmup(env_states, timesteps, buffer_states, warmup_keys)
+    init_learner_state = DQNLearnerState(params, opt_states, buffer_states, step_keys, env_states, timesteps)
 
     return learn, eval_q_network, init_learner_state
 
@@ -451,9 +427,7 @@ def run_experiment(_config: DictConfig) -> None:
 
         # Prepare for evaluation.
         start_time = time.time()
-        trained_params = unreplicate_batch_dim(
-            learner_output.learner_state.params.online
-        )  # Select only actor params
+        trained_params = unreplicate_batch_dim(learner_output.learner_state.params.online)  # Select only actor params
         key_e, *eval_keys = jax.random.split(key_e, n_devices + 1)
         eval_keys = jnp.stack(eval_keys)
         eval_keys = eval_keys.reshape(n_devices, -1)

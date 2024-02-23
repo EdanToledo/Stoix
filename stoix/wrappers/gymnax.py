@@ -42,12 +42,8 @@ class GymnaxWrapper(Wrapper):
 
     def step(self, state: GymnaxEnvState, action: chex.Array) -> Tuple[GymnaxEnvState, TimeStep]:
         key, key_step = jax.random.split(state.key)
-        obs, gymnax_state, reward, done, _ = self._env.step(
-            key_step, state.gymnax_env_state, action, self._env_params
-        )
-        state = GymnaxEnvState(
-            key=key, gymnax_env_state=gymnax_state, step_count=state.step_count + 1
-        )
+        obs, gymnax_state, reward, done, _ = self._env.step(key_step, state.gymnax_env_state, action, self._env_params)
+        state = GymnaxEnvState(key=key, gymnax_env_state=gymnax_state, step_count=state.step_count + 1)
 
         timestep = TimeStep(
             observation=Observation(obs, self._legal_action_mask, state.step_count),
@@ -65,9 +61,7 @@ class GymnaxWrapper(Wrapper):
         return specs.Spec(
             Observation,
             "ObservationSpec",
-            agent_view=Array(
-                shape=self._env.observation_space(self._env_params).shape, dtype=jnp.float32
-            ),
+            agent_view=Array(shape=self._env.observation_space(self._env_params).shape, dtype=jnp.float32),
             action_mask=Array(shape=(self.action_spec().num_values,), dtype=jnp.float32),
             step_count=Array(shape=(), dtype=jnp.int32),
         )

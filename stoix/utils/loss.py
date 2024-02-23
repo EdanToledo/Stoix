@@ -11,9 +11,7 @@ tfd = tfp.distributions
 # which is much slower.
 
 
-def ppo_loss(
-    pi_log_prob_t: chex.Array, b_pi_log_prob_t: chex.Array, gae_t: chex.Array, epsilon: float
-) -> chex.Array:
+def ppo_loss(pi_log_prob_t: chex.Array, b_pi_log_prob_t: chex.Array, gae_t: chex.Array, epsilon: float) -> chex.Array:
     ratio = jnp.exp(pi_log_prob_t - b_pi_log_prob_t)
     gae_t = (gae_t - gae_t.mean()) / (gae_t.std() + 1e-8)
     loss_actor1 = ratio * gae_t
@@ -52,9 +50,7 @@ def dpo_loss(
 def clipped_value_loss(
     pred_value_t: chex.Array, behavior_value_t: chex.Array, targets_t: chex.Array, epsilon: float
 ) -> chex.Array:
-    value_pred_clipped = behavior_value_t + (pred_value_t - behavior_value_t).clip(
-        -epsilon, epsilon
-    )
+    value_pred_clipped = behavior_value_t + (pred_value_t - behavior_value_t).clip(-epsilon, epsilon)
     value_losses = jnp.square(pred_value_t - targets_t)
     value_losses_clipped = jnp.square(value_pred_clipped - targets_t)
     value_loss = 0.5 * jnp.maximum(value_losses, value_losses_clipped).mean()
@@ -178,17 +174,13 @@ def munchausen_q_learning(
     q_tm1_a = jnp.sum(q_tm1 * action_one_hot, axis=-1)
     # Compute double Q-learning loss.
     # Munchausen term : tau * log_pi(a|s)
-    munchausen_term = entropy_temperature * jax.nn.log_softmax(
-        q_tm1_target / entropy_temperature, axis=-1
-    )
+    munchausen_term = entropy_temperature * jax.nn.log_softmax(q_tm1_target / entropy_temperature, axis=-1)
     munchausen_term_a = jnp.sum(action_one_hot * munchausen_term, axis=-1)
     munchausen_term_a = jnp.clip(munchausen_term_a, a_min=clip_value_min, a_max=0.0)
 
     # Soft Bellman operator applied to q
     next_v = entropy_temperature * jax.nn.logsumexp(q_t_target / entropy_temperature, axis=-1)
-    target_q = jax.lax.stop_gradient(
-        r_t + munchausen_coefficient * munchausen_term_a + d_t * next_v
-    )
+    target_q = jax.lax.stop_gradient(r_t + munchausen_coefficient * munchausen_term_a + d_t * next_v)
 
     batch_loss = rlax.huber_loss(target_q - q_tm1_a, huber_loss_parameter)
     batch_loss = jnp.mean(batch_loss)

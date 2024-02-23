@@ -15,9 +15,7 @@ from tensorflow_probability.substrates.jax.distributions import (
 class TanhTransformedDistribution(TransformedDistribution):
     """Distribution followed by tanh."""
 
-    def __init__(
-        self, distribution: Distribution, threshold: float = 0.999, validate_args: bool = False
-    ) -> None:
+    def __init__(self, distribution: Distribution, threshold: float = 0.999, validate_args: bool = False) -> None:
         """Initialize the distribution.
 
         Args:
@@ -25,9 +23,7 @@ class TanhTransformedDistribution(TransformedDistribution):
           threshold: Clipping value of the action when computing the logprob.
           validate_args: Passed to super class.
         """
-        super().__init__(
-            distribution=distribution, bijector=tfp.bijectors.Tanh(), validate_args=validate_args
-        )
+        super().__init__(distribution=distribution, bijector=tfp.bijectors.Tanh(), validate_args=validate_args)
         # Computes the log of the average probability distribution outside the
         # clipping range, i.e. on the interval [-inf, -atanh(threshold)] for
         # log_prob_left and [atanh(threshold), inf] for log_prob_right.
@@ -39,9 +35,7 @@ class TanhTransformedDistribution(TransformedDistribution):
         # Those 2 values are differentiable w.r.t. model parameters, such that the
         # gradient is defined everywhere.
         self._log_prob_left = self.distribution.log_cdf(-inverse_threshold) - log_epsilon
-        self._log_prob_right = (
-            self.distribution.log_survival_function(inverse_threshold) - log_epsilon
-        )
+        self._log_prob_right = self.distribution.log_survival_function(inverse_threshold) - log_epsilon
 
     def log_prob(self, event: chex.Array) -> chex.Array:
         # Without this clip there would be NaNs in the inner tf.where and that

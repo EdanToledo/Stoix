@@ -15,9 +15,7 @@ def calculate_gae(
     """Calculate the Generalized Advantage Estimation (GAE) for a batch of trajectories.
     Trajectories are assumed to have the sequence dimension as the first dimension."""
 
-    def _get_advantages(
-        gae_and_next_value: Tuple, transition: Tuple[chex.Array, chex.Array, chex.Array]
-    ) -> Tuple:
+    def _get_advantages(gae_and_next_value: Tuple, transition: Tuple[chex.Array, chex.Array, chex.Array]) -> Tuple:
         """Calculate the GAE for a single transition."""
         gae, next_value = gae_and_next_value
 

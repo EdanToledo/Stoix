@@ -18,22 +18,32 @@ from omegaconf import DictConfig, OmegaConf
 from rich.pretty import pprint
 
 from stoix.evaluator import evaluator_setup
+from stoix.networks.base import CompositeNetwork
 from stoix.networks.base import FeedForwardActor as Actor
-from stoix.systems.q_learning.types import DQNLearnerState, QsAndTarget, Transition
+from stoix.systems.mpo.types import (
+    ActorAndTarget,
+    DualParams,
+    MPOLearnerState,
+    MPOOptStates,
+    MPOParams,
+)
+from stoix.systems.mpo.utils import clip_dual_params, mpo_loss
+from stoix.systems.q_learning.types import QsAndTarget, Transition
+from stoix.systems.sac.types import ContinuousQApply
 from stoix.types import ActorApply, ExperimentOutput, LearnerFn, LogEnvState
 from stoix.utils import make_env as environments
 from stoix.utils.checkpointing import Checkpointer
 from stoix.utils.jax import unreplicate_batch_dim, unreplicate_n_dims
 from stoix.utils.logger import LogEvent, StoixLogger
-from stoix.utils.loss import double_q_learning
+from stoix.utils.loss import td_learning
 from stoix.utils.total_timestep_checker import check_total_timesteps
 from stoix.utils.training import make_learning_rate
 
 
 def get_warmup_fn(
     env: Environment,
-    q_params: FrozenDict,
-    q_apply_fn: ActorApply,
+    params: MPOParams,
+    actor_apply_fn: ActorApply,
     buffer_add_fn: Callable,
     config: DictConfig,
 ) -> Callable:
@@ -48,7 +58,7 @@ def get_warmup_fn(
             env_state, last_timestep, key = carry
             # SELECT ACTION
             key, policy_key = jax.random.split(key)
-            actor_policy = q_apply_fn(q_params.online, last_timestep.observation)
+            actor_policy = actor_apply_fn(params.actor_params.online, last_timestep.observation)
             action = actor_policy.sample(seed=policy_key)
 
             # STEP ENVIRONMENT
@@ -57,8 +67,9 @@ def get_warmup_fn(
             # LOG EPISODE METRICS
             done = timestep.last().reshape(-1)
             info = timestep.extras["episode_metrics"]
+            real_next_obs = timestep.extras["final_observation"]
 
-            transition = Transition(last_timestep.observation, action, timestep.reward, done, timestep.observation, info)
+            transition = Transition(last_timestep.observation, action, timestep.reward, done, real_next_obs, info)
 
             return (env_state, timestep, key), transition
 
@@ -79,23 +90,27 @@ def get_warmup_fn(
 
 def get_learner_fn(
     env: Environment,
-    q_apply_fn: ActorApply,
-    q_update_fn: optax.TransformUpdateFn,
+    apply_fns: Tuple[ActorApply, ContinuousQApply],
+    update_fns: Tuple[optax.TransformUpdateFn, optax.TransformUpdateFn, optax.TransformUpdateFn],
     buffer_fns: Tuple[Callable, Callable],
     config: DictConfig,
-) -> LearnerFn[DQNLearnerState]:
+) -> LearnerFn[MPOLearnerState]:
     """Get the learner function."""
 
+    # Get apply and update functions for actor and critic networks.
+    actor_apply_fn, q_apply_fn = apply_fns
+    actor_update_fn, q_update_fn, dual_update_fn = update_fns
     buffer_add_fn, buffer_sample_fn = buffer_fns
 
-    def _update_step(learner_state: DQNLearnerState, _: Any) -> Tuple[DQNLearnerState, Tuple]:
-        def _env_step(learner_state: DQNLearnerState, _: Any) -> Tuple[DQNLearnerState, Transition]:
+    def _update_step(learner_state: MPOLearnerState, _: Any) -> Tuple[MPOLearnerState, Tuple]:
+        def _env_step(learner_state: MPOLearnerState, _: Any) -> Tuple[MPOLearnerState, Transition]:
             """Step the environment."""
-            q_params, opt_states, buffer_state, key, env_state, last_timestep = learner_state
+            params, opt_states, buffer_state, key, env_state, last_timestep = learner_state
 
             # SELECT ACTION
             key, policy_key = jax.random.split(key)
-            actor_policy = q_apply_fn(q_params.online, last_timestep.observation)
+            actor_policy = actor_apply_fn(params.actor_params.online, last_timestep.observation)
+
             action = actor_policy.sample(seed=policy_key)
 
             # STEP ENVIRONMENT
@@ -104,10 +119,11 @@ def get_learner_fn(
             # LOG EPISODE METRICS
             done = timestep.last().reshape(-1)
             info = timestep.extras["episode_metrics"]
+            real_next_obs = timestep.extras["final_observation"]
 
-            transition = Transition(last_timestep.observation, action, timestep.reward, done, timestep.observation, info)
+            transition = Transition(last_timestep.observation, action, timestep.reward, done, real_next_obs, info)
 
-            learner_state = DQNLearnerState(q_params, opt_states, buffer_state, key, env_state, timestep)
+            learner_state = MPOLearnerState(params, opt_states, buffer_state, key, env_state, timestep)
             return learner_state, transition
 
         # STEP ENVIRONMENT FOR ROLLOUT LENGTH
@@ -121,15 +137,49 @@ def get_learner_fn(
         def _update_epoch(update_state: Tuple, _: Any) -> Tuple:
             """Update the network for a single epoch."""
 
-            def _q_loss_fn(
-                q_params: FrozenDict,
+            def _actor_loss_fn(
+                online_actor_params: FrozenDict,
+                dual_params: DualParams,
+                target_actor_params: FrozenDict,
                 target_q_params: FrozenDict,
                 transitions: Transition,
+                key: chex.PRNGKey,
+            ) -> chex.Array:
+                online_actor_policy = actor_apply_fn(online_actor_params, transitions.obs)
+                target_actor_policy = actor_apply_fn(target_actor_params, transitions.obs)
+                target_sampled_actions = target_actor_policy.sample(seed=key, sample_shape=config.system.num_samples)
+                target_sampled_q_values = jax.vmap(q_apply_fn, in_axes=(None, None, 0))(
+                    target_q_params, transitions.obs, target_sampled_actions
+                )
+
+                # Compute the policy and dual loss.
+                loss, loss_info = mpo_loss(
+                    dual_params=dual_params,
+                    online_action_distribution=online_actor_policy,
+                    target_action_distribution=target_actor_policy,
+                    target_sampled_actions=target_sampled_actions,
+                    target_sampled_q_values=target_sampled_q_values,
+                    epsilon=config.system.epsilon,
+                    epsilon_mean=config.system.epsilon_mean,
+                    epsilon_stddev=config.system.epsilon_stddev,
+                    per_dim_constraining=config.system.per_dim_constraining,
+                    action_penalization=config.system.action_penalization,
+                    epsilon_penalty=config.system.epsilon_penalty,
+                )
+
+                return jnp.mean(loss), loss_info
+
+            def _q_loss_fn(
+                online_q_params: FrozenDict,
+                target_q_params: FrozenDict,
+                target_actor_params: FrozenDict,
+                transitions: Transition,
+                rng_key: chex.PRNGKey,
             ) -> jnp.ndarray:
 
-                q_tm1 = q_apply_fn(q_params, transitions.obs).preferences
-                q_t_value = q_apply_fn(target_q_params, transitions.next_obs).preferences
-                q_t_selector = q_apply_fn(q_params, transitions.next_obs).preferences
+                q_tm1 = q_apply_fn(online_q_params, transitions.obs, transitions.action)
+                next_action = actor_apply_fn(target_actor_params, transitions.next_obs).sample(seed=rng_key)
+                q_t = q_apply_fn(target_q_params, transitions.next_obs, next_action)
 
                 # Cast and clip rewards.
                 discount = 1.0 - transitions.done.astype(jnp.float32)
@@ -137,61 +187,88 @@ def get_learner_fn(
                 r_t = jnp.clip(transitions.reward, -config.system.max_abs_reward, config.system.max_abs_reward).astype(
                     jnp.float32
                 )
-                a_tm1 = transitions.action
-                # Compute double Q-learning loss.
-                batch_loss = double_q_learning(
-                    q_tm1,
-                    q_t_value,
-                    a_tm1,
-                    r_t,
-                    d_t,
-                    q_t_selector,
-                    config.system.huber_loss_parameter,
-                )
+
+                q_loss = td_learning(q_tm1, r_t, d_t, q_t, config.system.huber_loss_parameter)
 
                 loss_info = {
-                    "q_loss": jnp.mean(batch_loss),
+                    "q_loss": q_loss,
                 }
 
-                return jnp.mean(batch_loss), loss_info
+                return q_loss, loss_info
 
             params, opt_states, buffer_state, key = update_state
 
-            key, sample_key = jax.random.split(key)
+            key, sample_key, actor_key, q_key = jax.random.split(key, num=4)
 
             # SAMPLE TRANSITIONS
             transition_sample = buffer_sample_fn(buffer_state, sample_key)
             transitions: Transition = transition_sample.experience
 
+            # CALCULATE ACTOR AND DUAL LOSS
+            actor_dual_grad_fn = jax.grad(_actor_loss_fn, argnums=(0, 1), has_aux=True)
+            actor_dual_grads, actor_loss_info = actor_dual_grad_fn(
+                params.actor_params.online,
+                params.dual_params,
+                params.actor_params.target,
+                params.q_params.target,
+                transitions,
+                actor_key,
+            )
+
             # CALCULATE Q LOSS
             q_grad_fn = jax.grad(_q_loss_fn, has_aux=True)
             q_grads, q_loss_info = q_grad_fn(
-                params.online,
-                params.target,
+                params.q_params.online,
+                params.q_params.target,
+                params.actor_params.target,
                 transitions,
+                q_key,
             )
 
             # Compute the parallel mean (pmean) over the batch.
             # This calculation is inspired by the Anakin architecture demo notebook.
             # available at https://tinyurl.com/26tdzs5x
             # This pmean could be a regular mean as the batch axis is on the same device.
+            actor_dual_grads, actor_loss_info = jax.lax.pmean((actor_dual_grads, actor_loss_info), axis_name="batch")
+            # pmean over devices.
+            actor_dual_grads, actor_loss_info = jax.lax.pmean((actor_dual_grads, actor_loss_info), axis_name="device")
+
             q_grads, q_loss_info = jax.lax.pmean((q_grads, q_loss_info), axis_name="batch")
             q_grads, q_loss_info = jax.lax.pmean((q_grads, q_loss_info), axis_name="device")
 
+            actor_grads, dual_grads = actor_dual_grads
+
+            # UPDATE ACTOR PARAMS AND OPTIMISER STATE
+            actor_updates, actor_new_opt_state = actor_update_fn(actor_grads, opt_states.actor_opt_state)
+            actor_new_online_params = optax.apply_updates(params.actor_params.online, actor_updates)
+
+            # UPDATE DUAL PARAMS AND OPTIMISER STATE
+            dual_updates, dual_new_opt_state = dual_update_fn(dual_grads, opt_states.dual_opt_state)
+            dual_new_params = optax.apply_updates(params.dual_params, dual_updates)
+            dual_new_params = clip_dual_params(dual_new_params, config.system.per_dim_constraining)
+
             # UPDATE Q PARAMS AND OPTIMISER STATE
-            q_updates, q_new_opt_state = q_update_fn(q_grads, opt_states)
-            q_new_online_params = optax.apply_updates(params.online, q_updates)
+            q_updates, q_new_opt_state = q_update_fn(q_grads, opt_states.q_opt_state)
+            q_new_online_params = optax.apply_updates(params.q_params.online, q_updates)
             # Target network polyak update.
-            new_target_q_params = optax.incremental_update(q_new_online_params, params.target, config.system.tau)
+            (new_target_actor_params, new_target_q_params) = optax.incremental_update(
+                (actor_new_online_params, q_new_online_params),
+                (params.actor_params.target, params.q_params.target),
+                config.system.tau,
+            )
+
+            actor_new_params = ActorAndTarget(actor_new_online_params, new_target_actor_params)
             q_new_params = QsAndTarget(q_new_online_params, new_target_q_params)
 
             # PACK NEW PARAMS AND OPTIMISER STATE
-            new_params = q_new_params
-            new_opt_state = q_new_opt_state
+            new_params = MPOParams(actor_new_params, q_new_params, dual_new_params)
+            new_opt_state = MPOOptStates(actor_new_opt_state, q_new_opt_state, dual_new_opt_state)
 
             # PACK LOSS INFO
+            loss_info = actor_loss_info._asdict()
             loss_info = {
-                "total_loss": q_loss_info["q_loss"],
+                **loss_info,
+                "value_loss": q_loss_info["q_loss"],
             }
             return (new_params, new_opt_state, buffer_state, key), loss_info
 
@@ -201,17 +278,16 @@ def get_learner_fn(
         update_state, loss_info = jax.lax.scan(_update_epoch, update_state, None, config.system.epochs)
 
         params, opt_states, buffer_state, key = update_state
-        learner_state = DQNLearnerState(params, opt_states, buffer_state, key, env_state, last_timestep)
+        learner_state = MPOLearnerState(params, opt_states, buffer_state, key, env_state, last_timestep)
         metric = traj_batch.info
         return learner_state, (metric, loss_info)
 
-    def learner_fn(learner_state: DQNLearnerState) -> ExperimentOutput[DQNLearnerState]:
+    def learner_fn(learner_state: MPOLearnerState) -> ExperimentOutput[MPOLearnerState]:
         """Learner function.
 
         This function represents the learner, it updates the network parameters
         by iteratively applying the `_update_step` function for a fixed number of
         updates. The `_update_step` function is vectorized over a batch of inputs.
-
         """
 
         batched_update_step = jax.vmap(_update_step, in_axes=(0, None), axis_name="batch")
@@ -230,36 +306,34 @@ def get_learner_fn(
 
 def learner_setup(
     env: Environment, keys: chex.Array, config: DictConfig
-) -> Tuple[LearnerFn[DQNLearnerState], Actor, DQNLearnerState]:
+) -> Tuple[LearnerFn[MPOLearnerState], Actor, MPOLearnerState]:
     """Initialise learner_fn, network, optimiser, environment and states."""
     # Get available TPU cores.
     n_devices = len(jax.devices())
 
-    # Get number of actions.
-    action_dim = int(env.action_spec().num_values)
+    # Get number of actions or action dimension from the environment.
+    action_dim = int(env.action_spec().shape[-1])
     config.system.action_dim = action_dim
 
     # PRNG keys.
-    key, q_net_key = keys
+    key, actor_net_key, q_net_key = keys
 
-    # Define networks and optimiser.
-    q_network_torso = hydra.utils.instantiate(config.network.actor_network.pre_torso)
-    q_network_action_head = hydra.utils.instantiate(
-        config.network.actor_network.action_head,
-        action_dim=action_dim,
-        epsilon=config.system.training_epsilon,
-    )
+    # Define actor_network, q_network and optimiser.
+    actor_torso = hydra.utils.instantiate(config.network.actor_network.pre_torso)
+    actor_action_head = hydra.utils.instantiate(config.network.actor_network.action_head, action_dim=action_dim)
+    actor_network = Actor(torso=actor_torso, action_head=actor_action_head)
+    q_network_input = hydra.utils.instantiate(config.network.q_network.input_layer)
+    q_network_torso = hydra.utils.instantiate(config.network.q_network.pre_torso)
+    q_network_head = hydra.utils.instantiate(config.network.q_network.critic_head)
+    q_network = CompositeNetwork([q_network_input, q_network_torso, q_network_head])
 
-    q_network = Actor(torso=q_network_torso, action_head=q_network_action_head)
-
-    eval_q_network_action_head = hydra.utils.instantiate(
-        config.network.actor_network.action_head,
-        action_dim=action_dim,
-        epsilon=config.system.evaluation_epsilon,
-    )
-    eval_q_network = Actor(torso=q_network_torso, action_head=eval_q_network_action_head)
-
+    actor_lr = make_learning_rate(config.system.actor_lr, config, config.system.epochs)
     q_lr = make_learning_rate(config.system.q_lr, config, config.system.epochs)
+
+    actor_optim = optax.chain(
+        optax.clip_by_global_norm(config.system.max_grad_norm),
+        optax.adam(actor_lr, eps=1e-5),
+    )
     q_optim = optax.chain(
         optax.clip_by_global_norm(config.system.max_grad_norm),
         optax.adam(q_lr, eps=1e-5),
@@ -268,25 +342,67 @@ def learner_setup(
     # Initialise observation: Select only obs for a single agent.
     init_x = env.observation_spec().generate_value()
     init_x = jax.tree_util.tree_map(lambda x: x[None, ...], init_x)
+    init_a = jnp.zeros((1, action_dim))
+
+    # Initialise actor params and optimiser state.
+    actor_params = actor_network.init(actor_net_key, init_x)
+    target_actor_params = actor_params
+    actor_opt_state = actor_optim.init(actor_params)
 
     # Initialise q params and optimiser state.
-    q_online_params = q_network.init(q_net_key, init_x)
-    q_target_params = q_online_params
-    q_opt_state = q_optim.init(q_online_params)
+    online_q_params = q_network.init(q_net_key, init_x, init_a)
+    target_q_params = online_q_params
+    q_opt_state = q_optim.init(online_q_params)
 
-    params = QsAndTarget(q_online_params, q_target_params)
-    opt_states = q_opt_state
+    # Initialise MPO Dual params and optimiser state.
+    if config.system.per_dim_constraining:
+        dual_variable_shape = [action_dim]
+    else:
+        dual_variable_shape = [1]
 
-    vmapped_q_network_apply_fn = q_network.apply
+    log_temperature = jnp.full([1], config.system.init_log_temperature, dtype=jnp.float32)
+
+    log_alpha_mean = jnp.full(dual_variable_shape, config.system.init_log_alpha_mean, dtype=jnp.float32)
+
+    log_alpha_stddev = jnp.full(dual_variable_shape, config.system.init_log_alpha_stddev, dtype=jnp.float32)
+
+    if config.system.action_penalization:
+        log_penalty_temperature = jnp.full([1], config.system.init_log_temperature, dtype=jnp.float32)
+    else:
+        log_penalty_temperature = None
+
+    dual_params = DualParams(
+        log_temperature=log_temperature,
+        log_alpha_mean=log_alpha_mean,
+        log_alpha_stddev=log_alpha_stddev,
+        log_penalty_temperature=log_penalty_temperature,
+    )
+
+    dual_lr = make_learning_rate(config.system.dual_lr, config, config.system.epochs)
+    dual_optim = optax.chain(
+        optax.clip_by_global_norm(config.system.max_grad_norm),
+        optax.adam(dual_lr, eps=1e-5),
+    )
+    dual_opt_state = dual_optim.init(dual_params)
+
+    params = MPOParams(
+        ActorAndTarget(actor_params, target_actor_params),
+        QsAndTarget(online_q_params, target_q_params),
+        dual_params,
+    )
+    opt_states = MPOOptStates(actor_opt_state, q_opt_state, dual_opt_state)
+
+    actor_network_apply_fn = actor_network.apply
+    q_network_apply_fn = q_network.apply
 
     # Pack apply and update functions.
-    apply_fns = vmapped_q_network_apply_fn
-    update_fns = q_optim.update
+    apply_fns = (actor_network_apply_fn, q_network_apply_fn)
+    update_fns = (actor_optim.update, q_optim.update, dual_optim.update)
 
     # Create replay buffer
     dummy_transition = Transition(
         obs=jax.tree_util.tree_map(lambda x: x.squeeze(0), init_x),
-        action=jnp.zeros((), dtype=int),
+        action=jnp.zeros((action_dim), dtype=float),
         reward=jnp.zeros((), dtype=float),
         done=jnp.zeros((), dtype=bool),
         next_obs=jax.tree_util.tree_map(lambda x: x.squeeze(0), init_x),
@@ -307,7 +423,7 @@ def learner_setup(
     learn = get_learner_fn(env, apply_fns, update_fns, buffer_fns, config)
     learn = jax.pmap(learn, axis_name="device")
 
-    warmup = get_warmup_fn(env, params, vmapped_q_network_apply_fn, buffer_fn.add, config)
+    warmup = get_warmup_fn(env, params, actor_network_apply_fn, buffer_fn.add, config)
     warmup = jax.pmap(warmup, axis_name="device")
 
     # Initialise environment states and timesteps: across devices and batches.
@@ -327,7 +443,7 @@ def learner_setup(
             **config.logger.checkpointing.load_args,  # Other checkpoint args
         )
         # Restore the learner state from the checkpoint
-        restored_params, _ = loaded_checkpoint.restore_params(TParams=QsAndTarget)
+        restored_params, _ = loaded_checkpoint.restore_params(TParams=MPOParams)
         # Update the params
         params = restored_params
 
@@ -347,9 +463,9 @@ def learner_setup(
     params, opt_states, buffer_states, step_keys, warmup_keys = replicate_learner
     # Warmup the buffer.
     env_states, timesteps, keys, buffer_states = warmup(env_states, timesteps, buffer_states, warmup_keys)
-    init_learner_state = DQNLearnerState(params, opt_states, buffer_states, step_keys, env_states, timesteps)
+    init_learner_state = MPOLearnerState(params, opt_states, buffer_states, step_keys, env_states, timesteps)
 
-    return learn, eval_q_network, init_learner_state
+    return learn, actor_network, init_learner_state
 
 
 def run_experiment(_config: DictConfig) -> None:
@@ -367,17 +483,17 @@ def run_experiment(_config: DictConfig) -> None:
     env, eval_env = environments.make(config=config)
 
     # PRNG keys.
-    key, key_e, q_net_key = jax.random.split(jax.random.PRNGKey(config["system"]["seed"]), num=3)
+    key, key_e, actor_net_key, q_net_key = jax.random.split(jax.random.PRNGKey(config["system"]["seed"]), num=4)
 
     # Setup learner.
-    learn, eval_q_network, learner_state = learner_setup(env, (key, q_net_key), config)
+    learn, actor_network, learner_state = learner_setup(env, (key, actor_net_key, q_net_key), config)
 
     # Setup evaluator.
     evaluator, absolute_metric_evaluator, (trained_params, eval_keys) = evaluator_setup(
         eval_env=eval_env,
         key_e=key_e,
-        network=eval_q_network,
-        params=learner_state.params.online,
+        network=actor_network,
+        params=learner_state.params.actor_params.online,
         config=config,
     )
 
@@ -408,7 +524,7 @@ def run_experiment(_config: DictConfig) -> None:
 
     # Run experiment for a total number of evaluations.
     max_episode_return = jnp.float32(-1e6)
-    best_params = unreplicate_batch_dim(learner_state.params.online)
+    best_params = unreplicate_batch_dim(learner_state.params.actor_params.online)
     for eval_step in range(config.arch.num_evaluation):
         # Train.
         start_time = time.time()
@@ -428,7 +544,9 @@ def run_experiment(_config: DictConfig) -> None:
 
         # Prepare for evaluation.
         start_time = time.time()
-        trained_params = unreplicate_batch_dim(learner_output.learner_state.params.online)  # Select only actor params
+        trained_params = unreplicate_batch_dim(
+            learner_output.learner_state.params.actor_params.online
+        )  # Select only actor params
         key_e, *eval_keys = jax.random.split(key_e, n_devices + 1)
         eval_keys = jnp.stack(eval_keys)
         eval_keys = eval_keys.reshape(n_devices, -1)
@@ -478,7 +596,7 @@ def run_experiment(_config: DictConfig) -> None:
     logger.stop()
 
 
-@hydra.main(config_path="../../configs", config_name="default_ff_ddqn.yaml", version_base="1.2")
+@hydra.main(config_path="../../configs", config_name="default_ff_mpo_continuous.yaml", version_base="1.2")
 def hydra_entry_point(cfg: DictConfig) -> None:
     """Experiment entry point."""
     # Allow dynamic attributes.
@@ -487,7 +605,7 @@ def hydra_entry_point(cfg: DictConfig) -> None:
     # Run experiment.
     run_experiment(cfg)
 
-    print(f"{Fore.CYAN}{Style.BRIGHT}DDQN experiment completed{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}{Style.BRIGHT}MPO experiment completed{Style.RESET_ALL}")
 
 
 if __name__ == "__main__":

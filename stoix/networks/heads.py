@@ -46,10 +46,7 @@ class NormalTanhDistributionHead(nn.Module):
     def __call__(self, embedding: chex.Array) -> Independent:
 
         loc = nn.Dense(self.action_dim, kernel_init=self.kernel_init)(embedding)
-        scale = (
-            jax.nn.softplus(nn.Dense(self.action_dim, kernel_init=self.kernel_init)(embedding))
-            + self.min_scale
-        )
+        scale = jax.nn.softplus(nn.Dense(self.action_dim, kernel_init=self.kernel_init)(embedding)) + self.min_scale
         distribution = Normal(loc=loc, scale=scale)
 
         return Independent(TanhTransformedDistribution(distribution), reinterpreted_batch_ndims=1)
@@ -188,13 +185,9 @@ class DistributionalDiscreteQNetwork(nn.Module):
     kernel_init: Initializer = lecun_normal()
 
     @nn.compact
-    def __call__(
-        self, embedding: chex.Array
-    ) -> Tuple[distrax.EpsilonGreedy, chex.Array, chex.Array]:
+    def __call__(self, embedding: chex.Array) -> Tuple[distrax.EpsilonGreedy, chex.Array, chex.Array]:
         atoms = jnp.linspace(self.v_min, self.v_max, self.num_atoms)
-        q_logits = nn.Dense(self.action_dim * self.num_atoms, kernel_init=self.kernel_init)(
-            embedding
-        )
+        q_logits = nn.Dense(self.action_dim * self.num_atoms, kernel_init=self.kernel_init)(embedding)
         q_logits = jnp.reshape(q_logits, (-1, self.action_dim, self.num_atoms))
         q_dist = jax.nn.softmax(q_logits)
         q_values = jnp.sum(q_dist * atoms, axis=2)
@@ -210,9 +203,7 @@ class DistributionalContinuousQNetwork(nn.Module):
     kernel_init: Initializer = lecun_normal()
 
     @nn.compact
-    def __call__(
-        self, embedding: chex.Array
-    ) -> Tuple[distrax.EpsilonGreedy, chex.Array, chex.Array]:
+    def __call__(self, embedding: chex.Array) -> Tuple[distrax.EpsilonGreedy, chex.Array, chex.Array]:
         atoms = jnp.linspace(self.v_min, self.v_max, self.num_atoms)
         q_logits = nn.Dense(self.num_atoms, kernel_init=self.kernel_init)(embedding)
         q_dist = jax.nn.softmax(q_logits)
@@ -229,9 +220,7 @@ class QuantileDiscreteQNetwork(nn.Module):
 
     @nn.compact
     def __call__(self, embedding: chex.Array) -> Tuple[distrax.EpsilonGreedy, chex.Array]:
-        q_logits = nn.Dense(self.action_dim * self.num_quantiles, kernel_init=self.kernel_init)(
-            embedding
-        )
+        q_logits = nn.Dense(self.action_dim * self.num_quantiles, kernel_init=self.kernel_init)(embedding)
         q_dist = jnp.reshape(q_logits, (-1, self.action_dim, self.num_quantiles))
         q_values = jnp.mean(q_dist, axis=-1)
         q_values = jax.lax.stop_gradient(q_values)
