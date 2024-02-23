@@ -178,8 +178,15 @@ def get_learner_fn(
             ) -> jnp.ndarray:
 
                 q_tm1 = q_apply_fn(online_q_params, transitions.obs, transitions.action)
-                next_action = actor_apply_fn(target_actor_params, transitions.next_obs).sample(seed=rng_key)
-                q_t = q_apply_fn(target_q_params, transitions.next_obs, next_action)
+                if config.system.stochastic_policy_eval:
+                    next_actions = actor_apply_fn(target_actor_params, transitions.next_obs).sample(
+                        seed=rng_key, sample_shape=config.system.policy_eval_num_samples
+                    )
+                else:
+                    next_actions = actor_apply_fn(target_actor_params, transitions.next_obs).mode()[jnp.newaxis, ...]
+                q_t = jax.vmap(q_apply_fn, in_axes=(None, None, 0))(target_q_params, transitions.next_obs, next_actions)
+                # Compute the mean over the sampled action dimension.
+                q_t = jnp.mean(q_t, axis=0)
 
                 # Cast and clip rewards.
                 discount = 1.0 - transitions.done.astype(jnp.float32)

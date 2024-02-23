@@ -7,8 +7,8 @@ seed: 0
 
 # --- RL hyperparameters ---
 update_batch_size: 1 # Number of vectorised gradient updates per device.
-rollout_length: 5 # Number of environment steps per vectorised environment.
-epochs: 16 # Number of sgd steps per rollout.
+rollout_length: 8 # Number of environment steps per vectorised environment.
+epochs: 32 # Number of sgd steps per rollout.
 warmup_steps: 256  # Number of steps to collect before training.
 buffer_size: 100_000 # size of the replay buffer.
 batch_size: 256 # Number of samples to train on per device.
@@ -31,3 +31,5 @@ init_log_alpha_stddev: 1000. # initial value for the alpha_stddev in log-space, 
 per_dim_constraining: True # whether to enforce the KL constraint on each dimension independently; this is the default. Otherwise the overall KL is constrained, which allows some dimensions to change more at the expense of others staying put.
 action_penalization: True # whether to use a KL constraint to penalize actions via the MO-MPO algorithm.
 epsilon_penalty: 0.001 # KL constraint on the probability of violating the action constraint.
+stochastic_policy_eval: True # whether to use a stochastic policy for Q function target evaluation.
+policy_eval_num_samples: 128 # Number of samples to use for Q function target evaluation if stochastic.
