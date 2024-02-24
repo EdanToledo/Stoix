@@ -32,10 +32,15 @@ class DualParams(NamedTuple):
     log_penalty_temperature: Optional[chex.Array] = None
 
 
+class CategoricalDualParams(NamedTuple):
+    log_temperature: chex.Array
+    log_alpha: chex.Array
+
+
 class MPOParams(NamedTuple):
     actor_params: FrozenDict
     q_params: QsAndTarget
-    dual_params: DualParams
+    dual_params: Union[DualParams, CategoricalDualParams]
 
 
 class MPOOptStates(NamedTuple):
@@ -74,3 +79,25 @@ class MPOStats(NamedTuple):
     pi_stddev_cond: Union[float, chex.Array]
 
     penalty_kl_q_rel: Optional[float] = None
+
+
+class CategoricalMPOStats(NamedTuple):
+    dual_alpha: float
+    dual_temperature: float
+
+    loss_e_step: float
+    loss_m_step: float
+    loss_dual: float
+
+    loss_policy: float
+    loss_alpha: float
+    loss_temperature: float
+
+    kl_q_rel: float
+    kl_mean_rel: float
+
+    q_min: float
+    q_max: float
+
+    entropy_online: float
+    entropy_target: float

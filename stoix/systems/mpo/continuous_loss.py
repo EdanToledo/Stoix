@@ -1,5 +1,6 @@
 from typing import Tuple, Union
 
+import chex
 import jax
 import jax.numpy as jnp
 from tensorflow_probability.substrates.jax.distributions import (
@@ -11,6 +12,8 @@ from tensorflow_probability.substrates.jax.distributions import (
 
 from stoix.systems.mpo.types import DualParams, MPOStats
 
+# These functions are largely taken from Acme's MPO implementation:
+
 _MPO_FLOAT_EPSILON = 1e-8
 _MIN_LOG_TEMPERATURE = -18.0
 _MIN_LOG_ALPHA = -18.0
@@ -20,10 +23,10 @@ DType = type(jnp.float32)
 
 
 def compute_weights_and_temperature_loss(
-    q_values: jnp.ndarray,
+    q_values: chex.Array,
     epsilon: float,
-    temperature: jnp.ndarray,
-) -> Tuple[jnp.ndarray, jnp.ndarray]:
+    temperature: chex.Array,
+) -> Tuple[chex.Array, chex.Array]:
     """Computes normalized importance weights for the policy optimization.
 
     Args:
@@ -59,8 +62,8 @@ def compute_weights_and_temperature_loss(
 
 
 def compute_nonparametric_kl_from_normalized_weights(
-    normalized_weights: jnp.ndarray,
-) -> jnp.ndarray:
+    normalized_weights: chex.Array,
+) -> chex.Array:
     """Estimate the actualized KL between the non-parametric and target policies."""
 
     # Compute integrand.
@@ -72,10 +75,10 @@ def compute_nonparametric_kl_from_normalized_weights(
 
 
 def compute_cross_entropy_loss(
-    sampled_actions: jnp.ndarray,
-    normalized_weights: jnp.ndarray,
+    sampled_actions: chex.Array,
+    normalized_weights: chex.Array,
     online_action_distribution: Distribution,
-) -> jnp.ndarray:
+) -> chex.Array:
     """Compute cross-entropy online and the reweighted target policy.
 
     Args:
@@ -102,10 +105,10 @@ def compute_cross_entropy_loss(
 
 
 def compute_parametric_kl_penalty_and_dual_loss(
-    kl: jnp.ndarray,
-    alpha: jnp.ndarray,
+    kl: chex.Array,
+    alpha: chex.Array,
     epsilon: float,
-) -> Tuple[jnp.ndarray, jnp.ndarray]:
+) -> Tuple[chex.Array, chex.Array]:
     """Computes the KL cost to be added to the Lagragian and its dual loss.
 
     The KL cost is simply the alpha-weighted KL divergence and it is added as a
@@ -155,15 +158,15 @@ def mpo_loss(
     dual_params: DualParams,
     online_action_distribution: Union[MultivariateNormalDiag, Independent],
     target_action_distribution: Union[MultivariateNormalDiag, Independent],
-    target_sampled_actions: jnp.ndarray,  # Shape [N, B, D].
-    target_sampled_q_values: jnp.ndarray,  # Shape [N, B].
+    target_sampled_actions: chex.Array,  # Shape [N, B, D].
+    target_sampled_q_values: chex.Array,  # Shape [N, B].
     epsilon: float,
     epsilon_mean: float,
     epsilon_stddev: float,
     per_dim_constraining: bool,
     action_penalization: bool,
     epsilon_penalty: float,
-) -> Tuple[jnp.ndarray, MPOStats]:
+) -> Tuple[chex.Array, MPOStats]:
     """Computes the decoupled MPO loss.
 
     Args:

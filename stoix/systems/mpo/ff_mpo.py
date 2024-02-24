@@ -21,10 +21,13 @@ from rich.pretty import pprint
 from stoix.evaluator import evaluator_setup
 from stoix.networks.base import CompositeNetwork
 from stoix.networks.base import FeedForwardActor as Actor
-from stoix.systems.mpo.continuous_loss import clip_dual_params, mpo_loss
+from stoix.systems.mpo.discrete_loss import (
+    categorical_mpo_loss,
+    clip_categorical_mpo_params,
+)
 from stoix.systems.mpo.types import (
     ActorAndTarget,
-    DualParams,
+    CategoricalDualParams,
     MPOLearnerState,
     MPOOptStates,
     MPOParams,
@@ -159,39 +162,37 @@ def get_learner_fn(
 
             def _actor_loss_fn(
                 online_actor_params: FrozenDict,
-                dual_params: DualParams,
+                dual_params: CategoricalDualParams,
                 target_actor_params: FrozenDict,
                 target_q_params: FrozenDict,
                 sequence: SequenceStep,
-                key: chex.PRNGKey,
             ) -> chex.Array:
                 # Reshape the observations to [B*T, ...].
                 reshaped_obs = jax.tree_map(
                     lambda x: jnp.reshape(x, (-1,) + x.shape[2:]), sequence.obs
                 )
+                batch_length = sequence.action.shape[0] * sequence.action.shape[1]  # B*T
 
                 online_actor_policy = actor_apply_fn(online_actor_params, reshaped_obs)
                 target_actor_policy = actor_apply_fn(target_actor_params, reshaped_obs)
-                target_sampled_actions = target_actor_policy.sample(
-                    seed=key, sample_shape=config.system.num_samples
-                )
-                target_sampled_q_values = jax.vmap(q_apply_fn, in_axes=(None, None, 0))(
-                    target_q_params, reshaped_obs, target_sampled_actions
-                )
+                # In discrete MPO, we evaluate all actions instead of sampling.
+                a_improvement = jnp.arange(config.system.action_dim).astype(jnp.float32)
+                a_improvement = jnp.tile(
+                    a_improvement[..., jnp.newaxis], [1, batch_length]
+                )  # [D, B*T]
+                a_improvement = jax.nn.one_hot(a_improvement, config.system.action_dim)
+                target_q_values = jax.vmap(q_apply_fn, in_axes=(None, None, 0))(
+                    target_q_params, reshaped_obs, a_improvement
+                )  # [D, B*T]
 
                 # Compute the policy and dual loss.
-                loss, loss_info = mpo_loss(
+                loss, loss_info = categorical_mpo_loss(
                     dual_params=dual_params,
                     online_action_distribution=online_actor_policy,
                     target_action_distribution=target_actor_policy,
-                    target_sampled_actions=target_sampled_actions,
-                    target_sampled_q_values=target_sampled_q_values,
+                    q_values=target_q_values,
                     epsilon=config.system.epsilon,
-                    epsilon_mean=config.system.epsilon_mean,
-                    epsilon_stddev=config.system.epsilon_stddev,
-                    per_dim_constraining=config.system.per_dim_constraining,
-                    action_penalization=config.system.action_penalization,
-                    epsilon_penalty=config.system.epsilon_penalty,
+                    epsilon_policy=config.system.epsilon_policy,
                 )
 
                 return jnp.mean(loss), loss_info
@@ -211,7 +212,8 @@ def get_learner_fn(
                 target_actor_policy = actor_apply_fn(
                     target_actor_params, sequences.obs
                 )  # [B, T, ...]
-                online_q_t = q_apply_fn(online_q_params, sequences.obs, sequence.action)  # [B, T]
+                a_t = jax.nn.one_hot(sequences.action, config.system.action_dim)  # [B, T, ...]
+                online_q_t = q_apply_fn(online_q_params, sequences.obs, a_t)  # [B, T]
 
                 # Cast and clip rewards.
                 discount = 1.0 - sequence.done.astype(jnp.float32)
@@ -236,6 +238,7 @@ def get_learner_fn(
 
                 # Add a stopgrad in case we use the online policy for evaluation.
                 a_evaluation = jax.lax.stop_gradient(a_evaluation)
+                a_evaluation = jax.nn.one_hot(a_evaluation, config.system.action_dim)
 
                 # Compute the Q-values for the next state-action pairs; [N, B, T].
                 q_values = jax.vmap(q_apply_fn, in_axes=(None, None, 0))(
@@ -251,9 +254,7 @@ def get_learner_fn(
                     log_rhos = target_actor_policy.log_prob(sequences.action) - sequences.log_prob
 
                     # Compute target Q-values
-                    target_q_t = q_apply_fn(
-                        target_q_params, sequences.obs, sequences.action
-                    )  # [B, T]
+                    target_q_t = q_apply_fn(target_q_params, sequences.obs, a_t)  # [B, T]
 
                     # Compute retrace targets.
                     # These targets use the rewards and discounts as in normal TD-learning but
@@ -289,7 +290,7 @@ def get_learner_fn(
 
             params, opt_states, buffer_state, key = update_state
 
-            key, sample_key, actor_key, q_key = jax.random.split(key, num=4)
+            key, sample_key, q_key = jax.random.split(key, num=3)
 
             # SAMPLE SEQUENCES
             sequence_sample = buffer_sample_fn(buffer_state, sample_key)
@@ -303,7 +304,6 @@ def get_learner_fn(
                 params.actor_params.target,
                 params.q_params.target,
                 sequence,
-                actor_key,
             )
 
             # CALCULATE Q LOSS
@@ -343,7 +343,7 @@ def get_learner_fn(
             # UPDATE DUAL PARAMS AND OPTIMISER STATE
             dual_updates, dual_new_opt_state = dual_update_fn(dual_grads, opt_states.dual_opt_state)
             dual_new_params = optax.apply_updates(params.dual_params, dual_updates)
-            dual_new_params = clip_dual_params(dual_new_params, config.system.per_dim_constraining)
+            dual_new_params = clip_categorical_mpo_params(dual_new_params)
 
             # UPDATE Q PARAMS AND OPTIMISER STATE
             q_updates, q_new_opt_state = q_update_fn(q_grads, opt_states.q_opt_state)
@@ -414,7 +414,7 @@ def learner_setup(
     n_devices = len(jax.devices())
 
     # Get number of actions or action dimension from the environment.
-    action_dim = int(env.action_spec().shape[-1])
+    action_dim = int(env.action_spec().num_values)
     config.system.action_dim = action_dim
 
     # PRNG keys.
@@ -459,33 +459,13 @@ def learner_setup(
     q_opt_state = q_optim.init(online_q_params)
 
     # Initialise MPO Dual params and optimiser state.
-    if config.system.per_dim_constraining:
-        dual_variable_shape = [action_dim]
-    else:
-        dual_variable_shape = [1]
-
     log_temperature = jnp.full([1], config.system.init_log_temperature, dtype=jnp.float32)
 
-    log_alpha_mean = jnp.full(
-        dual_variable_shape, config.system.init_log_alpha_mean, dtype=jnp.float32
-    )
+    log_alpha = jnp.full([1], config.system.init_log_alpha, dtype=jnp.float32)
 
-    log_alpha_stddev = jnp.full(
-        dual_variable_shape, config.system.init_log_alpha_stddev, dtype=jnp.float32
-    )
-
-    if config.system.action_penalization:
-        log_penalty_temperature = jnp.full(
-            [1], config.system.init_log_temperature, dtype=jnp.float32
-        )
-    else:
-        log_penalty_temperature = None
-
-    dual_params = DualParams(
+    dual_params = CategoricalDualParams(
         log_temperature=log_temperature,
-        log_alpha_mean=log_alpha_mean,
-        log_alpha_stddev=log_alpha_stddev,
-        log_penalty_temperature=log_penalty_temperature,
+        log_alpha=log_alpha,
     )
 
     dual_lr = make_learning_rate(config.system.dual_lr, config, config.system.epochs)
@@ -512,7 +492,7 @@ def learner_setup(
     # Create replay buffer
     dummy_sequence_step = SequenceStep(
         obs=jax.tree_util.tree_map(lambda x: x.squeeze(0), init_x),
-        action=jnp.zeros((action_dim), dtype=float),
+        action=jnp.zeros((), dtype=int),
         reward=jnp.zeros((), dtype=float),
         done=jnp.zeros((), dtype=bool),
         log_prob=jnp.zeros((), dtype=float),
@@ -719,9 +699,7 @@ def run_experiment(_config: DictConfig) -> None:
     logger.stop()
 
 
-@hydra.main(
-    config_path="../../configs", config_name="default_ff_mpo_continuous.yaml", version_base="1.2"
-)
+@hydra.main(config_path="../../configs", config_name="default_ff_mpo.yaml", version_base="1.2")
 def hydra_entry_point(cfg: DictConfig) -> None:
     """Experiment entry point."""
     # Allow dynamic attributes.

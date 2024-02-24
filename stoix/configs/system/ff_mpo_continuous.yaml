@@ -8,7 +8,7 @@ seed: 0
 # --- RL hyperparameters ---
 update_batch_size: 1 # Number of vectorised gradient updates per device.
 rollout_length: 8 # Number of environment steps per vectorised environment.
-epochs: 16 # Number of sgd steps per rollout.
+epochs: 32 # Number of sgd steps per rollout.
 warmup_steps: 256  # Number of steps to collect before training.
 buffer_size: 1_000_000 # size of the replay buffer.
 batch_size: 8 # Number of samples to train on per device.
@@ -19,14 +19,19 @@ q_lr: 1e-4  # the learning rate of the Q network network optimizer
 dual_lr: 1e-2  # the learning rate of the alpha optimizer
 tau: 0.005  # smoothing coefficient for target networks
 gamma: 0.99  # discount factor
-max_grad_norm: 0.5 # Maximum norm of the gradients for a weight update.
+max_grad_norm: 40.0 # Maximum norm of the gradients for a weight update.
 decay_learning_rates: False # Whether learning rates should be linearly decayed during training.
 max_abs_reward : 20_000  # maximum absolute reward value
 num_samples: 20 # Number of MPO action samples for the policy update.
 epsilon: 0.01 # KL constraint on the non-parametric auxiliary policy, the one associated with the dual variable called temperature.
-epsilon_policy : 0.0025 #  KL constraint on the categorical policy, the one associated with the dual variable called alpha.
-init_log_temperature: 3. # initial value for the temperature in log-space, note a softplus (rather than an exp) will be used to transform this.
-init_log_alpha: 3. # initial value for the alpha value in log-space, note a softplus (rather than an exp) will be used to transform this.
+epsilon_mean : 1e-3 # KL constraint on the mean of the Gaussian policy, the one associated with the dual variable called alpha_mean.
+epsilon_stddev: 1e-5 # KL constraint on the stddev of the Gaussian policy, the one associated with the dual variable called alpha_mean.
+init_log_temperature: 10. # initial value for the temperature in log-space, note a softplus (rather than an exp) will be used to transform this.
+init_log_alpha_mean: 10. # initial value for the alpha_mean in log-space, note a softplus (rather than an exp) will be used to transform this.
+init_log_alpha_stddev: 1000. # initial value for the alpha_stddev in log-space, note a softplus (rather than an exp) will be used to transform this.
+per_dim_constraining: True # whether to enforce the KL constraint on each dimension independently; this is the default. Otherwise the overall KL is constrained, which allows some dimensions to change more at the expense of others staying put.
+action_penalization: True # whether to use a KL constraint to penalize actions via the MO-MPO algorithm.
+epsilon_penalty: 0.001 # KL constraint on the probability of violating the action constraint.
 stochastic_policy_eval: True # whether to use a stochastic policy for Q function target evaluation.
 use_online_policy_to_bootstrap: False # whether to use the online policy to bootstrap the Q function targets.
 use_retrace : False # whether to use the retrace algorithm for off-policy correction.
