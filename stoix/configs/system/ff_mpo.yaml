@@ -10,19 +10,19 @@ update_batch_size: 1 # Number of vectorised gradient updates per device.
 rollout_length: 8 # Number of environment steps per vectorised environment.
 epochs: 32 # Number of sgd steps per rollout.
 warmup_steps: 256  # Number of steps to collect before training.
-buffer_size: 500_000 # size of the replay buffer.
-batch_size: 32 # Number of samples to train on per device.
+buffer_size: 1_000_000 # size of the replay buffer.
+batch_size: 8 # Number of samples to train on per device.
 sample_sequence_length: 8 # Number of steps to consider for each element of the batch.
 period : 1 # Period of the sampled sequences.
-actor_lr: 3e-4  # the learning rate of the policy network optimizer
-q_lr: 3e-4  # the learning rate of the Q network network optimizer
+actor_lr: 1e-4  # the learning rate of the policy network optimizer
+q_lr: 1e-4  # the learning rate of the Q network network optimizer
 dual_lr: 1e-2  # the learning rate of the alpha optimizer
 tau: 0.005  # smoothing coefficient for target networks
 gamma: 0.99  # discount factor
-max_grad_norm: 0.5 # Maximum norm of the gradients for a weight update.
+max_grad_norm: 40.0 # Maximum norm of the gradients for a weight update.
 decay_learning_rates: False # Whether learning rates should be linearly decayed during training.
 max_abs_reward : 20_000  # maximum absolute reward value
-num_samples: 20 # Number of MPO action samples.
+num_samples: 20 # Number of MPO action samples for the policy update.
 epsilon: 0.01 # KL constraint on the non-parametric auxiliary policy, the one associated with the dual variable called temperature.
 epsilon_mean : 1e-3 # KL constraint on the mean of the Gaussian policy, the one associated with the dual variable called alpha_mean.
 epsilon_stddev: 1e-5 # KL constraint on the stddev of the Gaussian policy, the one associated with the dual variable called alpha_mean.
