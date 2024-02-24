@@ -1,4 +1,4 @@
-from typing import Optional, Union
+from typing import Dict, Optional, Union
 
 import chex
 import optax
@@ -9,6 +9,15 @@ from typing_extensions import NamedTuple
 
 from stoix.systems.q_learning.types import QsAndTarget
 from stoix.types import LogEnvState
+
+
+class SequenceStep(NamedTuple):
+    obs: chex.ArrayTree
+    action: chex.Array
+    reward: chex.Array
+    done: chex.Array
+    log_prob: chex.Array
+    info: Dict
 
 
 class ActorAndTarget(NamedTuple):

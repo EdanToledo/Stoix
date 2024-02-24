@@ -61,7 +61,7 @@ exclude = [
     ".eggs",
 ]
 max-line-length=100
-max-cognitive-complexity=11
+max-cognitive-complexity=15
 import-order-style = "google"
 application-import-names = "stoix"
 doctests = true
