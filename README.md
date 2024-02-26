@@ -112,7 +112,7 @@ If you use Stoix in your work, please cite us:
 
 ## Acknowledgements 🙏
 
-We would like to thank the authors and developers of [Mava](mava) as this is essentially a port of their repo.
+We would like to thank the authors and developers of [Mava](mava) as this was essentially a port of their repo at the time of creation.
 
 ## See Also 🔎
 
