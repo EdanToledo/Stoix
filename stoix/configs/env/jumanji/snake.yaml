@@ -8,4 +8,7 @@ scenario:
   name: Snake-v1
   task_name: snake
 
-kwargs: {}
+kwargs: {
+  num_rows: 6,
+  num_cols: 6,
+}

@@ -19,12 +19,12 @@ q_lr: 1e-4  # the learning rate of the Q network network optimizer
 dual_lr: 1e-2  # the learning rate of the alpha optimizer
 tau: 0.005  # smoothing coefficient for target networks
 gamma: 0.99  # discount factor
-max_grad_norm: 0.5 # Maximum norm of the gradients for a weight update.
+max_grad_norm: 40.0 # Maximum norm of the gradients for a weight update.
 decay_learning_rates: False # Whether learning rates should be linearly decayed during training.
 max_abs_reward : 20_000  # maximum absolute reward value
 num_samples: 20 # Number of MPO action samples for the policy update.
 epsilon: 0.01 # KL constraint on the non-parametric auxiliary policy, the one associated with the dual variable called temperature.
-epsilon_policy : 0.0025 #  KL constraint on the categorical policy, the one associated with the dual variable called alpha.
+epsilon_policy : 1e-3 #  KL constraint on the categorical policy, the one associated with the dual variable called alpha.
 init_log_temperature: 3. # initial value for the temperature in log-space, note a softplus (rather than an exp) will be used to transform this.
 init_log_alpha: 3. # initial value for the alpha value in log-space, note a softplus (rather than an exp) will be used to transform this.
 stochastic_policy_eval: True # whether to use a stochastic policy for Q function target evaluation.

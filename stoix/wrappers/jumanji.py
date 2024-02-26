@@ -36,7 +36,7 @@ class JumanjiWrapper(Wrapper):
 
     def reset(self, key: chex.PRNGKey) -> Tuple[State, TimeStep]:
         state, timestep = self._env.reset(key)
-        obs = timestep.observation._asdict()[self._observation_attribute]
+        obs = timestep.observation._asdict()[self._observation_attribute].astype(jnp.float32)
         timestep = timestep.replace(
             observation=Observation(
                 obs.reshape(self._obs_shape), self._legal_action_mask, state.step_count
@@ -47,7 +47,7 @@ class JumanjiWrapper(Wrapper):
 
     def step(self, state: State, action: chex.Array) -> Tuple[State, TimeStep]:
         state, timestep = self._env.step(state, action)
-        obs = timestep.observation._asdict()[self._observation_attribute]
+        obs = timestep.observation._asdict()[self._observation_attribute].astype(jnp.float32)
         timestep = timestep.replace(
             observation=Observation(
                 obs.reshape(self._obs_shape), self._legal_action_mask, state.step_count
