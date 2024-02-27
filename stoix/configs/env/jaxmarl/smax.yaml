@@ -6,6 +6,10 @@ scenario:
   name: HeuristicEnemySMAX
   task_name: 2s3z
 
+add_agent_ids_to_state: False # Adds the agent IDs to the global state.
+flatten_observation: True # Flattens the observations.
+add_global_state : False # Adds the global state to the observations.
+
 kwargs:
   see_enemy_actions: True # Whether to enable enemy vision. If True, the enemy will be able to see the actions of the agent.
   walls_cause_death: True # Whether to kill the agent if it collides with a wall.

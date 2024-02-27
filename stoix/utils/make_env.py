@@ -21,7 +21,7 @@ from xminigrid.registration import _REGISTRY as XMINIGRID_REGISTRY
 
 from stoix.wrappers import GymnaxWrapper, JumanjiWrapper, RecordEpisodeMetrics
 from stoix.wrappers.brax import BraxJumanjiWrapper
-from stoix.wrappers.jaxmarl import JaxMarlWrapper
+from stoix.wrappers.jaxmarl import JaxMarlWrapper, MabraxWrapper, SmaxWrapper
 from stoix.wrappers.jumanji import MultiBoundedToBounded, MultiDiscreteToDiscrete
 from stoix.wrappers.xminigrid import XMiniGridWrapper
 
@@ -144,7 +144,8 @@ def make_brax_env(env_name: str, config: DictConfig) -> Tuple[Environment, Envir
 
 
 def make_jaxmarl_env(
-    env_name: str, config: DictConfig, add_global_state: bool = False
+    env_name: str,
+    config: DictConfig,
 ) -> Tuple[Environment, Environment]:
     """
      Create a JAXMARL environment.
@@ -152,19 +153,29 @@ def make_jaxmarl_env(
     Args:
         env_name (str): The name of the environment to create.
         config (Dict): The configuration of the environment.
-        add_global_state (bool): Whether to add the global state to the observation.
 
     Returns:
         A JAXMARL environment.
     """
+    _jaxmarl_wrappers = {"Smax": SmaxWrapper, "MaBrax": MabraxWrapper}
 
     kwargs = dict(config.env.kwargs)
     if "smax" in env_name.lower():
         kwargs["scenario"] = map_name_to_scenario(config.env.scenario.task_name)
 
     # Create jaxmarl envs.
-    env = JaxMarlWrapper(jaxmarl.make(env_name, **kwargs), has_global_state=add_global_state)
-    eval_env = JaxMarlWrapper(jaxmarl.make(env_name, **kwargs), has_global_state=add_global_state)
+    env = _jaxmarl_wrappers.get(config.env.env_name, JaxMarlWrapper)(
+        jaxmarl.make(env_name, **kwargs),
+        config.env.flatten_observation,
+        config.env.add_global_state,
+        config.env.add_agent_ids_to_state,
+    )
+    eval_env = _jaxmarl_wrappers.get(config.env.env_name, JaxMarlWrapper)(
+        jaxmarl.make(env_name, **kwargs),
+        config.env.flatten_observation,
+        config.env.add_global_state,
+        config.env.add_agent_ids_to_state,
+    )
     env = MultiToSingleWrapper(env, reward_aggregator=jnp.mean)
     eval_env = MultiToSingleWrapper(eval_env, reward_aggregator=jnp.mean)
 
