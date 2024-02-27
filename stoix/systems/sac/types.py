@@ -13,11 +13,6 @@ from stoix.types import Action, LogEnvState, Observation, Value
 ContinuousQApply = Callable[[FrozenDict, Observation, Action], Value]
 
 
-class Qs(NamedTuple):
-    q1: FrozenDict
-    q2: FrozenDict
-
-
 class SACParams(NamedTuple):
     actor_params: FrozenDict
     q_params: QsAndTarget
