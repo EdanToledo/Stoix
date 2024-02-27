@@ -44,6 +44,7 @@ from stoix.utils.logger import LogEvent, StoixLogger
 from stoix.utils.loss import categorical_td_learning
 from stoix.utils.total_timestep_checker import check_total_timesteps
 from stoix.utils.training import make_learning_rate
+from stoix.wrappers.episode_metrics import get_final_step_metrics
 
 
 def get_default_behavior_policy(config: DictConfig, actor_apply_fn: ActorApply) -> Callable:
@@ -420,7 +421,7 @@ def learner_setup(
         reward=jnp.zeros((), dtype=float),
         done=jnp.zeros((), dtype=bool),
         next_obs=jax.tree_util.tree_map(lambda x: x.squeeze(0), init_x),
-        info={"episode_return": 0.0, "episode_length": 0},
+        info={"episode_return": 0.0, "episode_length": 0, "is_terminal_step": False},
     )
 
     buffer_fn = fbx.make_item_buffer(
@@ -561,11 +562,13 @@ def run_experiment(_config: DictConfig) -> None:
         # Log the results of the training.
         elapsed_time = time.time() - start_time
         t = int(steps_per_rollout * (eval_step + 1))
-        learner_output.episode_metrics["steps_per_second"] = steps_per_rollout / elapsed_time
+        episode_metrics, ep_completed = get_final_step_metrics(learner_output.episode_metrics)
+        episode_metrics["steps_per_second"] = steps_per_rollout / elapsed_time
 
         # Separately log timesteps, actoring metrics and training metrics.
         logger.log({"timestep": t}, t, eval_step, LogEvent.MISC)
-        logger.log(learner_output.episode_metrics, t, eval_step, LogEvent.ACT)
+        if ep_completed:  # only log episode metrics if an episode was completed in the rollout.
+            logger.log(episode_metrics, t, eval_step, LogEvent.ACT)
         logger.log(learner_output.train_metrics, t, eval_step, LogEvent.TRAIN)
 
         # Prepare for evaluation.

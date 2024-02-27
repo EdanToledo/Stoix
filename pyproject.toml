@@ -78,3 +78,41 @@ ignore = [
     "B017",  # assertRaises(Exception): or pytest.raises(Exception) should be considered evil.
     "E203",  # black and flake8 disagree on whitespace before ':'.
 ]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ['stoix*']
+
+[tool.setuptools.dynamic]
+version = {attr = "stoix.__version__"}
+dependencies = {file = ["requirements/requirements.txt"]}
+optional-dependencies = {dev = { file = ["requirements/requirements-dev.txt"] }}
+
+[project]
+name = "Stoix"
+readme = "README.md"
+description = "Single-Agent Reinforcement Learning with JAX"
+authors = [
+    {name = "Edan Toledo"},
+  ]
+dynamic = ["version", "dependencies", "optional-dependencies"]
+license = {file = "LICENSE"}
+requires-python = ">=3.10"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3.10",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "License :: OSI Approved :: Apache Software License",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/EdanToledo/Stoix"
+"Bug Tracker" = "https://github.com/EdanToledo/Stoix/issues"
