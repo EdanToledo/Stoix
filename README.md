@@ -45,9 +45,27 @@ The current code in Stoix is initially **largely** taken and subsequently adapte
 
 Stoix currently offers the following building blocks for Single-Agent RL research:
 
-- 🥑 **Implementations of algorithms**: Implementations of PPO, DQN, C51, M-DQN, QR-DQN, DQN-Reg, SAC, DDPG, TD3, D4PG, AlphaZero, DPO.
-- 🍬 **Environment Wrappers**: Wrappers for [Gymnax][gymnax], [Jumanji][jumanji], [Brax][brax], [XMinigrid][xminigrid], and even [JaxMARL][jaxmarl] (with Centralised Controllers).
-- 🧪 **Statistically robust evaluation**: Stoix natively supports logging to json files which adhere to the standard suggested by [Gorsane et al. (2022)][toward_standard_eval]. This enables easy downstream experiment plotting and aggregation using the tools found in the [MARL-eval][marl_eval] library.
+### Implementations of Algorithms 🥑
+
+- **Proximal Policy Optimization (PPO)** - [Paper](https://arxiv.org/abs/1707.06347)
+- **Deep Q-Network (DQN)** - [Paper](https://arxiv.org/abs/1312.5602)
+- **Categorical DQN (C51)** - [Paper](https://arxiv.org/abs/1707.06887)
+- **Munchausen DQN (M-DQN)** [Paper](https://arxiv.org/abs/2007.14430)
+- **Quantile Regression DQN (QR-DQN)** - [Paper](https://arxiv.org/abs/1710.10044)
+- **DQN with Regularized Q-learning (DQN-Reg)** [Paper](https://arxiv.org/abs/2101.03958)
+- **Soft Actor-Critic (SAC)** - [Paper](https://arxiv.org/abs/1801.01290)
+- **Deep Deterministic Policy Gradient (DDPG)** - [Paper](https://arxiv.org/abs/1509.02971)
+- **Twin Delayed DDPG (TD3)** - [Paper](https://arxiv.org/abs/1802.09477)
+- **Distributed Distributional DDPG (D4PG)** - [Paper](https://arxiv.org/abs/1804.08617)
+- **AlphaZero** - [Paper](https://arxiv.org/abs/1712.01815)
+- **Discovered Policy Optimization (DPO)** [Paper](https://arxiv.org/abs/2210.05639)
+- **Maximum a Posteriori Policy Optimisation (MPO)** - [Paper](https://arxiv.org/abs/1806.06920)
+
+### Environment Wrappers 🍬
+Stoix offers wrappers for [Gymnax][gymnax], [Jumanji][jumanji], [Brax][brax], [XMinigrid][xminigrid], and even [JAXMarl][jaxmarl] (although using Centralised Controllers).
+
+### Statistically Robust Evaluation 🧪
+Stoix natively supports logging to json files which adhere to the standard suggested by [Gorsane et al. (2022)][toward_standard_eval]. This enables easy downstream experiment plotting and aggregation using the tools found in the [MARL-eval][marl_eval] library.
 
 ## Performance and Speed 🚀
 
@@ -66,7 +84,7 @@ pip install -e .
 ```
 
 We have tested `Stoix` on Python 3.10. Note that because the installation of JAX differs depending on your hardware accelerator,
-we advise users to explicitly install the correct JAX version (see the [official installation guide](https://github.com/google/jax#installation)). For more in-depth installation guides including Docker builds and virtual environments, please see our [detailed installation guide](docs/DETAILED_INSTALL.md).
+we advise users to explicitly install the correct JAX version (see the [official installation guide](https://github.com/google/jax#installation)).
 
 ## Quickstart ⚡
 
