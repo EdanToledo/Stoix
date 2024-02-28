@@ -69,7 +69,7 @@ Stoix natively supports logging to json files which adhere to the standard sugge
 
 ## Performance and Speed 🚀
 
-As the code in Stoix is in essense a port of [Mava][mava], for speed comparisons we point to their repo. Additionally, please note that current networks and hyperparameters for algorithms have not been tuned.
+As the code in Stoix is in essense a port of [Mava][mava], for speed comparisons we point to their repo. Additionally, we refer to the PureJAXRL blog post [here](https://chrislu.page/blog/meta-disco/) where the speed benefits of end-to-end JAX systems are discussed. Lastly, please note that current networks and hyperparameters for algorithms have not been tuned.
 
 ## Installation 🎬
 
