@@ -9,6 +9,10 @@ import jumanji
 import xminigrid
 from brax.envs import _envs as brax_environments
 from brax.envs import create as brax_make
+from craftax.envs.craftax_pixels_env import CraftaxPixelsEnv
+from craftax.envs.craftax_symbolic_env import CraftaxSymbolicEnv
+from craftax_classic.envs.craftax_pixels_env import CraftaxClassicPixelsEnv
+from craftax_classic.envs.craftax_symbolic_env import CraftaxClassicSymbolicEnv
 from gymnax import registered_envs as gymnax_environments
 from jaxmarl.environments.smax import map_name_to_scenario
 from jaxmarl.registration import registered_envs as jaxmarl_environments
@@ -194,6 +198,41 @@ def make_jaxmarl_env(
     return env, eval_env
 
 
+def make_craftax_env(env_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
+    """
+    Create a craftax environment for training and evaluation.
+
+    Args:
+        env_name (str): The name of the environment to create.
+        config (Dict): The configuration of the environment.
+
+    Returns:
+        A tuple of the environments.
+    """
+    # Config generator and select the wrapper.
+    craftax_environments = {
+        "Craftax-Classic-Symbolic-v1": CraftaxClassicSymbolicEnv,
+        "Craftax-Classic-Pixels-v1": CraftaxClassicPixelsEnv,
+        "Craftax-Symbolic-v1": CraftaxSymbolicEnv,
+        "Craftax-Pixels-v1": CraftaxPixelsEnv,
+    }
+
+    # Create envs.
+    env = craftax_environments[env_name](**config.env.kwargs)
+    eval_env = craftax_environments[env_name](**config.env.kwargs)
+
+    env_params = env.default_params
+    eval_env_params = eval_env.default_params
+
+    env = GymnaxWrapper(env, env_params)
+    eval_env = GymnaxWrapper(eval_env, eval_env_params)
+
+    env = AutoResetWrapper(env)
+    env = RecordEpisodeMetrics(env)
+
+    return env, eval_env
+
+
 def make(config: DictConfig) -> Tuple[Environment, Environment]:
     """
     Create environments for training and evaluation..
@@ -216,5 +255,7 @@ def make(config: DictConfig) -> Tuple[Environment, Environment]:
         return make_brax_env(env_name, config)
     elif env_name in jaxmarl_environments:
         return make_jaxmarl_env(env_name, config)
+    elif "craftax" in env_name.lower():
+        return make_craftax_env(env_name, config)
     else:
         raise ValueError(f"{env_name} is not a supported environment.")
