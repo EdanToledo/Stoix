@@ -13,7 +13,7 @@ mkdocstrings==0.18.0
 mknotebooks==0.7.1
 mypy==0.991
 nbmake
-pre-commit==2.17.0
+pre-commit==3.3.3
 promise
 pymdown-extensions
 pytest==7.0.1
