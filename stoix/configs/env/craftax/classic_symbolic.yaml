@@ -1,0 +1,8 @@
+# ---Environment Configs---
+env_name: craftax
+
+scenario:
+  name: Craftax-Classic-Symbolic-v1
+  task_name: classic_symbolic
+
+kwargs: {}

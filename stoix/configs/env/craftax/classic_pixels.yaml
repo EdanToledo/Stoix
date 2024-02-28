@@ -1,0 +1,8 @@
+# ---Environment Configs---
+env_name: craftax
+
+scenario:
+  name: Craftax-Classic-Pixels-v1
+  task_name: classic_pixels
+
+kwargs: {}
