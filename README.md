@@ -39,7 +39,7 @@ Stoix is fully in JAX with substantial speed improvement compared to other popul
 
 ## Code Philosophy 🧘
 
-The current code in Stoix is initially **largely** taken and subsequently adapted from [Mava](mava). As Mava develops, Stoix will hopefully adopt their optimisations. Like Mava, Stoix is not designed to be a highly modular library and is not meant to be imported. Our repository focuses on simplicity and clarity in its implementations while utilising the advantages offered by JAX such as `pmap` and `vmap`, making it an excellent resource for researchers and practitioners to build upon. Stoix follows a similar design philosophy to [CleanRL][cleanrl] and [PureJaxRL][purejaxrl], where we allow for some code duplication to enable readability, easy reuse, and fast adaptation.
+The current code in Stoix was initially **largely** taken and subsequently adapted from [Mava](mava). As Mava develops, Stoix will hopefully adopt their optimisations that are relevant for single-agent RL. Like Mava, Stoix is not designed to be a highly modular library and is not meant to be imported. Our repository focuses on simplicity and clarity in its implementations while utilising the advantages offered by JAX such as `pmap` and `vmap`, making it an excellent resource for researchers and practitioners to build upon. Stoix follows a similar design philosophy to [CleanRL][cleanrl] and [PureJaxRL][purejaxrl], where we allow for some code duplication to enable readability, easy reuse, and fast adaptation.
 
 ## Overview 🦜
 
@@ -69,7 +69,7 @@ Stoix natively supports logging to json files which adhere to the standard sugge
 
 ## Performance and Speed 🚀
 
-As the code in Stoix is in essense a port of [Mava][mava], for speed comparisons we point to their repo. Additionally, we refer to the PureJAXRL blog post [here](https://chrislu.page/blog/meta-disco/) where the speed benefits of end-to-end JAX systems are discussed. Lastly, please note that current networks and hyperparameters for algorithms have not been tuned.
+As the code in Stoix was in essense a port of [Mava][mava], for speed comparisons we point to their repo. Additionally, we refer to the PureJAXRL blog post [here](https://chrislu.page/blog/meta-disco/) where the speed benefits of end-to-end JAX systems are discussed. Lastly, please note that current networks and hyperparameters for algorithms have not been tuned.
 
 ## Installation 🎬
 
