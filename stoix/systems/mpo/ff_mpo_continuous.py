@@ -18,7 +18,7 @@ from jumanji.types import TimeStep
 from omegaconf import DictConfig, OmegaConf
 from rich.pretty import pprint
 
-from stoix.evaluator import evaluator_setup
+from stoix.evaluator import evaluator_setup, get_distribution_act_fn
 from stoix.networks.base import CompositeNetwork
 from stoix.networks.base import FeedForwardActor as Actor
 from stoix.systems.mpo.continuous_loss import clip_dual_params, mpo_loss
@@ -616,7 +616,7 @@ def run_experiment(_config: DictConfig) -> None:
     evaluator, absolute_metric_evaluator, (trained_params, eval_keys) = evaluator_setup(
         eval_env=eval_env,
         key_e=key_e,
-        network=actor_network,
+        eval_act_fn=get_distribution_act_fn(config, actor_network.apply),
         params=learner_state.params.actor_params.online,
         config=config,
     )
