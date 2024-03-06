@@ -1,4 +1,4 @@
-# ---MLP D4PG Networks---
+# ---MLP DDPG Networks---
 actor_network:
   pre_torso:
     _target_: stoix.networks.torso.MLPTorso

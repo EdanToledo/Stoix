@@ -1,4 +1,4 @@
-# ---Recurrent Structure Networks---
+# ---Recurrent Structure Networks for PPO ---
 actor_network:
   pre_torso:
     _target_: stoix.networks.torso.MLPTorso

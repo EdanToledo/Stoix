@@ -1,4 +1,4 @@
-# ---MLP DQN Networks---
+# ---MLP C51 Networks---
 actor_network:
   pre_torso:
     _target_: stoix.networks.torso.MLPTorso

@@ -1,4 +1,4 @@
-# ---MLP MPO Networks---
+# ---MLP MPO Discrete Networks---
 actor_network:
   pre_torso:
     _target_: stoix.networks.torso.MLPTorso

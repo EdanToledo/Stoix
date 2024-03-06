@@ -1,4 +1,8 @@
-# --- Defaults FF-PPO ---
+# --- Defaults FF-AZ ---
+# This implementation of AZ is not an exact replica of the original AlphaZero algorithm and serves more as an example.
+# It is a simplified version that uses the same training loop as PPO i.e. epochs and minibatches of on-policy data.
+# Additionally, it uses a clipped value loss and entropy loss. Additionally, the search method used can be chosen
+# between muzero mcts, gumbel mcts from mctx.
 
 total_timesteps: 1e8 # Set the total environment steps.
 # If unspecified, it's derived from num_updates; otherwise, num_updates adjusts based on this value.
