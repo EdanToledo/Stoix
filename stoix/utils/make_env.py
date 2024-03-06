@@ -9,10 +9,6 @@ import jumanji
 import xminigrid
 from brax.envs import _envs as brax_environments
 from brax.envs import create as brax_make
-from craftax.envs.craftax_pixels_env import CraftaxPixelsEnv
-from craftax.envs.craftax_symbolic_env import CraftaxSymbolicEnv
-from craftax_classic.envs.craftax_pixels_env import CraftaxClassicPixelsEnv
-from craftax_classic.envs.craftax_symbolic_env import CraftaxClassicSymbolicEnv
 from gymnax import registered_envs as gymnax_environments
 from jaxmarl.environments.smax import map_name_to_scenario
 from jaxmarl.registration import registered_envs as jaxmarl_environments
@@ -209,6 +205,13 @@ def make_craftax_env(env_name: str, config: DictConfig) -> Tuple[Environment, En
     Returns:
         A tuple of the environments.
     """
+    # We put the imports here so as to avoid the loading and processing of craftax
+    # environments which happen in the imports
+    from craftax.envs.craftax_pixels_env import CraftaxPixelsEnv
+    from craftax.envs.craftax_symbolic_env import CraftaxSymbolicEnv
+    from craftax_classic.envs.craftax_pixels_env import CraftaxClassicPixelsEnv
+    from craftax_classic.envs.craftax_symbolic_env import CraftaxClassicSymbolicEnv
+
     # Config generator and select the wrapper.
     craftax_environments = {
         "Craftax-Classic-Symbolic-v1": CraftaxClassicSymbolicEnv,
