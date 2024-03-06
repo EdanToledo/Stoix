@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, Union
 
 import chex
 import flax.linen as nn
@@ -9,19 +9,54 @@ from jumanji.env import Environment
 from omegaconf import DictConfig
 
 from stoix.types import (
+    ActFn,
     ActorApply,
     EvalFn,
     EvalState,
     ExperimentOutput,
+    RecActFn,
     RecActorApply,
     RNNEvalState,
+    RNNObservation,
 )
 from stoix.utils.jax import unreplicate_batch_dim
 
 
+def get_distribution_act_fn(config: DictConfig, actor_apply: ActorApply) -> ActFn:
+    """Get the act_fn for a network that returns a distribution."""
+
+    def act_fn(params: FrozenDict, observation: chex.Array, key: chex.PRNGKey) -> chex.Array:
+        """Get the action from the distribution."""
+        pi = actor_apply(params, observation)
+        if config.arch.evaluation_greedy:
+            action = pi.mode()
+        else:
+            action = pi.sample(seed=key)
+        return action
+
+    return act_fn
+
+
+def get_rec_distribution_act_fn(config: DictConfig, rec_actor_apply: RecActorApply) -> RecActFn:
+    """Get the act_fn for a recurrent network that returns a distribution."""
+
+    def rec_act_fn(
+        params: FrozenDict, hstate: chex.Array, observation: RNNObservation, key: chex.PRNGKey
+    ) -> Tuple[chex.Array, chex.Array]:
+        """Get the action from the distribution."""
+        hstate, pi = rec_actor_apply(params, hstate, observation)
+        if config.arch.evaluation_greedy:
+            action = pi.mode()
+        else:
+            action = pi.sample(seed=key)
+        return hstate, action
+
+    return rec_act_fn
+
+
 def get_ff_evaluator_fn(
     env: Environment,
-    apply_fn: ActorApply,
+    act_fn: ActFn,
     config: DictConfig,
     log_win_rate: bool = False,
     eval_multiplier: int = 1,
@@ -30,7 +65,7 @@ def get_ff_evaluator_fn(
 
     Args:
         env (Environment): An evironment isntance for evaluation.
-        apply_fn (callable): Network forward pass method.
+        act_fn (callable): The act_fn that returns the action taken by the agent.
         config (dict): Experiment configuration.
         eval_multiplier (int): A scalar that will increase the number of evaluation
             episodes by a fixed factor. The reason for the increase is to enable the
@@ -51,14 +86,16 @@ def get_ff_evaluator_fn(
             # Select action.
             key, policy_key = jax.random.split(key)
 
-            pi = apply_fn(
-                params, jax.tree_map(lambda x: x[jnp.newaxis, ...], last_timestep.observation)
+            action = act_fn(
+                params,
+                jax.tree_map(lambda x: x[jnp.newaxis, ...], last_timestep.observation),
+                policy_key,
             )
 
-            if config.arch.evaluation_greedy:
-                action = pi.mode()
-            else:
-                action = pi.sample(seed=policy_key)
+            # if config.arch.evaluation_greedy:
+            #     action = pi.mode()
+            # else:
+            #     action = pi.sample(seed=policy_key)
 
             # Step environment.
             env_state, timestep = env.step(env_state, action.squeeze())
@@ -129,7 +166,7 @@ def get_ff_evaluator_fn(
 
 def get_rnn_evaluator_fn(
     env: Environment,
-    apply_fn: RecActorApply,
+    rec_act_fn: RecActFn,
     config: DictConfig,
     scanned_rnn: nn.Module,
     log_win_rate: bool = False,
@@ -162,12 +199,12 @@ def get_rnn_evaluator_fn(
             ac_in = (batched_observation, jnp.expand_dims(last_done, axis=0))
 
             # Run the network.
-            hstate, pi = apply_fn(params, hstate, ac_in)
+            hstate, action = rec_act_fn(params, hstate, ac_in, policy_key)
 
-            if config.arch.evaluation_greedy:
-                action = pi.mode()
-            else:
-                action = pi.sample(seed=policy_key)
+            # if config.arch.evaluation_greedy:
+            #     action = pi.mode()
+            # else:
+            #     action = pi.sample(seed=policy_key)
 
             # Step environment.
             env_state, timestep = env.step(env_state, action[-1].squeeze(0))
@@ -260,7 +297,7 @@ def get_rnn_evaluator_fn(
 def evaluator_setup(
     eval_env: Environment,
     key_e: chex.PRNGKey,
-    network: Any,
+    eval_act_fn: Union[ActFn, RecActFn],
     params: FrozenDict,
     config: DictConfig,
     use_recurrent_net: bool = False,
@@ -274,28 +311,26 @@ def evaluator_setup(
     # Vmap it over number of agents and create evaluator_fn.
     if use_recurrent_net:
         assert scanned_rnn is not None
-        eval_apply_fn = network.apply
         evaluator = get_rnn_evaluator_fn(
             eval_env,
-            eval_apply_fn,
+            eval_act_fn,  # type: ignore
             config,
             scanned_rnn,
             log_win_rate,
         )
         absolute_metric_evaluator = get_rnn_evaluator_fn(
             eval_env,
-            eval_apply_fn,
+            eval_act_fn,  # type: ignore
             config,
             scanned_rnn,
             log_win_rate,
             10,
         )
     else:
-        eval_apply_fn = network.apply
-        evaluator = get_ff_evaluator_fn(eval_env, eval_apply_fn, config, log_win_rate)
+        evaluator = get_ff_evaluator_fn(eval_env, eval_act_fn, config, log_win_rate)  # type: ignore
         absolute_metric_evaluator = get_ff_evaluator_fn(
             eval_env,
-            eval_apply_fn,
+            eval_act_fn,  # type: ignore
             config,
             log_win_rate,
             10,

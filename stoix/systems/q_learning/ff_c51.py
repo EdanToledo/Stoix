@@ -30,7 +30,7 @@ from jumanji.types import TimeStep
 from omegaconf import DictConfig, OmegaConf
 from rich.pretty import pprint
 
-from stoix.evaluator import evaluator_setup
+from stoix.evaluator import evaluator_setup, get_distribution_act_fn
 from stoix.networks.base import FeedForwardActor as Actor
 from stoix.types import (
     ActorApply,
@@ -423,7 +423,7 @@ def run_experiment(_config: DictConfig) -> None:
     evaluator, absolute_metric_evaluator, (trained_params, eval_keys) = evaluator_setup(
         eval_env=eval_env,
         key_e=key_e,
-        network=eval_q_network,
+        eval_act_fn=get_distribution_act_fn(config, eval_q_network.apply),
         params=learner_state.params.online,
         config=config,
     )
