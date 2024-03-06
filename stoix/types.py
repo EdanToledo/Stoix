@@ -97,8 +97,13 @@ LearnerFn = Callable[[StoixState], ExperimentOutput[StoixState]]
 EvalFn = Callable[[FrozenDict, chex.PRNGKey], ExperimentOutput[StoixState]]
 
 ActorApply = Callable[[FrozenDict, Observation], DistributionLike]
+ActFn = Callable[[FrozenDict, Observation, chex.PRNGKey], chex.Array]
 CriticApply = Callable[[FrozenDict, Observation], Value]
+
 RecActorApply = Callable[
     [FrozenDict, HiddenState, RNNObservation], Tuple[HiddenState, DistributionLike]
+]
+RecActFn = Callable[
+    [FrozenDict, HiddenState, RNNObservation, chex.PRNGKey], Tuple[HiddenState, chex.Array]
 ]
 RecCriticApply = Callable[[FrozenDict, HiddenState, RNNObservation], Tuple[HiddenState, Value]]

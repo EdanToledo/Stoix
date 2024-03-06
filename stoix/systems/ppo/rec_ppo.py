@@ -14,7 +14,7 @@ from jumanji.env import Environment
 from omegaconf import DictConfig, OmegaConf
 from rich.pretty import pprint
 
-from stoix.evaluator import evaluator_setup
+from stoix.evaluator import evaluator_setup, get_rec_distribution_act_fn
 from stoix.networks.base import RecurrentActor as Actor
 from stoix.networks.base import RecurrentCritic as Critic
 from stoix.networks.base import ScannedRNN
@@ -588,7 +588,7 @@ def run_experiment(_config: DictConfig) -> None:
     evaluator, absolute_metric_evaluator, (trained_params, eval_keys) = evaluator_setup(
         eval_env=eval_env,
         key_e=key_e,
-        network=actor_network,
+        eval_act_fn=get_rec_distribution_act_fn(config, actor_network.apply),
         params=learner_state.params.actor_params,
         config=config,
         use_recurrent_net=True,
