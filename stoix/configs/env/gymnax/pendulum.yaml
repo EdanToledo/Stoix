@@ -1,0 +1,8 @@
+# ---Environment Configs---
+env_name: gymnax
+
+scenario:
+  name: Pendulum-v1
+  task_name: pendulum
+
+kwargs: {}
