@@ -19,6 +19,7 @@ from jumanji.wrappers import AutoResetWrapper, MultiToSingleWrapper
 from omegaconf import DictConfig
 from xminigrid.registration import _REGISTRY as XMINIGRID_REGISTRY
 
+from stoix.utils.debug_env import IdentityGame
 from stoix.wrappers import GymnaxWrapper, JumanjiWrapper, RecordEpisodeMetrics
 from stoix.wrappers.brax import BraxJumanjiWrapper
 from stoix.wrappers.jaxmarl import JaxMarlWrapper, MabraxWrapper, SmaxWrapper
@@ -236,6 +237,27 @@ def make_craftax_env(env_name: str, config: DictConfig) -> Tuple[Environment, En
     return env, eval_env
 
 
+def make_debug_env(env_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
+    """
+    Create a debug environment for training and evaluation.
+
+    Args:
+        env_name (str): The name of the environment to create.
+        config (Dict): The configuration of the environment.
+
+    Returns:
+        A tuple of the environments.
+    """
+
+    env = IdentityGame(**config.env.kwargs)
+    eval_env = IdentityGame(**config.env.kwargs)
+
+    env = AutoResetWrapper(env)
+    env = RecordEpisodeMetrics(env)
+
+    return env, eval_env
+
+
 def make(config: DictConfig) -> Tuple[Environment, Environment]:
     """
     Create environments for training and evaluation..
@@ -260,5 +282,7 @@ def make(config: DictConfig) -> Tuple[Environment, Environment]:
         return make_jaxmarl_env(env_name, config)
     elif "craftax" in env_name.lower():
         return make_craftax_env(env_name, config)
+    elif "debug" in env_name.lower():
+        return make_debug_env(env_name, config)
     else:
         raise ValueError(f"{env_name} is not a supported environment.")
