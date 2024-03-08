@@ -15,18 +15,19 @@ class TruncationAutoResetWrapper(Wrapper):
     the state, observation, and step_type are reset. The observation and step_type of the
     terminal TimeStep is reset to the reset observation and StepType.LAST, respectively.
     The reward, discount, and extras retrieved from the transition to the terminal state.
-    NOTE: The observation from the terminal TimeStep is stored in timestep.extras["real_next_obs"].
+    NOTE: The observation from the terminal TimeStep is stored in
+    timestep.extras["final_observation"].
     WARNING: do not `jax.vmap` the wrapped environment (e.g. do not use with the `VmapWrapper`),
     which would lead to inefficient computation due to both the `step` and `reset` functions
     being processed each time `step` is called. Please use the `VmapAutoResetWrapper` instead.
     """
 
-    OBS_IN_EXTRAS_KEY = "real_next_obs"
+    OBS_IN_EXTRAS_KEY = "final_observation"
 
     def _obs_in_extras(
         self, state: State, timestep: TimeStep[Observation]
     ) -> Tuple[State, TimeStep[Observation]]:
-        """Place the observation in timestep.extras[real_next_obs]."""
+        """Place the observation in timestep.extras[final_observation]."""
         extras = timestep.extras
         extras[TruncationAutoResetWrapper.OBS_IN_EXTRAS_KEY] = timestep.observation
         return state, timestep.replace(extras=extras)
