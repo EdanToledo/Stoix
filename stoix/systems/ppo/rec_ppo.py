@@ -199,8 +199,11 @@ def get_learner_fn(
                     # RERUN NETWORK
 
                     obs_and_done = (traj_batch.obs, traj_batch.done)
+                    policy_hidden_state = jax.tree_map(
+                        lambda x: x[0], traj_batch.hstates.policy_hidden_state
+                    )
                     _, actor_policy = actor_apply_fn(
-                        actor_params, traj_batch.hstates.policy_hidden_state[0], obs_and_done
+                        actor_params, policy_hidden_state, obs_and_done
                     )
                     log_prob = actor_policy.log_prob(traj_batch.action)
 
@@ -220,9 +223,10 @@ def get_learner_fn(
                     """Calculate the critic loss."""
                     # RERUN NETWORK
                     obs_and_done = (traj_batch.obs, traj_batch.done)
-                    _, value = critic_apply_fn(
-                        critic_params, traj_batch.hstates.critic_hidden_state[0], obs_and_done
+                    critic_hidden_state = jax.tree_map(
+                        lambda x: x[0], traj_batch.hstates.critic_hidden_state
                     )
+                    _, value = critic_apply_fn(critic_params, critic_hidden_state, obs_and_done)
 
                     # CALCULATE VALUE LOSS
                     value_loss = clipped_value_loss(

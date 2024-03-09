@@ -259,7 +259,7 @@ def get_rnn_evaluator_fn(
 
         # Initialise hidden state.
         init_hstate = scanned_rnn.initialize_carry(eval_batch)
-        init_hstate = jnp.expand_dims(init_hstate, axis=1)
+        init_hstate = jax.tree_map(lambda x: jnp.expand_dims(x, axis=1), init_hstate)
 
         # Initialise dones.
         dones = jnp.zeros(

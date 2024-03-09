@@ -100,8 +100,13 @@ class ScannedRNN(nn.Module):
     def __call__(self, rnn_state: chex.Array, x: chex.Array) -> Tuple[chex.Array, chex.Array]:
         """Applies the module."""
         ins, resets = x
-        rnn_state = jnp.where(
+        hidden_state_reset_fn = lambda reset_state, current_state: jnp.where(
             resets[:, np.newaxis],
+            reset_state,
+            current_state,
+        )
+        rnn_state = jax.tree_map(
+            hidden_state_reset_fn,
             self.initialize_carry(ins.shape[0]),
             rnn_state,
         )

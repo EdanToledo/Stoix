@@ -32,7 +32,8 @@ class MLPTorso(nn.Module):
 
 
 class CNNTorso(nn.Module):
-    """CNN torso."""
+    """2D CNN torso. Expects input of shape (batch, height, width, channels).
+    After this torso, the output is flattened."""
 
     channel_sizes: Sequence[int]
     kernel_sizes: Sequence[int]
@@ -54,4 +55,4 @@ class CNNTorso(nn.Module):
                 x = nn.LayerNorm(use_scale=False)(x)
             x = self.activation_fn(x)
 
-        return x.reshape((x.shape[0], -1))
+        return x.reshape(*x.shape[:-3], -1)
