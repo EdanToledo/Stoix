@@ -15,9 +15,7 @@ from omegaconf import DictConfig, OmegaConf
 from rich.pretty import pprint
 
 from stoix.evaluator import evaluator_setup, get_rec_distribution_act_fn
-from stoix.networks.base import RecurrentActor as Actor
-from stoix.networks.base import RecurrentCritic as Critic
-from stoix.networks.base import ScannedRNN
+from stoix.networks.base import RecurrentActor, RecurrentCritic, ScannedRNN
 from stoix.systems.ppo.types import (
     ActorCriticOptStates,
     ActorCriticParams,
@@ -201,8 +199,11 @@ def get_learner_fn(
                     # RERUN NETWORK
 
                     obs_and_done = (traj_batch.obs, traj_batch.done)
+                    policy_hidden_state = jax.tree_map(
+                        lambda x: x[0], traj_batch.hstates.policy_hidden_state
+                    )
                     _, actor_policy = actor_apply_fn(
-                        actor_params, traj_batch.hstates.policy_hidden_state[0], obs_and_done
+                        actor_params, policy_hidden_state, obs_and_done
                     )
                     log_prob = actor_policy.log_prob(traj_batch.action)
 
@@ -222,9 +223,10 @@ def get_learner_fn(
                     """Calculate the critic loss."""
                     # RERUN NETWORK
                     obs_and_done = (traj_batch.obs, traj_batch.done)
-                    _, value = critic_apply_fn(
-                        critic_params, traj_batch.hstates.critic_hidden_state[0], obs_and_done
+                    critic_hidden_state = jax.tree_map(
+                        lambda x: x[0], traj_batch.hstates.critic_hidden_state
                     )
+                    _, value = critic_apply_fn(critic_params, critic_hidden_state, obs_and_done)
 
                     # CALCULATE VALUE LOSS
                     value_loss = clipped_value_loss(
@@ -412,7 +414,7 @@ def get_learner_fn(
 
 def learner_setup(
     env: Environment, keys: chex.Array, config: DictConfig
-) -> Tuple[LearnerFn[RNNLearnerState], Actor, RNNLearnerState]:
+) -> Tuple[LearnerFn[RNNLearnerState], RecurrentActor, ScannedRNN, RNNLearnerState]:
     """Initialise learner_fn, network, optimiser, environment and states."""
     # Get available TPU cores.
     n_devices = len(jax.devices())
@@ -434,11 +436,27 @@ def learner_setup(
     critic_post_torso = hydra.utils.instantiate(config.network.critic_network.post_torso)
     critic_head = hydra.utils.instantiate(config.network.critic_network.critic_head)
 
-    actor_network = Actor(
-        pre_torso=actor_pre_torso, post_torso=actor_post_torso, action_head=actor_action_head
+    actor_network = RecurrentActor(
+        pre_torso=actor_pre_torso,
+        hidden_state_dim=config.network.critic_network.rnn_layer.hidden_state_dim,
+        cell_type=config.network.critic_network.rnn_layer.cell_type,
+        post_torso=actor_post_torso,
+        action_head=actor_action_head,
     )
-    critic_network = Critic(
-        pre_torso=critic_pre_torso, post_torso=critic_post_torso, critic_head=critic_head
+    critic_network = RecurrentCritic(
+        pre_torso=critic_pre_torso,
+        hidden_state_dim=config.network.critic_network.rnn_layer.hidden_state_dim,
+        cell_type=config.network.critic_network.rnn_layer.cell_type,
+        post_torso=critic_post_torso,
+        critic_head=critic_head,
+    )
+    actor_rnn = ScannedRNN(
+        hidden_state_dim=config.network.actor_network.rnn_layer.hidden_state_dim,
+        cell_type=config.network.actor_network.rnn_layer.cell_type,
+    )
+    critic_rnn = ScannedRNN(
+        hidden_state_dim=config.network.critic_network.rnn_layer.hidden_state_dim,
+        cell_type=config.network.critic_network.rnn_layer.cell_type,
     )
 
     actor_lr = make_learning_rate(
@@ -468,9 +486,8 @@ def learner_setup(
     init_x = (init_obs, init_done)
 
     # Initialise hidden states.
-    hidden_size = config.network.actor_network.pre_torso.layer_sizes[-1]
-    init_policy_hstate = ScannedRNN.initialize_carry((config.arch.num_envs), hidden_size)
-    init_critic_hstate = ScannedRNN.initialize_carry((config.arch.num_envs), hidden_size)
+    init_policy_hstate = actor_rnn.initialize_carry(config.arch.num_envs)
+    init_critic_hstate = critic_rnn.initialize_carry(config.arch.num_envs)
 
     # initialise params and optimiser state.
     actor_params = actor_network.init(actor_net_key, init_policy_hstate, init_x)
@@ -549,7 +566,7 @@ def learner_setup(
         dones=dones,
         hstates=hstates,
     )
-    return learn, actor_network, init_learner_state
+    return learn, actor_network, actor_rnn, init_learner_state
 
 
 def run_experiment(_config: DictConfig) -> None:
@@ -580,7 +597,7 @@ def run_experiment(_config: DictConfig) -> None:
     )
 
     # Setup learner.
-    learn, actor_network, learner_state = learner_setup(
+    learn, actor_network, actor_rnn, learner_state = learner_setup(
         env, (key, actor_net_key, critic_net_key), config
     )
 
@@ -592,7 +609,7 @@ def run_experiment(_config: DictConfig) -> None:
         params=learner_state.params.actor_params,
         config=config,
         use_recurrent_net=True,
-        scanned_rnn=ScannedRNN,
+        scanned_rnn=actor_rnn,
     )
 
     # Calculate number of updates per evaluation.

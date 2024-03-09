@@ -14,3 +14,15 @@ def parse_activation_fn(activation_fn_name: str) -> Callable[[chex.Array], chex.
         "gelu": nn.gelu,
     }
     return activation_fns[activation_fn_name]
+
+
+def parse_rnn_cell(rnn_cell_name: str) -> nn.RNNCellBase:
+    """Get the rnn cell."""
+    rnn_cells: Dict[str, Callable[[chex.Array], chex.Array]] = {
+        "lstm": nn.LSTMCell,
+        "optimised_lstm": nn.OptimizedLSTMCell,
+        "gru": nn.GRUCell,
+        "mgu": nn.MGUCell,
+        "simple": nn.SimpleCell,
+    }
+    return rnn_cells[rnn_cell_name]

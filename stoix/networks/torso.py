@@ -16,9 +16,6 @@ class MLPTorso(nn.Module):
     use_layer_norm: bool = False
     kernel_init: Initializer = orthogonal(np.sqrt(2.0))
 
-    def setup(self) -> None:
-        self.activation_fn = parse_activation_fn(self.activation)
-
     @nn.compact
     def __call__(self, observation: chex.Array) -> chex.Array:
         """Forward pass."""
@@ -27,12 +24,13 @@ class MLPTorso(nn.Module):
             x = nn.Dense(layer_size, kernel_init=self.kernel_init)(x)
             if self.use_layer_norm:
                 x = nn.LayerNorm(use_scale=False)(x)
-            x = self.activation_fn(x)
+            x = parse_activation_fn(self.activation)(x)
         return x
 
 
 class CNNTorso(nn.Module):
-    """CNN torso."""
+    """2D CNN torso. Expects input of shape (batch, height, width, channels).
+    After this torso, the output is flattened."""
 
     channel_sizes: Sequence[int]
     kernel_sizes: Sequence[int]
@@ -40,9 +38,6 @@ class CNNTorso(nn.Module):
     activation: str = "relu"
     use_layer_norm: bool = False
     kernel_init: Initializer = lecun_normal()
-
-    def setup(self) -> None:
-        self.activation_fn = parse_activation_fn(self.activation)
 
     @nn.compact
     def __call__(self, observation: chex.Array) -> chex.Array:
@@ -52,6 +47,6 @@ class CNNTorso(nn.Module):
             x = nn.Conv(channel, (kernel, kernel), (stride, stride))(x)
             if self.use_layer_norm:
                 x = nn.LayerNorm(use_scale=False)(x)
-            x = self.activation_fn(x)
+            x = parse_activation_fn(self.activation)(x)
 
-        return x.reshape((x.shape[0], -1))
+        return x.reshape(*x.shape[:-3], -1)
