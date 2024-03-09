@@ -6,7 +6,7 @@ actor_network:
     use_layer_norm: False
     activation: relu
   action_head:
-    _target_: stoix.networks.heads.NormalTanhDistributionHead
+    _target_: stoix.networks.heads.NormalAffineTanhDistributionHead
 
 critic_network:
   pre_torso:

@@ -296,6 +296,8 @@ def learner_setup(
     # Get number of actions.
     num_actions = int(env.action_spec().shape[-1])
     config.system.action_dim = num_actions
+    config.system.action_minimum = float(env.action_spec().minimum)
+    config.system.action_maximum = float(env.action_spec().maximum)
 
     # PRNG keys.
     key, actor_net_key, critic_net_key = keys
@@ -303,7 +305,10 @@ def learner_setup(
     # Define network and optimiser.
     actor_torso = hydra.utils.instantiate(config.network.actor_network.pre_torso)
     actor_action_head = hydra.utils.instantiate(
-        config.network.actor_network.action_head, action_dim=num_actions
+        config.network.actor_network.action_head,
+        action_dim=num_actions,
+        minimum=env.action_spec().minimum,
+        maximum=env.action_spec().maximum,
     )
     critic_torso = hydra.utils.instantiate(config.network.critic_network.pre_torso)
     critic_head = hydra.utils.instantiate(config.network.critic_network.critic_head)

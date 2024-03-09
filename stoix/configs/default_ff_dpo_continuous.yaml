@@ -3,5 +3,5 @@ defaults:
   - arch: anakin
   - system: ff_dpo
   - network: mlp_continuous
-  - env: brax/ant
+  - env: gymnax/pendulum
   - _self_
