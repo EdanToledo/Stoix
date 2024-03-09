@@ -9,6 +9,7 @@ import numpy as np
 from flax import linen as nn
 
 from stoix.networks.inputs import ObservationInput
+from stoix.networks.utils import parse_rnn_cell
 from stoix.types import Observation, RNNObservation
 
 
@@ -82,6 +83,12 @@ class MultiNetwork(nn.Module):
 
 
 class ScannedRNN(nn.Module):
+    hidden_state_dim: int
+    cell_type: str
+
+    def setup(self) -> None:
+        self.rnn_cell = parse_rnn_cell(self.cell_type)
+
     @functools.partial(
         nn.scan,
         variable_broadcast="params",
@@ -90,24 +97,23 @@ class ScannedRNN(nn.Module):
         split_rngs={"params": False},
     )
     @nn.compact
-    def __call__(self, carry: chex.Array, x: chex.Array) -> Tuple[chex.Array, chex.Array]:
+    def __call__(self, rnn_state: chex.Array, x: chex.Array) -> Tuple[chex.Array, chex.Array]:
         """Applies the module."""
-        rnn_state = carry
         ins, resets = x
         rnn_state = jnp.where(
             resets[:, np.newaxis],
-            self.initialize_carry(ins.shape[0], ins.shape[1]),
+            self.initialize_carry(ins.shape[0]),
             rnn_state,
         )
-        new_rnn_state, y = nn.GRUCell(features=ins.shape[1])(rnn_state, ins)
+        new_rnn_state, y = self.rnn_cell(features=self.hidden_state_dim)(rnn_state, ins)
         return new_rnn_state, y
 
-    @staticmethod
-    def initialize_carry(batch_size: int, hidden_size: int) -> chex.Array:
+    @nn.nowrap
+    def initialize_carry(self, batch_size: int) -> chex.Array:
         """Initializes the carry state."""
         # Use a dummy key since the default state init fn is just zeros.
-        cell = nn.GRUCell(features=hidden_size)
-        return cell.initialize_carry(jax.random.PRNGKey(0), (batch_size, hidden_size))
+        cell = parse_rnn_cell(self.cell_type)(features=self.hidden_state_dim)
+        return cell.initialize_carry(jax.random.PRNGKey(0), (batch_size, self.hidden_state_dim))
 
 
 class RecurrentActor(nn.Module):
@@ -115,6 +121,7 @@ class RecurrentActor(nn.Module):
 
     action_head: nn.Module
     post_torso: nn.Module
+    rnn: ScannedRNN
     pre_torso: nn.Module
     input_layer: nn.Module = ObservationInput()
 
@@ -130,7 +137,7 @@ class RecurrentActor(nn.Module):
         observation = self.input_layer(observation)
         policy_embedding = self.pre_torso(observation)
         policy_rnn_input = (policy_embedding, done)
-        policy_hidden_state, policy_embedding = ScannedRNN()(policy_hidden_state, policy_rnn_input)
+        policy_hidden_state, policy_embedding = self.rnn(policy_hidden_state, policy_rnn_input)
         actor_logits = self.post_torso(policy_embedding)
         pi = self.action_head(actor_logits)
 
@@ -142,6 +149,7 @@ class RecurrentCritic(nn.Module):
 
     critic_head: nn.Module
     post_torso: nn.Module
+    rnn: ScannedRNN
     pre_torso: nn.Module
     input_layer: nn.Module = ObservationInput()
 
@@ -158,7 +166,7 @@ class RecurrentCritic(nn.Module):
 
         critic_embedding = self.pre_torso(observation)
         critic_rnn_input = (critic_embedding, done)
-        critic_hidden_state, critic_embedding = ScannedRNN()(critic_hidden_state, critic_rnn_input)
+        critic_hidden_state, critic_embedding = self.rnn(critic_hidden_state, critic_rnn_input)
         critic_output = self.post_torso(critic_embedding)
         critic_output = self.critic_head(critic_output)
 

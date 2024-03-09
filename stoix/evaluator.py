@@ -258,9 +258,7 @@ def get_rnn_evaluator_fn(
         step_keys = jnp.stack(step_keys).reshape(eval_batch, -1)
 
         # Initialise hidden state.
-        init_hstate = scanned_rnn.initialize_carry(
-            eval_batch, config.network.actor_network.pre_torso.layer_sizes[-1]
-        )
+        init_hstate = scanned_rnn.initialize_carry(eval_batch)
         init_hstate = jnp.expand_dims(init_hstate, axis=1)
 
         # Initialise dones.

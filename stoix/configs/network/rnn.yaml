@@ -1,10 +1,15 @@
 # ---Recurrent Structure Networks for PPO ---
+
 actor_network:
   pre_torso:
     _target_: stoix.networks.torso.MLPTorso
     layer_sizes: [256]
     use_layer_norm: False
     activation: relu
+  rnn_layer:
+    _target_: stoix.networks.base.ScannedRNN
+    cell_type: gru
+    hidden_state_dim: 128
   post_torso:
     _target_: stoix.networks.torso.MLPTorso
     layer_sizes: [256]
@@ -19,6 +24,10 @@ critic_network:
     layer_sizes: [256]
     use_layer_norm: False
     activation: relu
+  rnn_layer:
+    _target_: stoix.networks.base.ScannedRNN
+    cell_type: gru
+    hidden_state_dim: 128
   post_torso:
     _target_: stoix.networks.torso.MLPTorso
     layer_sizes: [256]
