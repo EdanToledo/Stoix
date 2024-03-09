@@ -92,11 +92,6 @@ def get_ff_evaluator_fn(
                 policy_key,
             )
 
-            # if config.arch.evaluation_greedy:
-            #     action = pi.mode()
-            # else:
-            #     action = pi.sample(seed=policy_key)
-
             # Step environment.
             env_state, timestep = env.step(env_state, action.squeeze())
 
@@ -200,11 +195,6 @@ def get_rnn_evaluator_fn(
 
             # Run the network.
             hstate, action = rec_act_fn(params, hstate, ac_in, policy_key)
-
-            # if config.arch.evaluation_greedy:
-            #     action = pi.mode()
-            # else:
-            #     action = pi.sample(seed=policy_key)
 
             # Step environment.
             env_state, timestep = env.step(env_state, action[-1].squeeze(0))
