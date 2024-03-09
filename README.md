@@ -60,6 +60,7 @@ Stoix currently offers the following building blocks for Single-Agent RL researc
 - **AlphaZero** - [Paper](https://arxiv.org/abs/1712.01815)
 - **Discovered Policy Optimization (DPO)** [Paper](https://arxiv.org/abs/2210.05639)
 - **Maximum a Posteriori Policy Optimisation (MPO)** - [Paper](https://arxiv.org/abs/1806.06920)
+- **REINFORCE With Baseline** - [Paper](https://people.cs.umass.edu/~barto/courses/cs687/williams92simple.pdf)
 
 ### Environment Wrappers 🍬
 Stoix offers wrappers for [Gymnax][gymnax], [Jumanji][jumanji], [Brax][brax], [XMinigrid][xminigrid], [Craftax][craftax] and even [JAXMarl][jaxmarl] (although using Centralised Controllers).
