@@ -1,0 +1,7 @@
+defaults:
+  - logger: ff_reinforce
+  - arch: anakin
+  - system: ff_reinforce
+  - network: mlp_continuous
+  - env: gymnax/pendulum
+  - _self_
