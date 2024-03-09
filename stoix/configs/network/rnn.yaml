@@ -3,7 +3,7 @@
 actor_network:
   pre_torso:
     _target_: stoix.networks.torso.MLPTorso
-    layer_sizes: [256]
+    layer_sizes: [128]
     use_layer_norm: False
     activation: relu
   rnn_layer:
@@ -12,7 +12,7 @@ actor_network:
     hidden_state_dim: 128
   post_torso:
     _target_: stoix.networks.torso.MLPTorso
-    layer_sizes: [256]
+    layer_sizes: [128]
     use_layer_norm: False
     activation: relu
   action_head:
@@ -21,7 +21,7 @@ actor_network:
 critic_network:
   pre_torso:
     _target_: stoix.networks.torso.MLPTorso
-    layer_sizes: [256]
+    layer_sizes: [128]
     use_layer_norm: False
     activation: relu
   rnn_layer:
@@ -30,7 +30,7 @@ critic_network:
     hidden_state_dim: 128
   post_torso:
     _target_: stoix.networks.torso.MLPTorso
-    layer_sizes: [256]
+    layer_sizes: [128]
     use_layer_norm: False
     activation: relu
   critic_head:

@@ -428,27 +428,35 @@ def learner_setup(
 
     # Define network and optimisers.
     actor_pre_torso = hydra.utils.instantiate(config.network.actor_network.pre_torso)
-    actor_rnn = hydra.utils.instantiate(config.network.actor_network.rnn_layer)
     actor_post_torso = hydra.utils.instantiate(config.network.actor_network.post_torso)
     actor_action_head = hydra.utils.instantiate(
         config.network.actor_network.action_head, action_dim=num_actions
     )
     critic_pre_torso = hydra.utils.instantiate(config.network.critic_network.pre_torso)
-    critic_rnn = hydra.utils.instantiate(config.network.critic_network.rnn_layer)
     critic_post_torso = hydra.utils.instantiate(config.network.critic_network.post_torso)
     critic_head = hydra.utils.instantiate(config.network.critic_network.critic_head)
 
     actor_network = RecurrentActor(
         pre_torso=actor_pre_torso,
-        rnn=actor_rnn,
+        hidden_state_dim=config.network.critic_network.rnn_layer.hidden_state_dim,
+        cell_type=config.network.critic_network.rnn_layer.cell_type,
         post_torso=actor_post_torso,
         action_head=actor_action_head,
     )
     critic_network = RecurrentCritic(
         pre_torso=critic_pre_torso,
-        rnn=critic_rnn,
+        hidden_state_dim=config.network.critic_network.rnn_layer.hidden_state_dim,
+        cell_type=config.network.critic_network.rnn_layer.cell_type,
         post_torso=critic_post_torso,
         critic_head=critic_head,
+    )
+    actor_rnn = ScannedRNN(
+        hidden_state_dim=config.network.actor_network.rnn_layer.hidden_state_dim,
+        cell_type=config.network.actor_network.rnn_layer.cell_type,
+    )
+    critic_rnn = ScannedRNN(
+        hidden_state_dim=config.network.critic_network.rnn_layer.hidden_state_dim,
+        cell_type=config.network.critic_network.rnn_layer.cell_type,
     )
 
     actor_lr = make_learning_rate(

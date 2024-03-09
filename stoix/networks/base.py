@@ -126,7 +126,8 @@ class RecurrentActor(nn.Module):
 
     action_head: nn.Module
     post_torso: nn.Module
-    rnn: ScannedRNN
+    hidden_state_dim: int
+    cell_type: str
     pre_torso: nn.Module
     input_layer: nn.Module = ObservationInput()
 
@@ -142,7 +143,9 @@ class RecurrentActor(nn.Module):
         observation = self.input_layer(observation)
         policy_embedding = self.pre_torso(observation)
         policy_rnn_input = (policy_embedding, done)
-        policy_hidden_state, policy_embedding = self.rnn(policy_hidden_state, policy_rnn_input)
+        policy_hidden_state, policy_embedding = ScannedRNN(self.hidden_state_dim, self.cell_type)(
+            policy_hidden_state, policy_rnn_input
+        )
         actor_logits = self.post_torso(policy_embedding)
         pi = self.action_head(actor_logits)
 
@@ -154,7 +157,8 @@ class RecurrentCritic(nn.Module):
 
     critic_head: nn.Module
     post_torso: nn.Module
-    rnn: ScannedRNN
+    hidden_state_dim: int
+    cell_type: str
     pre_torso: nn.Module
     input_layer: nn.Module = ObservationInput()
 
@@ -171,7 +175,9 @@ class RecurrentCritic(nn.Module):
 
         critic_embedding = self.pre_torso(observation)
         critic_rnn_input = (critic_embedding, done)
-        critic_hidden_state, critic_embedding = self.rnn(critic_hidden_state, critic_rnn_input)
+        critic_hidden_state, critic_embedding = ScannedRNN(self.hidden_state_dim, self.cell_type)(
+            critic_hidden_state, critic_rnn_input
+        )
         critic_output = self.post_torso(critic_embedding)
         critic_output = self.critic_head(critic_output)
 
