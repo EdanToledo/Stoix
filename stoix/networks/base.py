@@ -86,9 +86,6 @@ class ScannedRNN(nn.Module):
     hidden_state_dim: int
     cell_type: str
 
-    def setup(self) -> None:
-        self.rnn_cell = parse_rnn_cell(self.cell_type)
-
     @functools.partial(
         nn.scan,
         variable_broadcast="params",
@@ -110,7 +107,9 @@ class ScannedRNN(nn.Module):
             self.initialize_carry(ins.shape[0]),
             rnn_state,
         )
-        new_rnn_state, y = self.rnn_cell(features=self.hidden_state_dim)(rnn_state, ins)
+        new_rnn_state, y = parse_rnn_cell(self.cell_type)(features=self.hidden_state_dim)(
+            rnn_state, ins
+        )
         return new_rnn_state, y
 
     @nn.nowrap
