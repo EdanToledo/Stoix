@@ -3,16 +3,16 @@ actor_network:
   pre_torso:
     _target_: stoix.networks.torso.MLPTorso
     layer_sizes: [256, 256]
-    use_layer_norm: True
-    activation: silu
+    use_layer_norm: False
+    activation: relu
   action_head:
-    _target_: stoix.networks.heads.NormalTanhDistributionHead
+    _target_: stoix.networks.heads.NormalAffineTanhDistributionHead
 
 critic_network:
   pre_torso:
     _target_: stoix.networks.torso.MLPTorso
     layer_sizes: [256, 256]
-    use_layer_norm: True
-    activation: silu
+    use_layer_norm: False
+    activation: relu
   critic_head:
     _target_: stoix.networks.heads.ScalarCriticHead

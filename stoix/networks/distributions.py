@@ -11,56 +11,76 @@ from tensorflow_probability.substrates.jax.distributions import (
     TransformedDistribution,
 )
 
+tfb = tfp.bijectors
 
-class TanhTransformedDistribution(TransformedDistribution):
-    """Distribution followed by tanh."""
+
+class AffineTanhTransformedDistribution(TransformedDistribution):
+    """Distribution followed by tanh and then affine transformations."""
 
     def __init__(
-        self, distribution: Distribution, threshold: float = 0.999, validate_args: bool = False
+        self,
+        distribution: Distribution,
+        minimum: float,
+        maximum: float,
+        epsilon: float = 1e-3,
+        validate_args: bool = False,
     ) -> None:
-        """Initialize the distribution.
+        """Initialize the distribution with a tanh and affine bijector.
 
         Args:
           distribution: The distribution to transform.
-          threshold: Clipping value of the action when computing the logprob.
+          minimum: Lower bound of the target range.
+          maximum: Upper bound of the target range.
+          epsilon: epsilon value for numerical stability.
+            epsilon is used to compute the log of the average probability distribution
+            outside the clipping range, i.e. on the interval
+            [-inf, atanh(inverse_affine(minimum))] for log_prob_left and
+            [atanh(inverse_affine(maximum)), inf] for log_prob_right.
           validate_args: Passed to super class.
         """
+        # Calculate scale and shift for the affine transformation to achieve the range
+        # [minimum, maximum] after the tanh.
+        scale = (maximum - minimum) / 2.0
+        shift = (minimum + maximum) / 2.0
+
+        # Chain the bijectors
+        joint_bijector = tfb.Chain([tfb.Chain([tfb.Shift(shift), tfb.Scale(scale)]), tfb.Tanh()])
+
         super().__init__(
-            distribution=distribution, bijector=tfp.bijectors.Tanh(), validate_args=validate_args
+            distribution=distribution, bijector=joint_bijector, validate_args=validate_args
         )
+
         # Computes the log of the average probability distribution outside the
-        # clipping range, i.e. on the interval [-inf, -atanh(threshold)] for
-        # log_prob_left and [atanh(threshold), inf] for log_prob_right.
-        self._threshold = threshold
-        inverse_threshold = self.bijector.inverse(threshold)
+        # clipping range, i.e. on the interval [-inf, atanh(inverse_affine(minimum))] for
+        # log_prob_left and [atanh(inverse_affine(maximum)), inf] for log_prob_right.
+        self._min_threshold = minimum + epsilon
+        self._max_threshold = maximum - epsilon
+        min_inverse_threshold = self.bijector.inverse(self._min_threshold)
+        max_inverse_threshold = self.bijector.inverse(self._max_threshold)
         # average(pdf) = p/epsilon
         # So log(average(pdf)) = log(p) - log(epsilon)
-        log_epsilon = jnp.log(1.0 - threshold)
+        log_epsilon = jnp.log(epsilon)
         # Those 2 values are differentiable w.r.t. model parameters, such that the
         # gradient is defined everywhere.
-        self._log_prob_left = self.distribution.log_cdf(-inverse_threshold) - log_epsilon
+        self._log_prob_left = self.distribution.log_cdf(min_inverse_threshold) - log_epsilon
         self._log_prob_right = (
-            self.distribution.log_survival_function(inverse_threshold) - log_epsilon
+            self.distribution.log_survival_function(max_inverse_threshold) - log_epsilon
         )
 
     def log_prob(self, event: chex.Array) -> chex.Array:
         # Without this clip there would be NaNs in the inner tf.where and that
         # causes issues for some reasons.
-        event = jnp.clip(event, -self._threshold, self._threshold)
-        # The inverse image of {threshold} is the interval [atanh(threshold), inf]
-        # which has a probability of "log_prob_right" under the given distribution.
+        event = jnp.clip(event, self._min_threshold, self._max_threshold)
         return jnp.where(
-            event <= -self._threshold,
+            event <= self._min_threshold,
             self._log_prob_left,
-            jnp.where(event >= self._threshold, self._log_prob_right, super().log_prob(event)),
+            jnp.where(event >= self._max_threshold, self._log_prob_right, super().log_prob(event)),
         )
 
     def mode(self) -> chex.Array:
         return self.bijector.forward(self.distribution.mode())
 
     def entropy(self, seed: chex.PRNGKey = None) -> chex.Array:
-        # We return an estimation using a single sample of the log_det_jacobian.
-        # We can still do some backpropagation with this estimate.
         return self.distribution.entropy() + self.bijector.forward_log_det_jacobian(
             self.distribution.sample(seed=seed), event_ndims=0
         )

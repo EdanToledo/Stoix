@@ -15,7 +15,7 @@ from jaxmarl.registration import registered_envs as jaxmarl_environments
 from jumanji.env import Environment
 from jumanji.registration import _REGISTRY as JUMANJI_REGISTRY
 from jumanji.specs import BoundedArray, MultiDiscreteArray
-from jumanji.wrappers import AutoResetWrapper, MultiToSingleWrapper
+from jumanji.wrappers import MultiToSingleWrapper
 from omegaconf import DictConfig
 from xminigrid.registration import _REGISTRY as XMINIGRID_REGISTRY
 
@@ -24,6 +24,7 @@ from stoix.wrappers import GymnaxWrapper, JumanjiWrapper, RecordEpisodeMetrics
 from stoix.wrappers.brax import BraxJumanjiWrapper
 from stoix.wrappers.jaxmarl import JaxMarlWrapper, MabraxWrapper, SmaxWrapper
 from stoix.wrappers.jumanji import MultiBoundedToBounded, MultiDiscreteToDiscrete
+from stoix.wrappers.truncation import TruncationAutoResetWrapper
 from stoix.wrappers.xminigrid import XMiniGridWrapper
 
 
@@ -60,7 +61,7 @@ def make_jumanji_env(
         config.env.multi_agent,
     )
 
-    env = AutoResetWrapper(env)
+    env = TruncationAutoResetWrapper(env)
     env = RecordEpisodeMetrics(env)
 
     return env, eval_env
@@ -85,7 +86,7 @@ def make_gymnax_env(env_name: str, config: DictConfig) -> Tuple[Environment, Env
     env = GymnaxWrapper(env, env_params)
     eval_env = GymnaxWrapper(eval_env, eval_env_params)
 
-    env = AutoResetWrapper(env)
+    env = TruncationAutoResetWrapper(env)
     env = RecordEpisodeMetrics(env)
 
     return env, eval_env
@@ -112,7 +113,7 @@ def make_xland_minigrid_env(env_name: str, config: DictConfig) -> Tuple[Environm
     env = XMiniGridWrapper(env, env_params, config.env.flatten_observation)
     eval_env = XMiniGridWrapper(eval_env, eval_env_params, config.env.flatten_observation)
 
-    env = AutoResetWrapper(env)
+    env = TruncationAutoResetWrapper(env)
     env = RecordEpisodeMetrics(env)
 
     return env, eval_env
@@ -189,7 +190,7 @@ def make_jaxmarl_env(
     else:
         raise ValueError(f"Unsupported action spec for JAXMarl {env.action_spec()}.")
 
-    env = AutoResetWrapper(env)
+    env = TruncationAutoResetWrapper(env)
     env = RecordEpisodeMetrics(env)
 
     return env, eval_env
@@ -231,7 +232,7 @@ def make_craftax_env(env_name: str, config: DictConfig) -> Tuple[Environment, En
     env = GymnaxWrapper(env, env_params)
     eval_env = GymnaxWrapper(eval_env, eval_env_params)
 
-    env = AutoResetWrapper(env)
+    env = TruncationAutoResetWrapper(env)
     env = RecordEpisodeMetrics(env)
 
     return env, eval_env
@@ -252,7 +253,7 @@ def make_debug_env(env_name: str, config: DictConfig) -> Tuple[Environment, Envi
     env = IdentityGame(**config.env.kwargs)
     eval_env = IdentityGame(**config.env.kwargs)
 
-    env = AutoResetWrapper(env)
+    env = TruncationAutoResetWrapper(env)
     env = RecordEpisodeMetrics(env)
 
     return env, eval_env

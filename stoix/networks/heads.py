@@ -16,8 +16,8 @@ from tensorflow_probability.substrates.jax.distributions import (
 )
 
 from stoix.networks.distributions import (
+    AffineTanhTransformedDistribution,
     DiscreteValuedTfpDistribution,
-    TanhTransformedDistribution,
 )
 
 
@@ -36,9 +36,11 @@ class CategoricalHead(nn.Module):
         return Categorical(logits=logits)
 
 
-class NormalTanhDistributionHead(nn.Module):
+class NormalAffineTanhDistributionHead(nn.Module):
 
     action_dim: int
+    minimum: float
+    maximum: float
     min_scale: float = 1e-3
     kernel_init: Initializer = orthogonal(0.01)
 
@@ -52,7 +54,10 @@ class NormalTanhDistributionHead(nn.Module):
         )
         distribution = Normal(loc=loc, scale=scale)
 
-        return Independent(TanhTransformedDistribution(distribution), reinterpreted_batch_ndims=1)
+        return Independent(
+            AffineTanhTransformedDistribution(distribution, self.minimum, self.maximum),
+            reinterpreted_batch_ndims=1,
+        )
 
 
 class MultivariateNormalDiagHead(nn.Module):
