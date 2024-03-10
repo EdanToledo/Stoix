@@ -1,5 +1,5 @@
 defaults:
-  - logger: ff_dqn
+  - logger: base_logger
   - arch: anakin
   - system: ff_dqn
   - network: mlp_dqn

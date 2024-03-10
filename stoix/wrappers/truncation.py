@@ -22,7 +22,7 @@ class TruncationAutoResetWrapper(Wrapper):
     being processed each time `step` is called. Please use the `VmapAutoResetWrapper` instead.
     """
 
-    OBS_IN_EXTRAS_KEY = "final_observation"
+    OBS_IN_EXTRAS_KEY = "real_next_obs"
 
     def _obs_in_extras(
         self, state: State, timestep: TimeStep[Observation]

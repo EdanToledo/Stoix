@@ -47,7 +47,7 @@ def make_learning_rate(
 
     if config.system.decay_learning_rates:
         return make_learning_rate_schedule(
-            init_lr, config.system.num_updates, num_epochs, num_minibatches
+            init_lr, config.arch.num_updates, num_epochs, num_minibatches
         )
     else:
         return init_lr

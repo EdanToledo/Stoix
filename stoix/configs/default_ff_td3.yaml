@@ -1,5 +1,5 @@
 defaults:
-  - logger: ff_td3
+  - logger: base_logger
   - arch: anakin
   - system: ff_td3
   - network: mlp_ddpg

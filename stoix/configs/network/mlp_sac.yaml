@@ -2,7 +2,7 @@
 actor_network:
   pre_torso:
     _target_: stoix.networks.torso.MLPTorso
-    layer_sizes: [32, 32, 32, 32]
+    layer_sizes: [64, 64]
     use_layer_norm: False
     activation: relu
   action_head:
@@ -13,7 +13,7 @@ q_network:
     _target_: stoix.networks.inputs.ObservationActionInput
   pre_torso:
     _target_: stoix.networks.torso.MLPTorso
-    layer_sizes: [256, 256]
+    layer_sizes: [64, 64]
     use_layer_norm: True
     activation: relu
   critic_head:

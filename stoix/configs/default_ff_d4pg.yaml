@@ -1,5 +1,5 @@
 defaults:
-  - logger: ff_d4pg
+  - logger: base_logger
   - arch: anakin
   - system: ff_d4pg
   - network: mlp_d4pg

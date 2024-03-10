@@ -1,7 +1,7 @@
 defaults:
-  - logger: ff_sac
+  - logger: base_logger
   - arch: anakin
   - system: ff_sac
   - network: mlp_sac
-  - env: brax/ant
+  - env: gymnax/pendulum
   - _self_
