@@ -74,11 +74,13 @@ As the code in Stoix (at the time of creation) was in essense a port of [Mava][m
 
 Below we provide some plots illustrating that Stoix performs equally to that of [PureJaxRL][purejaxrl] but with the added benefit of the code being already set up for `pmap` distribution over devices as well as the other features provided (algorithm implementations, logging, config system, etc).
 
-![ppo](docs/images/ppo_compare.png)  |  ![dqn](docs/images/dqn_compare.png)
+<img src="docs/images/ppo_compare.png" alt="ppo" width="500"/> <img src="docs/images/dqn_compare.png" alt="dqn" width="500"/>
 
-I've also included a plot of the training time for 5e5 steps of PPO as one scales the number of environments.
+I've also included a plot of the training time for 5e5 steps of PPO as one scales the number of environments. PureJaxRL does not pmap and thus runs on a single a device.
 
-![envs](docs/images/env_scaling.png)
+<p align="center">
+  <img src="docs/images/env_scaling.png" alt="env_scaling" width="750"/>
+</p>
 
 Lastly, please keep in mind for practical use that current networks and hyperparameters for algorithms have not been tuned.
 
