@@ -70,7 +70,17 @@ Stoix natively supports logging to json files which adhere to the standard sugge
 
 ## Performance and Speed 🚀
 
-As the code in Stoix was in essense a port of [Mava][mava], for speed comparisons we point to their repo. Additionally, we refer to the PureJAXRL blog post [here](https://chrislu.page/blog/meta-disco/) where the speed benefits of end-to-end JAX systems are discussed. Lastly, please note that current networks and hyperparameters for algorithms have not been tuned.
+As the code in Stoix (at the time of creation) was in essense a port of [Mava][mava], for further speed comparisons we point to their repo. Additionally, we refer to the PureJaxRL blog post [here](https://chrislu.page/blog/meta-disco/) where the speed benefits of end-to-end JAX systems are discussed.
+
+Below we provide some plots illustrating that Stoix performs equally to that of [PureJaxRL][purejaxrl] but with the added benefit of the code being already set up for `pmap` distribution over devices as well as the other features provided (algorithm implementations, logging, config system, etc).
+
+![ppo](docs/images/ppo_compare.png)  |  ![dqn](docs/images/dqn_compare.png)
+
+I've also included a plot of the training time for 5e5 steps of PPO as one scales the number of environments.
+
+![envs](docs/images/env_scaling.png)
+
+Lastly, please keep in mind for practical use that current networks and hyperparameters for algorithms have not been tuned.
 
 ## Installation 🎬
 
