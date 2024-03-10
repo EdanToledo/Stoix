@@ -396,7 +396,7 @@ def get_learner_fn(
         batched_update_step = jax.vmap(_update_step, in_axes=(0, None), axis_name="batch")
 
         learner_state, (episode_info, loss_info) = jax.lax.scan(
-            batched_update_step, learner_state, None, config.system.num_updates_per_eval
+            batched_update_step, learner_state, None, config.arch.num_updates_per_eval
         )
         return ExperimentOutput(
             learner_state=learner_state,
@@ -535,7 +535,7 @@ def learner_setup(
     # Load model from checkpoint if specified.
     if config.logger.checkpointing.load_model:
         loaded_checkpoint = Checkpointer(
-            model_name=config.logger.system_name,
+            model_name=config.system.system_name,
             **config.logger.checkpointing.load_args,  # Other checkpoint args
         )
         # Restore the learner state from the checkpoint
@@ -576,7 +576,7 @@ def run_experiment(_config: DictConfig) -> None:
     n_devices = len(jax.devices())
     config = check_total_timesteps(config)
     assert (
-        config.system.num_updates > config.arch.num_evaluation
+        config.arch.num_updates > config.arch.num_evaluation
     ), "Number of updates per evaluation must be less than total number of updates."
 
     # Create the enviroments for train and eval.
@@ -584,7 +584,7 @@ def run_experiment(_config: DictConfig) -> None:
 
     # PRNG keys.
     key, key_e, actor_net_key, q_net_key = jax.random.split(
-        jax.random.PRNGKey(config["system"]["seed"]), num=4
+        jax.random.PRNGKey(config.arch.seed), num=4
     )
 
     # Setup learner.
@@ -602,10 +602,10 @@ def run_experiment(_config: DictConfig) -> None:
     )
 
     # Calculate number of updates per evaluation.
-    config.system.num_updates_per_eval = config.system.num_updates // config.arch.num_evaluation
+    config.arch.num_updates_per_eval = config.arch.num_updates // config.arch.num_evaluation
     steps_per_rollout = (
         n_devices
-        * config.system.num_updates_per_eval
+        * config.arch.num_updates_per_eval
         * config.system.rollout_length
         * config.system.update_batch_size
         * config.arch.num_envs
@@ -622,7 +622,7 @@ def run_experiment(_config: DictConfig) -> None:
     if save_checkpoint:
         checkpointer = Checkpointer(
             metadata=config,  # Save all config as metadata in the checkpoint
-            model_name=config.logger.system_name,
+            model_name=config.system.system_name,
             **config.logger.checkpointing.save_args,  # Checkpoint args
         )
 

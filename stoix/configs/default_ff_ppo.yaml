@@ -1,5 +1,5 @@
 defaults:
-  - logger: ff_ppo
+  - logger: base_logger
   - arch: anakin
   - system: ff_ppo
   - network: mlp

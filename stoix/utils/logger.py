@@ -209,7 +209,7 @@ class JsonLogger(BaseLogger):
 
         self.logger = MarlEvalJsonLogger(
             path=json_logs_path,
-            algorithm_name=cfg.logger.system_name,
+            algorithm_name=cfg.system.system_name,
             task_name=cfg.env.scenario.task_name,
             environment_name=cfg.env.env_name,
             seed=cfg.system.seed,
@@ -317,7 +317,7 @@ def _make_multi_logger(cfg: DictConfig) -> BaseLogger:
 
 def get_logger_path(config: DictConfig, logger_type: str) -> str:
     """Helper function to create the experiment path."""
-    return f"{logger_type}/{config.logger.system_name}"
+    return f"{logger_type}/{config.system.system_name}"
 
 
 def describe(x: ArrayLike) -> Union[Dict[str, ArrayLike], ArrayLike]:
