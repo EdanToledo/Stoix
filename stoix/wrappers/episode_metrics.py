@@ -97,4 +97,6 @@ def get_final_step_metrics(metrics: Dict[str, chex.Array]) -> Tuple[Dict[str, ch
     else:
         final_metrics = jax.tree_util.tree_map(lambda x: x[is_final_ep], metrics)
 
+    final_metrics = jax.tree_util.tree_map(lambda x: x.squeeze(), final_metrics)
+
     return final_metrics, has_final_ep_step

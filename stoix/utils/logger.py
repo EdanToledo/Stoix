@@ -212,7 +212,7 @@ class JsonLogger(BaseLogger):
             algorithm_name=cfg.system.system_name,
             task_name=cfg.env.scenario.task_name,
             environment_name=cfg.env.env_name,
-            seed=cfg.system.seed,
+            seed=cfg.arch.seed,
         )
 
     def log_stat(self, key: str, value: float, step: int, eval_step: int, event: LogEvent) -> None:
