@@ -121,10 +121,18 @@ Please read our [contributing docs](docs/CONTRIBUTING.md) for details on how to 
 
 We plan to iteratively expand Stoix in the following increments:
 
-- 🌴 Support for more environments.
+- 🌴 Support for more environments as they become available.    
 - 🔁 More robust recurrent systems.
+    - [ ] Add recurrent variants of all systems
+    - [ ] Allow easy interchangability of recurrent cells/architecture via config
 - 📊 Benchmarks on more environments.
-- 🦾 More algorithm implementations.
+    - [ ] Create leaderboard of algorithms
+- 🦾 More algorithm implementations:
+    - [ ] MuZero
+    - [ ] Muesli
+    - [ ] DreamerV3
+    - [ ] Advantage Weighted Regression
+    - [ ] R2D2
 
 Please do follow along as we develop this next phase!
 
