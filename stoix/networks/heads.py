@@ -27,7 +27,6 @@ class CategoricalHead(nn.Module):
 
     @nn.compact
     def __call__(self, embedding: chex.Array) -> Categorical:
-
         logits = nn.Dense(np.prod(self.action_dim), kernel_init=self.kernel_init)(embedding)
 
         if not isinstance(self.action_dim, int):

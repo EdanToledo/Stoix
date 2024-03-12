@@ -1,0 +1,12 @@
+# ---MLP PPO Networks---
+actor_network:
+  pre_torso:
+    _target_: stoix.networks.resnet.VisualResNetTorso
+  action_head:
+    _target_: stoix.networks.heads.CategoricalHead
+
+critic_network:
+  pre_torso:
+    _target_: stoix.networks.resnet.VisualResNetTorso
+  critic_head:
+    _target_: stoix.networks.heads.ScalarCriticHead
