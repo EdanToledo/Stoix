@@ -128,11 +128,11 @@ We plan to iteratively expand Stoix in the following increments:
 - 📊 Benchmarks on more environments.
     - [ ] Create leaderboard of algorithms
 - 🦾 More algorithm implementations:
-    - [ ] MuZero
-    - [ ] Muesli
-    - [ ] DreamerV3
-    - [ ] Advantage Weighted Regression
-    - [ ] R2D2
+    - [ ] MuZero - [Paper](https://www.nature.com/articles/s41586-020-03051-4.epdf?sharing_token=kTk-xTZpQOF8Ym8nTQK6EdRgN0jAjWel9jnR3ZoTv0PMSWGj38iNIyNOw_ooNp2BvzZ4nIcedo7GEXD7UmLqb0M_V_fop31mMY9VBBLNmGbm0K9jETKkZnJ9SgJ8Rwhp3ySvLuTcUr888puIYbngQ0fiMf45ZGDAQ7fUI66-u7Y%3D)
+    - [ ] Muesli - [Paper](https://arxiv.org/abs/2104.06159)
+    - [ ] DreamerV3 - [Paper](https://arxiv.org/abs/2301.04104)
+    - [ ] Advantage Weighted Regression - [Paper](https://arxiv.org/abs/1910.00177)
+    - [ ] R2D2 - [Paper](https://openreview.net/pdf?id=r1lyTjAqYX)
 
 Please do follow along as we develop this next phase!
 
