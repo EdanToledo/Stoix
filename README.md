@@ -133,6 +133,7 @@ We plan to iteratively expand Stoix in the following increments:
     - [ ] DreamerV3 - [Paper](https://arxiv.org/abs/2301.04104)
     - [ ] Advantage Weighted Regression - [Paper](https://arxiv.org/abs/1910.00177)
     - [ ] R2D2 - [Paper](https://openreview.net/pdf?id=r1lyTjAqYX)
+    - [ ] Rainbow - [Paper](https://arxiv.org/abs/1710.02298)
 
 Please do follow along as we develop this next phase!
 
