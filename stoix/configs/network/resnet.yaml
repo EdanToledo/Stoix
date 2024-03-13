@@ -1,4 +1,4 @@
-# ---MLP PPO Networks---
+# ---ResNet---
 actor_network:
   pre_torso:
     _target_: stoix.networks.resnet.VisualResNetTorso
