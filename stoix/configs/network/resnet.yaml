@@ -1,0 +1,18 @@
+# ---ResNet---
+actor_network:
+  pre_torso:
+    _target_: stoix.networks.resnet.VisualResNetTorso
+    channels_per_group: [16, 32, 32]
+    blocks_per_group: [2, 2, 2]
+    use_layer_norm: False
+  action_head:
+    _target_: stoix.networks.heads.CategoricalHead
+
+critic_network:
+  pre_torso:
+    _target_: stoix.networks.resnet.VisualResNetTorso
+    channels_per_group: [16, 32, 32]
+    blocks_per_group: [2, 2, 2]
+    use_layer_norm: False
+  critic_head:
+    _target_: stoix.networks.heads.ScalarCriticHead
