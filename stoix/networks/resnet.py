@@ -6,6 +6,8 @@ import chex
 import flax.linen as nn
 import jax
 
+from stoix.networks.utils import parse_activation_fn
+
 InnerOp = Union[nn.Module, Callable[..., chex.Array]]
 MakeInnerOp = Callable[..., InnerOp]
 NonLinearity = Callable[[chex.Array], chex.Array]
@@ -110,8 +112,9 @@ class VisualResNetTorso(nn.Module):
 
     channels_per_group: Sequence[int] = (16, 32, 32)
     blocks_per_group: Sequence[int] = (2, 2, 2)
-    downsampling_strategies: Sequence[DownsamplingStrategy] = (DownsamplingStrategy.CONV_MAX,) * 3
+    downsampling_strategies: Sequence[DownsamplingStrategy] = (DownsamplingStrategy.CONV,) * 3
     use_layer_norm: bool = False
+    activation: str = "relu"
 
     @nn.compact
     def __call__(self, observation: chex.Array) -> chex.Array:
@@ -130,6 +133,33 @@ class VisualResNetTorso(nn.Module):
                         nn.Conv, features=num_channels, kernel_size=(3, 3)
                     ),
                     use_layer_norm=self.use_layer_norm,
+                    non_linearity=parse_activation_fn(self.activation),
                 )(output)
 
         return output.reshape(*observation.shape[:-3], -1)
+
+
+class ResNetTorso(nn.Module):
+    """ResNetTorso for Vector-based inputs"""
+
+    hidden_units_per_group: Sequence[int] = (256, 256, 256)
+    blocks_per_group: Sequence[int] = (2, 2, 2)
+    use_layer_norm: bool = False
+    activation: str = "relu"
+
+    @nn.compact
+    def __call__(self, observation: chex.Array) -> chex.Array:
+        output = observation
+        hidden_units_blocks = zip(self.hidden_units_per_group, self.blocks_per_group)
+
+        for _, (num_hidden_units, num_blocks) in enumerate(hidden_units_blocks):
+            output = nn.Dense(features=num_hidden_units)(output)
+            output = parse_activation_fn(self.activation)(output)
+            for _ in range(num_blocks):
+                output = ResidualBlock(
+                    make_inner_op=functools.partial(nn.Dense, features=num_hidden_units),
+                    use_layer_norm=self.use_layer_norm,
+                    non_linearity=parse_activation_fn(self.activation),
+                )(output)
+
+        return output

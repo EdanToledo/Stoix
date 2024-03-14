@@ -1,0 +1,20 @@
+# ---ResNet---
+actor_network:
+  pre_torso:
+    _target_: stoix.networks.resnet.ResNetTorso
+    hidden_units_per_group: [256, 256]
+    blocks_per_group: [2, 2]
+    use_layer_norm: False
+    activation: relu
+  action_head:
+    _target_: stoix.networks.heads.CategoricalHead
+
+critic_network:
+  pre_torso:
+    _target_: stoix.networks.resnet.ResNetTorso
+    hidden_units_per_group: [256, 256]
+    blocks_per_group: [2, 2]
+    use_layer_norm: False
+    activation: relu
+  critic_head:
+    _target_: stoix.networks.heads.ScalarCriticHead
