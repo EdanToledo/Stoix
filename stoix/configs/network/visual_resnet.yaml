@@ -5,6 +5,7 @@ actor_network:
     channels_per_group: [16, 32, 32]
     blocks_per_group: [2, 2, 2]
     use_layer_norm: False
+    activation: relu
   action_head:
     _target_: stoix.networks.heads.CategoricalHead
 
@@ -14,5 +15,6 @@ critic_network:
     channels_per_group: [16, 32, 32]
     blocks_per_group: [2, 2, 2]
     use_layer_norm: False
+    activation: relu
   critic_head:
     _target_: stoix.networks.heads.ScalarCriticHead
