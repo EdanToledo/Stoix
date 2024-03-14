@@ -7,8 +7,6 @@ from jumanji.env import Environment, State
 from jumanji.types import TimeStep
 from jumanji.wrappers import Wrapper
 
-from stoix.types import Observation
-
 if TYPE_CHECKING:
     from dataclasses import dataclass
 else:
@@ -120,10 +118,6 @@ class FrameStackingWrapper(Wrapper):
         return FrameStackEnvState(env_state=env_state, stack_state=new_stack_state), timestep
 
     def observation_spec(self) -> specs.Spec:
-        return specs.Spec(
-            Observation,
-            "ObservationSpec",
-            agent_view=self.update_spec(self._env.observation_spec().agent_view),
-            action_mask=specs.Array(shape=(self.action_spec().num_values,), dtype=jnp.float32),
-            step_count=specs.Array(shape=(), dtype=jnp.int32),
-        )
+        spec = self._env.observation_spec()
+        spec = spec.replace(agent_view=self.update_spec(spec.agent_view))
+        return spec
