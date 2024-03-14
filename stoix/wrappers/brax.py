@@ -29,15 +29,17 @@ class BraxState(base.Base):
 class AddFinalObservation(BraxWrapper):
     """Adds the observation to the info dict."""
 
+    OBS_IN_EXTRAS_KEY = "real_next_obs"
+
     def reset(self, rng: jax.Array) -> State:
         state = self.env.reset(rng)
-        state.info["final_obs"] = state.obs
+        state.info[AddFinalObservation.OBS_IN_EXTRAS_KEY] = state.obs
         return state
 
     def step(self, state: State, action: jax.Array) -> State:
         state = self.env.step(state, action)
         info = state.info
-        info["final_obs"] = state.obs
+        info[AddFinalObservation.OBS_IN_EXTRAS_KEY] = state.obs
         return state.replace(info=info)
 
 
@@ -80,8 +82,10 @@ class BraxJumanjiWrapper(BraxWrapper):
                 new_state.step_count,
             ),
             extras={
-                "final_observation": Observation(
-                    new_state.info["final_obs"], self._legal_action_mask, new_state.step_count
+                AddFinalObservation.OBS_IN_EXTRAS_KEY: Observation(
+                    new_state.info[AddFinalObservation.OBS_IN_EXTRAS_KEY],
+                    self._legal_action_mask,
+                    new_state.step_count,
                 )
             },
         )
@@ -117,8 +121,10 @@ class BraxJumanjiWrapper(BraxWrapper):
             discount=discount,
             observation=Observation(state.obs, self._legal_action_mask, state.step_count),
             extras={
-                "final_observation": Observation(
-                    state.info["final_obs"], self._legal_action_mask, state.step_count
+                AddFinalObservation.OBS_IN_EXTRAS_KEY: Observation(
+                    state.info[AddFinalObservation.OBS_IN_EXTRAS_KEY],
+                    self._legal_action_mask,
+                    state.step_count,
                 )
             },
         )
