@@ -71,9 +71,10 @@ def get_warmup_fn(
             # LOG EPISODE METRICS
             done = timestep.last().reshape(-1)
             info = timestep.extras["episode_metrics"]
+            real_next_obs = timestep.extras["real_next_obs"]
 
             transition = Transition(
-                last_timestep.observation, action, timestep.reward, done, timestep.observation, info
+                last_timestep.observation, action, timestep.reward, done, real_next_obs, info
             )
 
             return (env_state, timestep, key), transition
