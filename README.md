@@ -49,6 +49,7 @@ Stoix currently offers the following building blocks for Single-Agent RL researc
 
 - **Proximal Policy Optimization (PPO)** - [Paper](https://arxiv.org/abs/1707.06347)
 - **Deep Q-Network (DQN)** - [Paper](https://arxiv.org/abs/1312.5602)
+- **Dueling Q-Network** - [Paper](https://arxiv.org/abs/1511.06581)
 - **Categorical DQN (C51)** - [Paper](https://arxiv.org/abs/1707.06887)
 - **Munchausen DQN (M-DQN)** [Paper](https://arxiv.org/abs/2007.14430)
 - **Quantile Regression DQN (QR-DQN)** - [Paper](https://arxiv.org/abs/1710.10044)
