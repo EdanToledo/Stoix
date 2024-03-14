@@ -3,7 +3,7 @@ from typing import Sequence
 import chex
 import numpy as np
 from flax import linen as nn
-from flax.linen.initializers import Initializer, lecun_normal, orthogonal
+from flax.linen.initializers import Initializer, orthogonal
 
 from stoix.networks.utils import parse_activation_fn
 
@@ -37,7 +37,7 @@ class CNNTorso(nn.Module):
     strides: Sequence[int]
     activation: str = "relu"
     use_layer_norm: bool = False
-    kernel_init: Initializer = lecun_normal()
+    kernel_init: Initializer = orthogonal(np.sqrt(2.0))
 
     @nn.compact
     def __call__(self, observation: chex.Array) -> chex.Array:
@@ -49,4 +49,4 @@ class CNNTorso(nn.Module):
                 x = nn.LayerNorm(use_scale=False)(x)
             x = parse_activation_fn(self.activation)(x)
 
-        return x.reshape(*x.shape[:-3], -1)
+        return x.reshape(*observation.shape[:-3], -1)

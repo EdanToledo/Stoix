@@ -259,6 +259,26 @@ def make_debug_env(env_name: str, config: DictConfig) -> Tuple[Environment, Envi
     return env, eval_env
 
 
+def apply_optional_wrappers(
+    envs: Tuple[Environment, Environment], config: DictConfig
+) -> Tuple[Environment, Environment]:
+    """Apply optional wrappers to the environments.
+
+    Args:
+        envs (Tuple[Environment, Environment]): The training and evaluation environments to wrap.
+        config (Dict): The configuration of the environment.
+
+    Returns:
+        A tuple of the environments.
+    """
+    envs = list(envs)
+    if "wrapper" in config.env:
+        for i in range(len(envs)):
+            envs[i] = hydra.utils.instantiate(config.env.wrapper, env=envs[i])
+
+    return tuple(envs)  # type: ignore
+
+
 def make(config: DictConfig) -> Tuple[Environment, Environment]:
     """
     Create environments for training and evaluation..
@@ -272,18 +292,22 @@ def make(config: DictConfig) -> Tuple[Environment, Environment]:
     env_name = config.env.scenario.name
 
     if env_name in gymnax_environments:
-        return make_gymnax_env(env_name, config)
+        envs = make_gymnax_env(env_name, config)
     elif env_name in JUMANJI_REGISTRY:
-        return make_jumanji_env(env_name, config)
+        envs = make_jumanji_env(env_name, config)
     elif env_name in XMINIGRID_REGISTRY:
-        return make_xland_minigrid_env(env_name, config)
+        envs = make_xland_minigrid_env(env_name, config)
     elif env_name in brax_environments:
-        return make_brax_env(env_name, config)
+        envs = make_brax_env(env_name, config)
     elif env_name in jaxmarl_environments:
-        return make_jaxmarl_env(env_name, config)
+        envs = make_jaxmarl_env(env_name, config)
     elif "craftax" in env_name.lower():
-        return make_craftax_env(env_name, config)
+        envs = make_craftax_env(env_name, config)
     elif "debug" in env_name.lower():
-        return make_debug_env(env_name, config)
+        envs = make_debug_env(env_name, config)
     else:
         raise ValueError(f"{env_name} is not a supported environment.")
+
+    envs = apply_optional_wrappers(envs, config)
+
+    return envs
