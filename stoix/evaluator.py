@@ -19,7 +19,7 @@ from stoix.types import (
     RNNEvalState,
     RNNObservation,
 )
-from stoix.utils.jax import unreplicate_batch_dim
+from stoix.utils.jax_utils import unreplicate_batch_dim
 
 
 def get_distribution_act_fn(config: DictConfig, actor_apply: ActorApply) -> ActFn:

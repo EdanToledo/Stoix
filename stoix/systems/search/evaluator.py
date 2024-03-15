@@ -9,7 +9,7 @@ from omegaconf import DictConfig
 
 from stoix.systems.search.types import SearchApply
 from stoix.types import EvalFn, EvalState, ExperimentOutput
-from stoix.utils.jax import unreplicate_batch_dim
+from stoix.utils.jax_utils import unreplicate_batch_dim
 
 
 def get_search_evaluator_fn(

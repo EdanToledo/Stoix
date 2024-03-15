@@ -26,7 +26,7 @@ from stoix.systems.ppo.types import (
 from stoix.types import ExperimentOutput, LearnerFn, RecActorApply, RecCriticApply
 from stoix.utils import make_env as environments
 from stoix.utils.checkpointing import Checkpointer
-from stoix.utils.jax import unreplicate_batch_dim, unreplicate_n_dims
+from stoix.utils.jax_utils import unreplicate_batch_dim, unreplicate_n_dims
 from stoix.utils.logger import LogEvent, StoixLogger
 from stoix.utils.loss import clipped_value_loss, ppo_loss
 from stoix.utils.multistep import calculate_gae

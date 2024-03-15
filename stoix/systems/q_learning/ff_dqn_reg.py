@@ -23,7 +23,7 @@ from stoix.systems.q_learning.types import DQNLearnerState, QsAndTarget, Transit
 from stoix.types import ActorApply, ExperimentOutput, LearnerFn, LogEnvState
 from stoix.utils import make_env as environments
 from stoix.utils.checkpointing import Checkpointer
-from stoix.utils.jax import unreplicate_batch_dim, unreplicate_n_dims
+from stoix.utils.jax_utils import unreplicate_batch_dim, unreplicate_n_dims
 from stoix.utils.logger import LogEvent, StoixLogger
 from stoix.utils.loss import q_learning
 from stoix.utils.total_timestep_checker import check_total_timesteps

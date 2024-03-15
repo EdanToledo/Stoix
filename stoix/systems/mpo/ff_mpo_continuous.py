@@ -35,7 +35,7 @@ from stoix.systems.sac.types import ContinuousQApply
 from stoix.types import ActorApply, ExperimentOutput, LearnerFn, LogEnvState
 from stoix.utils import make_env as environments
 from stoix.utils.checkpointing import Checkpointer
-from stoix.utils.jax import unreplicate_batch_dim, unreplicate_n_dims
+from stoix.utils.jax_utils import unreplicate_batch_dim, unreplicate_n_dims
 from stoix.utils.logger import LogEvent, StoixLogger
 from stoix.utils.multistep import (
     batch_n_step_bootstrapped_returns,
