@@ -2,7 +2,7 @@
 # This implementation of AZ is not an exact replica of the original AlphaZero algorithm and serves more as an example.
 # It is a simplified version that uses the same training loop as PPO i.e. epochs and minibatches of on-policy data.
 # Additionally, it uses a clipped value loss and entropy loss. Additionally, the search method used can be chosen
-# between muzero mcts, gumbel mcts from mctx.
+# between muzero mcts and gumbel mcts from mctx.
 
 system_name: ff_az # Name of the system.
 
@@ -20,6 +20,6 @@ vf_coef: 1.0 # Critic weight in
 clip_eps: 0.2 # Clipping value for value function updates.
 max_grad_norm: 0.5 # Maximum norm of the gradients for a weight update.
 decay_learning_rates: False # Whether learning rates should be linearly decayed during training.
-num_simulations: 5 # Number of simulations to run.
+num_simulations: 20 # Number of simulations to run.
 max_depth: ~ # Maximum depth of the search tree.
 search_method : gumbel # Search method to use. Options: gumbel, muzero.
