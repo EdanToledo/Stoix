@@ -124,7 +124,7 @@ def get_learner_fn(
 ) -> LearnerFn[DDPGLearnerState]:
     """Get the learner function."""
 
-    # Get apply and update functions for actor and critic networks.
+    # Get apply and update functions for actor and q networks.
     actor_apply_fn, q_apply_fn = apply_fns
     actor_update_fn, q_update_fn = update_fns
     buffer_add_fn, buffer_sample_fn = buffer_fns
@@ -396,7 +396,7 @@ def learner_setup(
 
     actor_params = ActorAndTarget(actor_online_params, actor_target_params)
 
-    # Initialise critic params and optimiser state.
+    # Initialise q params and optimiser state.
     q_online_params = q_network.init(q_net_key, init_x, init_a)
     q_target_params = q_online_params
 
@@ -407,11 +407,11 @@ def learner_setup(
     params = DDPGParams(actor_params, q_params)
     opt_states = DDPGOptStates(actor_opt_state, q_opt_state)
 
-    vmapped_actor_network_apply_fn = actor_network.apply
-    vmapped_q_network_apply_fn = q_network.apply
+    actor_network_apply_fn = actor_network.apply
+    q_network_apply_fn = q_network.apply
 
     # Pack apply and update functions.
-    apply_fns = (vmapped_actor_network_apply_fn, vmapped_q_network_apply_fn)
+    apply_fns = (actor_network_apply_fn, q_network_apply_fn)
     update_fns = (actor_optim.update, q_optim.update)
 
     # Create replay buffer
@@ -438,7 +438,7 @@ def learner_setup(
     learn = get_learner_fn(env, apply_fns, update_fns, buffer_fns, config)
     learn = jax.pmap(learn, axis_name="device")
 
-    warmup = get_warmup_fn(env, params, vmapped_actor_network_apply_fn, buffer_fn.add, config)
+    warmup = get_warmup_fn(env, params, actor_network_apply_fn, buffer_fn.add, config)
     warmup = jax.pmap(warmup, axis_name="device")
 
     # Initialise environment states and timesteps: across devices and batches.

@@ -294,10 +294,10 @@ def learner_setup(
     params = QsAndTarget(q_online_params, q_target_params)
     opt_states = q_opt_state
 
-    vmapped_q_network_apply_fn = q_network.apply
+    q_network_apply_fn = q_network.apply
 
     # Pack apply and update functions.
-    apply_fns = vmapped_q_network_apply_fn
+    apply_fns = q_network_apply_fn
     update_fns = q_optim.update
 
     # Create replay buffer
@@ -324,7 +324,7 @@ def learner_setup(
     learn = get_learner_fn(env, apply_fns, update_fns, buffer_fns, config)
     learn = jax.pmap(learn, axis_name="device")
 
-    warmup = get_warmup_fn(env, params, vmapped_q_network_apply_fn, buffer_fn.add, config)
+    warmup = get_warmup_fn(env, params, q_network_apply_fn, buffer_fn.add, config)
     warmup = jax.pmap(warmup, axis_name="device")
 
     # Initialise environment states and timesteps: across devices and batches.

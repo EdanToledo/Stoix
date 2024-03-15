@@ -159,7 +159,7 @@ def get_learner_fn(
         last_val = critic_apply_fn(params.critic_params, last_timestep.observation)
 
         r_t = traj_batch.reward
-        v_t = traj_batch.value
+        v_t = traj_batch.search_value
         d_t = 1.0 - traj_batch.done.astype(jnp.float32)
         d_t = (d_t * config.system.gamma).astype(jnp.float32)
         _, targets = calculate_gae(v_t, r_t, d_t, last_val, config.system.gae_lambda)
@@ -390,14 +390,13 @@ def learner_setup(
     # Pack params.
     params = ActorCriticParams(actor_params, critic_params)
 
-    # Vmap network apply function over number of agents.
-    vmapped_actor_network_apply_fn = actor_network.apply
-    vmapped_critic_network_apply_fn = critic_network.apply
+    actor_network_apply_fn = actor_network.apply
+    critic_network_apply_fn = critic_network.apply
 
-    root_fn = make_root_fn(vmapped_actor_network_apply_fn, vmapped_critic_network_apply_fn)
+    root_fn = make_root_fn(actor_network_apply_fn, critic_network_apply_fn)
     environment_model_step = jax.vmap(model_env.step)
     model_recurrent_fn = make_recurrent_fn(
-        environment_model_step, vmapped_actor_network_apply_fn, vmapped_critic_network_apply_fn
+        environment_model_step, actor_network_apply_fn, critic_network_apply_fn
     )
     search_method = parse_search_method(config)
     search_apply_fn = functools.partial(
@@ -409,8 +408,8 @@ def learner_setup(
 
     # Pack apply and update functions.
     apply_fns = (
-        vmapped_actor_network_apply_fn,
-        vmapped_critic_network_apply_fn,
+        actor_network_apply_fn,
+        critic_network_apply_fn,
         root_fn,
         search_apply_fn,
     )

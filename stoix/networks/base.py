@@ -39,7 +39,6 @@ class FeedForwardCritic(nn.Module):
 
     @nn.compact
     def __call__(self, observation: Observation) -> chex.Array:
-        """Forward pass."""
 
         obs_embedding = self.input_layer(observation)
         obs_embedding = self.torso(obs_embedding)
@@ -49,7 +48,7 @@ class FeedForwardCritic(nn.Module):
 
 
 class CompositeNetwork(nn.Module):
-    """Composite Network."""
+    """Composite Network. Takes in a sequence of layers and applies them sequentially."""
 
     layers: Sequence[nn.Module]
 
@@ -57,7 +56,7 @@ class CompositeNetwork(nn.Module):
     def __call__(
         self, *network_input: Union[chex.Array, Tuple[chex.Array, ...]]
     ) -> Union[distrax.DistributionLike, chex.Array]:
-        """Forward pass."""
+
         x = self.layers[0](*network_input)
         for layer in self.layers[1:]:
             x = layer(x)
@@ -65,7 +64,9 @@ class CompositeNetwork(nn.Module):
 
 
 class MultiNetwork(nn.Module):
-    """Multi Network."""
+    """Multi Network.
+
+    Takes in a sequence of networks, applies them separately and concatenates the outputs."""
 
     networks: Sequence[nn.Module]
 
@@ -136,7 +137,7 @@ class RecurrentActor(nn.Module):
         policy_hidden_state: chex.Array,
         observation_done: RNNObservation,
     ) -> Tuple[chex.Array, distrax.DistributionLike]:
-        """Forward pass."""
+
         observation, done = observation_done
 
         observation = self.input_layer(observation)
@@ -167,7 +168,7 @@ class RecurrentCritic(nn.Module):
         critic_hidden_state: Tuple[chex.Array, chex.Array],
         observation_done: RNNObservation,
     ) -> Tuple[chex.Array, chex.Array]:
-        """Forward pass."""
+
         observation, done = observation_done
 
         observation = self.input_layer(observation)
