@@ -68,3 +68,12 @@ class ScalePostProcessor(nn.Module):
     def __call__(self, distribution: Distribution) -> Distribution:
         post_processor = partial(self.scale_fn, minimum=self.minimum, maximum=self.maximum)
         return PostProcessedDistribution(distribution, post_processor)
+
+
+def min_max_normalize(inputs: chex.Array, epsilon: float = 1e-6) -> chex.Array:
+    inputs_min = inputs.min(axis=-1, keepdims=True)
+    inputs_max = inputs.max(axis=-1, keepdims=True)
+    inputs_scale = inputs_max - inputs_min
+    inputs_scale = jnp.where(inputs_scale < epsilon, inputs_scale + epsilon, inputs_scale)
+    inputs_normed = (inputs - inputs_min) / (inputs_scale)
+    return inputs_normed

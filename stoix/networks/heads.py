@@ -240,3 +240,13 @@ class QuantileDiscreteQNetwork(nn.Module):
         q_values = jnp.mean(q_dist, axis=-1)
         q_values = jax.lax.stop_gradient(q_values)
         return distrax.EpsilonGreedy(preferences=q_values, epsilon=self.epsilon), q_dist
+
+
+class LinearHead(nn.Module):
+    output_dim: int
+    kernel_init: Initializer = orthogonal(0.01)
+
+    @nn.compact
+    def __call__(self, embedding: chex.Array) -> chex.Array:
+
+        return nn.Dense(self.output_dim, kernel_init=self.kernel_init)(embedding)

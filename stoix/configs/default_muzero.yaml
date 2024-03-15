@@ -1,0 +1,7 @@
+defaults:
+  - logger: base_logger
+  - arch: anakin
+  - system: muzero
+  - network: muzero
+  - env: gymnax/cartpole
+  - _self_
