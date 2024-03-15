@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Tuple
 
 from stoix.systems.q_learning.types import DQNLearnerState, QsAndTarget, Transition
 from stoix.utils.checkpointing import Checkpointer
-from stoix.utils.jax import unreplicate_batch_dim, unreplicate_n_dims
+from stoix.utils.jax_utils import unreplicate_batch_dim, unreplicate_n_dims
 from stoix.utils.loss import quantile_q_learning
 from stoix.utils.training import make_learning_rate
 from stoix.wrappers.episode_metrics import get_final_step_metrics

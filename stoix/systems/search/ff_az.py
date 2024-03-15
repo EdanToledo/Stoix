@@ -34,7 +34,7 @@ from stoix.systems.search.types import (
 from stoix.types import ActorApply, CriticApply, ExperimentOutput, LearnerFn
 from stoix.utils import make_env as environments
 from stoix.utils.checkpointing import Checkpointer
-from stoix.utils.jax import (
+from stoix.utils.jax_utils import (
     merge_leading_dims,
     unreplicate_batch_dim,
     unreplicate_n_dims,

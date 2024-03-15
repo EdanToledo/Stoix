@@ -27,7 +27,7 @@ from stoix.systems.vpg.types import Transition
 from stoix.types import ActorApply, CriticApply, ExperimentOutput, LearnerFn
 from stoix.utils import make_env as environments
 from stoix.utils.checkpointing import Checkpointer
-from stoix.utils.jax import unreplicate_batch_dim, unreplicate_n_dims
+from stoix.utils.jax_utils import unreplicate_batch_dim, unreplicate_n_dims
 from stoix.utils.logger import LogEvent, StoixLogger
 from stoix.utils.multistep import batch_n_step_bootstrapped_returns
 from stoix.utils.total_timestep_checker import check_total_timesteps
