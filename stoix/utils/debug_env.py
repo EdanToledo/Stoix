@@ -31,7 +31,7 @@ class IdentityGame(Environment):
         state_val = jax.random.randint(key, shape=(1,), minval=0, maxval=self.num_actions)
         state = GameState(state=state_val, key=key, step_count=jnp.array(0))
         obs = Observation(
-            agent_view=state_val,
+            agent_view=state_val.astype(jnp.float32),
             action_mask=jnp.ones(self.num_actions),
             step_count=state.step_count,
         )
@@ -48,7 +48,7 @@ class IdentityGame(Environment):
         timestep = TimeStep(
             step_type=jnp.where(state.step_count < 50, StepType.MID, StepType.LAST),
             observation=Observation(
-                agent_view=state_val,
+                agent_view=state_val.astype(jnp.float32),
                 action_mask=jnp.ones(self.num_actions),
                 step_count=state.step_count,
             ),

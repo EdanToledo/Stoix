@@ -6,4 +6,4 @@ scenario:
   task_name: debug
 
 kwargs:
-  num_actions: 4
+  num_actions: 8

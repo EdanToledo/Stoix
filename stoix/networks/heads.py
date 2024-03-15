@@ -97,21 +97,21 @@ class ScalarCriticHead(nn.Module):
 
 class CategoricalCriticHead(nn.Module):
 
-    num_bins: int = 601
+    num_atoms: int = 601
     vmax: Optional[float] = None
     vmin: Optional[float] = None
     kernel_init: Initializer = orthogonal(1.0)
 
     @nn.compact
     def __call__(self, embedding: chex.Array) -> distrax.DistributionLike:
-        vmax = self.vmax if self.vmax is not None else 0.5 * (self.num_bins - 1)
+        vmax = self.vmax if self.vmax is not None else 0.5 * (self.num_atoms - 1)
         vmin = self.vmin if self.vmin is not None else -1.0 * vmax
 
         output = DiscreteValuedTfpHead(
             vmin=vmin,
             vmax=vmax,
-            logits_shape=(1,),
-            num_atoms=self.num_bins,
+            logits_shape=(),
+            num_atoms=self.num_atoms,
             kernel_init=self.kernel_init,
         )(embedding)
 
@@ -144,13 +144,18 @@ class DiscreteValuedTfpHead(nn.Module):
     def setup(self) -> None:
         self._values = np.linspace(self.vmin, self.vmax, num=self.num_atoms, axis=-1)
         if not self.logits_shape:
-            logits_shape = ()
-        self._logits_shape = logits_shape + (self.num_atoms,)
+            logits_shape: Sequence[int] = ()
+        else:
+            logits_shape = self.logits_shape
+        self._logits_shape = (
+            *logits_shape,
+            self.num_atoms,
+        )
         self._logits_size = np.prod(self._logits_shape)
+        self._net = nn.Dense(self._logits_size, kernel_init=self.kernel_init)
 
     def __call__(self, inputs: chex.Array) -> distrax.DistributionLike:
-        net = nn.Dense(self._logits_size, kernel_init=self.kernel_init)
-        logits = net(inputs)
+        logits = self._net(inputs)
         logits = logits.reshape(logits.shape[:-1] + self._logits_shape)
         return DiscreteValuedTfpDistribution(values=self._values, logits=logits)
 

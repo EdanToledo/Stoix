@@ -28,11 +28,11 @@ from stoix.networks.model_based import Dynamics, Representation
 from stoix.systems.ppo.types import ActorCriticParams
 from stoix.systems.search.evaluator import search_evaluator_setup
 from stoix.systems.search.types import (
-    AZTransition,
     DynamicsApply,
     MZLearnerState,
     MZOptStates,
     MZParams,
+    MZTransition,
     RepresentationApply,
     RootFnApply,
     SearchApply,
@@ -55,6 +55,8 @@ from stoix.utils.training import make_learning_rate
 from stoix.wrappers.episode_metrics import get_final_step_metrics
 
 tfd = tfp.distributions
+
+# DOES NOT WORK
 
 
 def make_root_fn(
@@ -128,14 +130,14 @@ def get_warmup_fn(
     config: DictConfig,
 ) -> Callable:
 
-    representation_apply_fn, _, _, critic_apply_fn, root_fn, search_apply_fn = apply_fns
+    _, _, _, _, root_fn, search_apply_fn = apply_fns
 
     def warmup(
         env_states: LogEnvState, timesteps: TimeStep, buffer_states: BufferState, keys: chex.PRNGKey
     ) -> Tuple[LogEnvState, TimeStep, BufferState, chex.PRNGKey]:
         def _env_step(
             carry: Tuple[LogEnvState, TimeStep, chex.PRNGKey], _: Any
-        ) -> Tuple[Tuple[LogEnvState, TimeStep, chex.PRNGKey], AZTransition]:
+        ) -> Tuple[Tuple[LogEnvState, TimeStep, chex.PRNGKey], MZTransition]:
             """Step the environment."""
 
             env_state, last_timestep, key = carry
@@ -146,12 +148,6 @@ def get_warmup_fn(
             action = search_output.action
             search_policy = search_output.action_weights
             search_value = search_output.search_tree.node_values[:, mctx.Tree.ROOT_INDEX]
-            state_embedding = representation_apply_fn(
-                params.world_model_params.representation_params, last_timestep.observation
-            )
-            behaviour_value = critic_apply_fn(
-                params.prediction_params.critic_params, state_embedding
-            )
 
             # STEP ENVIRONMENT
             env_state, timestep = jax.vmap(env.step, in_axes=(0, 0))(env_state, action)
@@ -160,10 +156,9 @@ def get_warmup_fn(
             done = timestep.last().reshape(-1)
             info = timestep.extras["episode_metrics"]
 
-            transition = AZTransition(
+            transition = MZTransition(
                 done,
                 action,
-                behaviour_value,
                 timestep.reward,
                 search_value,
                 search_policy,
@@ -218,7 +213,7 @@ def get_learner_fn(
     def _update_step(learner_state: MZLearnerState, _: Any) -> Tuple[MZLearnerState, Tuple]:
         """A single update of the network."""
 
-        def _env_step(learner_state: MZLearnerState, _: Any) -> Tuple[MZLearnerState, AZTransition]:
+        def _env_step(learner_state: MZLearnerState, _: Any) -> Tuple[MZLearnerState, MZTransition]:
             """Step the environment."""
             params, opt_states, buffer_state, key, env_state, last_timestep = learner_state
 
@@ -229,12 +224,6 @@ def get_learner_fn(
             action = search_output.action
             search_policy = search_output.action_weights
             search_value = search_output.search_tree.node_values[:, mctx.Tree.ROOT_INDEX]
-            state_embedding = representation_apply_fn(
-                params.world_model_params.representation_params, last_timestep.observation
-            )
-            behaviour_value = critic_apply_fn(
-                params.prediction_params.critic_params, state_embedding
-            )
 
             # STEP ENVIRONMENT
             env_state, timestep = jax.vmap(env.step, in_axes=(0, 0))(env_state, action)
@@ -243,10 +232,9 @@ def get_learner_fn(
             done = timestep.last().reshape(-1)
             info = timestep.extras["episode_metrics"]
 
-            transition = AZTransition(
+            transition = MZTransition(
                 done,
                 action,
-                behaviour_value,
                 timestep.reward,
                 search_value,
                 search_policy,
@@ -273,7 +261,7 @@ def get_learner_fn(
             def _actor_loss_fn(
                 actor_params: FrozenDict,
                 representation_params: FrozenDict,
-                sequence: AZTransition,
+                sequence: MZTransition,
             ) -> Tuple:
                 """Calculate the actor loss."""
                 # RERUN NETWORK
@@ -292,12 +280,12 @@ def get_learner_fn(
             def _critic_loss_fn(
                 critic_params: FrozenDict,
                 representation_params: FrozenDict,
-                sequence: AZTransition,
+                sequence: MZTransition,
             ) -> Tuple:
                 """Calculate the critic loss."""
                 # RERUN NETWORK
                 state_embedding = representation_apply_fn(representation_params, sequence.obs)
-                pred_value = critic_apply_fn(critic_params, state_embedding)[:, :-1]
+                pred_value = critic_apply_fn(critic_params, state_embedding[:, :-1])
                 r_t = sequence.reward[:, :-1]
                 d_t = 1.0 - sequence.done.astype(jnp.float32)
                 d_t = (d_t * config.system.gamma).astype(jnp.float32)
@@ -308,14 +296,17 @@ def get_learner_fn(
                     r_t, d_t, search_values, config.system.n_steps
                 )
 
-                value_loss = rlax.l2_loss(pred_value, n_step_returns).mean()
+                discount = 1.0 - sequence.done.astype(jnp.float32)
+                discount = jnp.cumprod(discount, axis=-1)[:, :-1]
 
-                critic_total_loss = config.system.vf_coef * value_loss
+                value_loss = rlax.l2_loss(pred_value, n_step_returns) * discount
+
+                critic_total_loss = config.system.vf_coef * value_loss.mean()
                 return critic_total_loss, (value_loss)
 
             def _world_model_loss_fn(
                 world_model_params: WorldModelParams,
-                sequence: AZTransition,
+                sequence: MZTransition,
             ) -> Tuple:
                 """Calculate the world model loss."""
 
@@ -340,7 +331,11 @@ def get_learner_fn(
                 )
                 predicted_rewards = jnp.swapaxes(predicted_rewards, 0, 1)  # B, T
 
-                reward_loss = rlax.l2_loss(predicted_rewards, sequence.reward)
+                # jax.debug.print("predicted_rewards {x}", x=predicted_rewards)
+                discounts = 1.0 - sequence.done.astype(jnp.float32)
+                discounts = jnp.cumprod(discounts, axis=-1)
+                reward_sequence = sequence.reward
+                reward_loss = rlax.l2_loss(predicted_rewards, reward_sequence) * discounts
 
                 # Mask the loss to ensure that auto-reset states are not incuded in the loss
                 # discounts = 1.0 - sequence.done.astype(jnp.float32)
@@ -357,7 +352,7 @@ def get_learner_fn(
 
             # SAMPLE SEQUENCES
             sequence_sample = buffer_sample_fn(buffer_state, sample_key)
-            sequence: AZTransition = sequence_sample.experience
+            sequence: MZTransition = sequence_sample.experience
 
             # CALCULATE ACTOR LOSS
             actor_grad_fn = jax.value_and_grad(_actor_loss_fn, has_aux=True)
@@ -541,14 +536,14 @@ def learner_setup(
     dynamics_network_torso = hydra.utils.instantiate(config.network.dynamics_network.torso)
     embedding_head = hydra.utils.instantiate(config.network.dynamics_network.embedding_head)
     reward_head = hydra.utils.instantiate(config.network.dynamics_network.reward_head)
-    dynamics_input_processor = hydra.utils.instantiate(
-        config.network.dynamics_network.input_processor, action_dim=num_actions
+    dynamics_input_layer = hydra.utils.instantiate(
+        config.network.dynamics_network.input_layer, action_dim=num_actions
     )
     dynamics_network = Dynamics(
         torso=dynamics_network_torso,
         embedding_head=embedding_head,
         reward_head=reward_head,
-        input_processor=dynamics_input_processor,
+        input_layer=dynamics_input_layer,
     )
 
     world_model_lr = make_learning_rate(
@@ -636,10 +631,9 @@ def learner_setup(
     update_fns = (world_model_optim.update, actor_optim.update, critic_optim.update)
 
     # Create replay buffer
-    dummy_transition = AZTransition(
+    dummy_transition = MZTransition(
         done=jnp.array(False),
         action=jnp.array(0),
-        value=jnp.array(0.0),
         reward=jnp.array(0.0),
         search_value=jnp.array(0.0),
         search_policy=jnp.zeros((num_actions,)),

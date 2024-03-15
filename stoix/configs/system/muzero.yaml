@@ -11,15 +11,15 @@ actor_lr: 3e-4 # Learning rate for actor network
 critic_lr: 3e-4 # Learning rate for critic network
 world_model_lr: 3e-4 # Learning rate for world model networks
 update_batch_size: 1 # Number of vectorised gradient updates per device.
-rollout_length: 8 # Number of environment steps per vectorised environment.
-epochs: 1 # Number of epochs per training data batch.
+rollout_length: 16 # Number of environment steps per vectorised environment.
+epochs: 8 # Number of epochs per training data batch.
 warmup_steps: 64 # Number of steps to collect before training.
 buffer_size: 10_000 # Size of the replay buffer.
-batch_size: 16 # Number of samples to train on per device.
-sample_sequence_length: 50 # Number of steps to consider for each element of the batch.
+batch_size: 64 # Number of samples to train on per device.
+sample_sequence_length: 6 # Number of steps to consider for each element of the batch.
 period : 1 # Period of the sampled sequences.
 gamma: 0.99 # Discounting factor.
-n_steps: 5 # Number of steps to use for bootstrapped returns.
+n_steps: 10 # Number of steps to use for bootstrapped returns.
 ent_coef: 0.0 # Entropy regularisation term for loss function.
 vf_coef: 1.0 # Critic weight in
 max_grad_norm: 0.5 # Maximum norm of the gradients for a weight update.
