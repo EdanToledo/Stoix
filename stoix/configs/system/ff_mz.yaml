@@ -10,10 +10,10 @@ system_name: ff_mz # Name of the system.
 lr: 3e-4 # Learning rate for entire algorithm.
 update_batch_size: 1 # Number of vectorised gradient updates per device.
 rollout_length: 8 # Number of environment steps per vectorised environment.
-epochs: 2 # Number of epochs per training data batch.
-warmup_steps: 256 # Number of steps to collect before training.
-buffer_size: 5_000 # Size of the replay buffer.
-batch_size: 64 # Number of samples to train on per device.
+epochs: 8 # Number of epochs per training data batch.
+warmup_steps: 128 # Number of steps to collect before training.
+buffer_size: 10_000 # Size of the replay buffer.
+batch_size: 128 # Number of samples to train on per device.
 sample_sequence_length: 6 # Number of steps to consider for each element of the batch.
 period : 1 # Period of the sampled sequences.
 gamma: 0.99 # Discounting factor.
