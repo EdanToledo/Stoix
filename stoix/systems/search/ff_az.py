@@ -564,11 +564,7 @@ def run_experiment(_config: DictConfig) -> None:
 
         steps_per_eval = int(jnp.sum(evaluator_output.episode_metrics["episode_length"]))
         evaluator_output.episode_metrics["steps_per_second"] = steps_per_eval / elapsed_time
-        # TODO(edan): check this
-        eval_episode_metrics = jax.tree_map(
-            lambda x: jnp.array(x).squeeze(), evaluator_output.episode_metrics
-        )
-        logger.log(eval_episode_metrics, t, eval_step, LogEvent.EVAL)
+        logger.log(evaluator_output.episode_metrics, t, eval_step, LogEvent.EVAL)
 
         if save_checkpoint:
             # Save checkpoint of learner state
