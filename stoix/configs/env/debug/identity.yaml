@@ -3,7 +3,7 @@ env_name: debug
 
 scenario:
   name: debug
-  task_name: debug
+  task_name: identity
 
 kwargs:
   num_actions: 8

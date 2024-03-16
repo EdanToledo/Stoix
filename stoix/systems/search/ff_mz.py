@@ -15,7 +15,6 @@ import rlax
 import tensorflow_probability.substrates.jax as tfp
 from colorama import Fore, Style
 from flashbax.buffers.trajectory_buffer import BufferState
-from flax.core.frozen_dict import FrozenDict
 from jumanji.env import Environment
 from jumanji.types import TimeStep
 from omegaconf import DictConfig, OmegaConf
@@ -30,7 +29,6 @@ from stoix.systems.search.evaluator import search_evaluator_setup
 from stoix.systems.search.types import (
     DynamicsApply,
     MZLearnerState,
-    MZOptStates,
     MZParams,
     MZTransition,
     RepresentationApply,
@@ -41,13 +39,18 @@ from stoix.systems.search.types import (
 from stoix.types import (
     ActorApply,
     CriticApply,
+    DistributionCriticApply,
     ExperimentOutput,
     LearnerFn,
     LogEnvState,
 )
 from stoix.utils import make_env as environments
 from stoix.utils.checkpointing import Checkpointer
-from stoix.utils.jax_utils import unreplicate_batch_dim, unreplicate_n_dims
+from stoix.utils.jax_utils import (
+    scale_gradient,
+    unreplicate_batch_dim,
+    unreplicate_n_dims,
+)
 from stoix.utils.logger import LogEvent, StoixLogger
 from stoix.utils.multistep import batch_n_step_bootstrapped_returns
 from stoix.utils.total_timestep_checker import check_total_timesteps
@@ -56,25 +59,25 @@ from stoix.wrappers.episode_metrics import get_final_step_metrics
 
 tfd = tfp.distributions
 
-# DOES NOT WORK
-
 
 def make_root_fn(
     representation_apply_fn: RepresentationApply,
     actor_apply_fn: ActorApply,
-    critic_apply_fn: CriticApply,
+    critic_apply_fn: DistributionCriticApply,
+    critic_tx_pair: rlax.TxPair,
 ) -> RootFnApply:
     def root_fn(
         params: MZParams,
         observation: chex.ArrayTree,
-        state_embedding: chex.ArrayTree,  # This is the state of the environment
+        _: chex.ArrayTree,  # This is the state of the environment and unused in MuZero
     ) -> mctx.RootFnOutput:
         observation_embedding = representation_apply_fn(
             params.world_model_params.representation_params, observation
         )
 
         pi = actor_apply_fn(params.prediction_params.actor_params, observation_embedding)
-        value = critic_apply_fn(params.prediction_params.critic_params, observation_embedding)
+        value_dist = critic_apply_fn(params.prediction_params.critic_params, observation_embedding)
+        value = critic_tx_pair.apply_inv(value_dist.probs)
         logits = pi.logits
 
         root_fn_output = mctx.RootFnOutput(
@@ -91,7 +94,10 @@ def make_root_fn(
 def make_recurrent_fn(
     dynamics_apply_fn: DynamicsApply,
     actor_apply_fn: ActorApply,
-    critic_apply_fn: CriticApply,
+    critic_apply_fn: DistributionCriticApply,
+    critic_tx_pair: rlax.TxPair,
+    reward_tx_pair: rlax.TxPair,
+    config: DictConfig,
 ) -> mctx.RecurrentFn:
     def recurrent_fn(
         params: MZParams,
@@ -100,17 +106,19 @@ def make_recurrent_fn(
         state_embedding: chex.ArrayTree,
     ) -> Tuple[mctx.RecurrentFnOutput, chex.ArrayTree]:
 
-        next_state_embedding, next_reward = dynamics_apply_fn(
+        next_state_embedding, next_reward_dist = dynamics_apply_fn(
             params.world_model_params.dynamics_params, state_embedding, action
         )
+        next_reward = reward_tx_pair.apply_inv(next_reward_dist.probs)
 
         pi = actor_apply_fn(params.prediction_params.actor_params, next_state_embedding)
-        value = critic_apply_fn(params.prediction_params.critic_params, next_state_embedding)
+        value_dist = critic_apply_fn(params.prediction_params.critic_params, next_state_embedding)
+        value = critic_tx_pair.apply_inv(value_dist.probs)
         logits = pi.logits
 
         recurrent_fn_output = mctx.RecurrentFnOutput(
             reward=next_reward,
-            discount=jnp.ones_like(next_reward),
+            discount=jnp.ones_like(next_reward) * config.system.gamma,
             prior_logits=logits,
             value=value,
         )
@@ -190,10 +198,16 @@ def get_warmup_fn(
 def get_learner_fn(
     env: Environment,
     apply_fns: Tuple[
-        RepresentationApply, DynamicsApply, ActorApply, CriticApply, RootFnApply, SearchApply
+        RepresentationApply,
+        DynamicsApply,
+        ActorApply,
+        DistributionCriticApply,
+        RootFnApply,
+        SearchApply,
     ],
-    update_fns: Tuple[optax.TransformUpdateFn, optax.TransformUpdateFn, optax.TransformUpdateFn],
+    update_fn: optax.TransformUpdateFn,
     buffer_fns: Tuple[Callable, Callable],
+    transform_pairs: Tuple[rlax.TxPair, rlax.TxPair],
     config: DictConfig,
 ) -> LearnerFn[MZLearnerState]:
     """Get the learner function."""
@@ -207,15 +221,15 @@ def get_learner_fn(
         root_fn,
         search_apply_fn,
     ) = apply_fns
-    world_model_update_fn, actor_update_fn, critic_update_fn = update_fns
     buffer_add_fn, buffer_sample_fn = buffer_fns
+    critic_tx_pair, reward_tx_pair = transform_pairs
 
     def _update_step(learner_state: MZLearnerState, _: Any) -> Tuple[MZLearnerState, Tuple]:
         """A single update of the network."""
 
         def _env_step(learner_state: MZLearnerState, _: Any) -> Tuple[MZLearnerState, MZTransition]:
             """Step the environment."""
-            params, opt_states, buffer_state, key, env_state, last_timestep = learner_state
+            params, opt_state, buffer_state, key, env_state, last_timestep = learner_state
 
             # SELECT ACTION
             key, policy_key = jax.random.split(key)
@@ -242,7 +256,7 @@ def get_learner_fn(
                 info,
             )
             learner_state = MZLearnerState(
-                params, opt_states, buffer_state, key, env_state, timestep
+                params, opt_state, buffer_state, key, env_state, timestep
             )
             return learner_state, transition
 
@@ -250,7 +264,7 @@ def get_learner_fn(
         learner_state, traj_batch = jax.lax.scan(
             _env_step, learner_state, None, config.system.rollout_length
         )
-        params, opt_states, buffer_state, key, env_state, last_timestep = learner_state
+        params, opt_state, buffer_state, key, env_state, last_timestep = learner_state
 
         # Add the trajectory to the buffer.
         # Swap the batch and time axes.
@@ -258,95 +272,122 @@ def get_learner_fn(
         buffer_state = buffer_add_fn(buffer_state, traj_batch)
 
         def _update_epoch(update_state: Tuple, _: Any) -> Tuple:
-            def _actor_loss_fn(
-                actor_params: FrozenDict,
-                representation_params: FrozenDict,
+            def _loss_fn(
+                muzero_params: MZParams,
                 sequence: MZTransition,
             ) -> Tuple:
-                """Calculate the actor loss."""
-                # RERUN NETWORK
-                state_embedding = representation_apply_fn(representation_params, sequence.obs)
-                actor_policy = actor_apply_fn(actor_params, state_embedding)
+                """Calculate the total MuZero loss."""
 
-                # CALCULATE LOSS
-                actor_loss = (
-                    tfd.Categorical(probs=sequence.search_policy).kl_divergence(actor_policy).mean()
-                )
-                entropy = actor_policy.entropy().mean()
-
-                total_loss_actor = actor_loss - config.system.ent_coef * entropy
-                return total_loss_actor, (actor_loss, entropy)
-
-            def _critic_loss_fn(
-                critic_params: FrozenDict,
-                representation_params: FrozenDict,
-                sequence: MZTransition,
-            ) -> Tuple:
-                """Calculate the critic loss."""
-                # RERUN NETWORK
-                state_embedding = representation_apply_fn(representation_params, sequence.obs)
-                pred_value = critic_apply_fn(critic_params, state_embedding[:, :-1])
+                # Calculate the value targets using n-step bootstrapped returns
+                # with the search values
                 r_t = sequence.reward[:, :-1]
                 d_t = 1.0 - sequence.done.astype(jnp.float32)
                 d_t = (d_t * config.system.gamma).astype(jnp.float32)
                 d_t = d_t[:, :-1]
                 search_values = sequence.search_value[:, 1:]
-
-                n_step_returns = batch_n_step_bootstrapped_returns(
+                value_targets = batch_n_step_bootstrapped_returns(
                     r_t, d_t, search_values, config.system.n_steps
                 )
 
-                discount = 1.0 - sequence.done.astype(jnp.float32)
-                discount = jnp.cumprod(discount, axis=-1)[:, :-1]
-
-                value_loss = rlax.l2_loss(pred_value, n_step_returns) * discount
-
-                critic_total_loss = config.system.vf_coef * value_loss.mean()
-                return critic_total_loss, (value_loss)
-
-            def _world_model_loss_fn(
-                world_model_params: WorldModelParams,
-                sequence: MZTransition,
-            ) -> Tuple:
-                """Calculate the world model loss."""
-
+                # Get the state embedding of the first observation of each sequence
                 state_embedding = representation_apply_fn(
-                    world_model_params.representation_params, sequence.obs
+                    muzero_params.world_model_params.representation_params, sequence.obs
                 )[
                     :, 0
                 ]  # B, T=0
 
                 def unroll_fn(
-                    state_embedding_and_params: Tuple[chex.Array, FrozenDict], action: chex.Array
+                    carry: Tuple[chex.Array, chex.Array, MZParams, chex.Array],
+                    targets: Tuple[chex.Array, chex.Array, chex.Array, chex.Array, chex.Array],
                 ) -> Tuple[chex.Array, chex.Array]:
-                    state_embedding, dynamics_params = state_embedding_and_params
-                    next_state_embedding, reward = dynamics_apply_fn(
-                        dynamics_params, state_embedding, action
+                    total_loss, state_embedding, muzero_params, mask = carry
+                    action, reward_target, search_policy, value_targets, done = targets
+                    actor_policy = actor_apply_fn(
+                        muzero_params.prediction_params.actor_params, state_embedding
                     )
-                    return (next_state_embedding, dynamics_params), reward
+                    value_dist = critic_apply_fn(
+                        muzero_params.prediction_params.critic_params, state_embedding
+                    )
+                    state_embedding = scale_gradient(state_embedding, 0.5)
+                    next_state_embedding, predicted_reward = dynamics_apply_fn(
+                        muzero_params.world_model_params.dynamics_params, state_embedding, action
+                    )
 
-                action = jnp.swapaxes(sequence.action, 0, 1)  # T, B
-                _, predicted_rewards = jax.lax.scan(
-                    unroll_fn, (state_embedding, world_model_params.dynamics_params), action
+                    # CALCULATE ACTOR LOSS
+                    # We use the KL divergence between the search policy and the actor policy
+                    # as the actor loss
+                    actor_loss = tfd.Categorical(probs=search_policy).kl_divergence(actor_policy)
+                    # We mask the loss past the episode end
+                    actor_loss = actor_loss * mask
+
+                    # CALCULATE ENTROPY LOSS
+                    entropy_loss = config.system.ent_coef * actor_policy.entropy()
+                    # We mask the loss past the episode end
+                    entropy_loss = entropy_loss * mask
+
+                    # CALCULATE CRITIC LOSS
+                    # Here we mask the target instead of the loss since past the
+                    # episode end should be treated as an absorbing state
+                    # where the value is 0
+                    value_targets = value_targets * mask
+                    value_targets = critic_tx_pair.apply(value_targets)
+                    value_loss = config.system.vf_coef * optax.softmax_cross_entropy(
+                        value_dist.logits, value_targets
+                    )
+
+                    # CALCULATE REWARD LOSS
+                    # We do the same for the reward loss as we did for the value loss
+                    reward_target = reward_target * mask
+                    reward_target = reward_tx_pair.apply(reward_target)
+                    reward_loss = optax.softmax_cross_entropy(
+                        predicted_reward.logits, reward_target
+                    )
+
+                    curr_loss = {
+                        "actor": actor_loss,
+                        "value": value_loss,
+                        "reward": reward_loss,
+                        "entropy": entropy_loss,
+                    }
+                    # UPDATE LOSS
+                    total_loss = jax.tree_map(lambda x, y: x + y.mean(), total_loss, curr_loss)
+                    # Update the mask - This is to ensure that the loss is
+                    # not updated for any steps after the episode is done
+                    mask = mask * (1.0 - done.astype(jnp.float32))
+                    return (total_loss, next_state_embedding, muzero_params, mask), None
+
+                targets = (
+                    sequence.action[:, :-1],
+                    sequence.reward[:, :-1],
+                    sequence.search_policy[:, :-1],
+                    value_targets,
+                    sequence.done[:, :-1],
+                )  # B, T
+
+                targets = jax.tree_map(lambda x: jnp.swapaxes(x, 0, 1), targets)  # T, B
+                init_total_loss = {
+                    "actor": jnp.array(0.0),
+                    "value": jnp.array(0.0),
+                    "reward": jnp.array(0.0),
+                    "entropy": jnp.array(0.0),
+                }
+                init_mask = jnp.ones((config.system.batch_size,))
+                (losses, _, _, _), _ = jax.lax.scan(
+                    unroll_fn, (init_total_loss, state_embedding, muzero_params, init_mask), targets
                 )
-                predicted_rewards = jnp.swapaxes(predicted_rewards, 0, 1)  # B, T
+                # Divide by the number of unrolled steps to ensure a consistent scale
+                # across different unroll lengths
+                losses = jax.tree_map(
+                    lambda x: x / (config.system.sample_sequence_length - 1), losses
+                )
 
-                # jax.debug.print("predicted_rewards {x}", x=predicted_rewards)
-                discounts = 1.0 - sequence.done.astype(jnp.float32)
-                discounts = jnp.cumprod(discounts, axis=-1)
-                reward_sequence = sequence.reward
-                reward_loss = rlax.l2_loss(predicted_rewards, reward_sequence) * discounts
+                total_loss = (
+                    losses["actor"] + losses["value"] + losses["reward"] - losses["entropy"]
+                )
 
-                # Mask the loss to ensure that auto-reset states are not incuded in the loss
-                # discounts = 1.0 - sequence.done.astype(jnp.float32)
-                # mask = jnp.cumprod(discounts, axis=-1)
-                # reward_loss = jnp.sum(reward_loss * mask) / (jnp.sum(mask) + 1)
-                # ELSE
-                reward_loss = jnp.mean(reward_loss)
+                return total_loss, (losses)
 
-                return reward_loss, (reward_loss)
-
-            params, opt_states, buffer_state, key = update_state
+            params, opt_state, buffer_state, key = update_state
 
             key, sample_key = jax.random.split(key)
 
@@ -354,93 +395,31 @@ def get_learner_fn(
             sequence_sample = buffer_sample_fn(buffer_state, sample_key)
             sequence: MZTransition = sequence_sample.experience
 
-            # CALCULATE ACTOR LOSS
-            actor_grad_fn = jax.value_and_grad(_actor_loss_fn, has_aux=True)
-            actor_loss_info, actor_grads = actor_grad_fn(
-                params.prediction_params.actor_params,
-                params.world_model_params.representation_params,
+            # CALCULATE LOSS
+            grad_fn = jax.value_and_grad(_loss_fn, has_aux=True)
+            loss_info, grads = grad_fn(
+                params,
                 sequence,
-            )
-
-            # CALCULATE CRITIC LOSS
-            critic_grad_fn = jax.value_and_grad(_critic_loss_fn, has_aux=True)
-            critic_loss_info, critic_grads = critic_grad_fn(
-                params.prediction_params.critic_params,
-                params.world_model_params.representation_params,
-                sequence,
-            )
-
-            # CALCULATE WORLD MODEL LOSS
-            world_model_grad_fn = jax.value_and_grad(_world_model_loss_fn, has_aux=True)
-            world_model_loss_info, world_model_grads = world_model_grad_fn(
-                params.world_model_params, sequence
             )
 
             # Compute the parallel mean (pmean) over the batch.
             # This calculation is inspired by the Anakin architecture demo notebook.
             # available at https://tinyurl.com/26tdzs5x
             # This pmean could be a regular mean as the batch axis is on the same device.
-            actor_grads, actor_loss_info = jax.lax.pmean(
-                (actor_grads, actor_loss_info), axis_name="batch"
-            )
+            grads, loss_info = jax.lax.pmean((grads, loss_info), axis_name="batch")
             # pmean over devices.
-            actor_grads, actor_loss_info = jax.lax.pmean(
-                (actor_grads, actor_loss_info), axis_name="device"
-            )
+            grads, loss_info = jax.lax.pmean((grads, loss_info), axis_name="device")
 
-            critic_grads, critic_loss_info = jax.lax.pmean(
-                (critic_grads, critic_loss_info), axis_name="batch"
-            )
-            # pmean over devices.
-            critic_grads, critic_loss_info = jax.lax.pmean(
-                (critic_grads, critic_loss_info), axis_name="device"
-            )
-
-            world_model_grads, world_model_loss_info = jax.lax.pmean(
-                (world_model_grads, world_model_loss_info), axis_name="batch"
-            )
-            # pmean over devices.
-            world_model_grads, world_model_loss_info = jax.lax.pmean(
-                (world_model_grads, world_model_loss_info), axis_name="device"
-            )
-
-            # UPDATE ACTOR PARAMS AND OPTIMISER STATE
-            actor_updates, actor_new_opt_state = actor_update_fn(
-                actor_grads, opt_states.actor_opt_state
-            )
-            actor_new_params = optax.apply_updates(
-                params.prediction_params.actor_params, actor_updates
-            )
-
-            # UPDATE CRITIC PARAMS AND OPTIMISER STATE
-            critic_updates, critic_new_opt_state = critic_update_fn(
-                critic_grads, opt_states.critic_opt_state
-            )
-            critic_new_params = optax.apply_updates(
-                params.prediction_params.critic_params, critic_updates
-            )
-
-            # UPDATE WORLD MODEL PARAMS AND OPTIMISER STATE
-            world_model_updates, world_model_new_opt_state = world_model_update_fn(
-                world_model_grads, opt_states.world_model_opt_state
-            )
-            world_model_new_params = optax.apply_updates(
-                params.world_model_params, world_model_updates
-            )
-
-            # PACK NEW PARAMS AND OPTIMISER STATE
-            new_prediction_params = ActorCriticParams(actor_new_params, critic_new_params)
-            new_params = MZParams(new_prediction_params, world_model_new_params)
-            new_opt_state = MZOptStates(
-                actor_new_opt_state, critic_new_opt_state, world_model_new_opt_state
-            )
+            # UPDATE PARAMS AND OPTIMISER STATE
+            updates, new_opt_state = update_fn(grads, opt_state)
+            new_params = optax.apply_updates(params, updates)
 
             # PACK LOSS INFO
-            total_loss = actor_loss_info[0] + critic_loss_info[0] + world_model_loss_info[0]
-            value_loss = critic_loss_info[1]
-            actor_loss = actor_loss_info[1][0]
-            entropy = actor_loss_info[1][1]
-            reward_loss = world_model_loss_info[1]
+            total_loss = loss_info[0]
+            actor_loss = loss_info[1]["actor"]
+            value_loss = loss_info[1]["value"]
+            entropy = loss_info[1]["entropy"]
+            reward_loss = loss_info[1]["reward"]
             loss_info = {
                 "total_loss": total_loss,
                 "value_loss": value_loss,
@@ -450,16 +429,16 @@ def get_learner_fn(
             }
             return (new_params, new_opt_state, buffer_state, key), loss_info
 
-        update_state = (params, opt_states, buffer_state, key)
+        update_state = (params, opt_state, buffer_state, key)
 
         # UPDATE EPOCHS
         update_state, loss_info = jax.lax.scan(
             _update_epoch, update_state, None, config.system.epochs
         )
 
-        params, opt_states, buffer_state, key = update_state
+        params, opt_state, buffer_state, key = update_state
         learner_state = MZLearnerState(
-            params, opt_states, buffer_state, key, env_state, last_timestep
+            params, opt_state, buffer_state, key, env_state, last_timestep
         )
         metric = traj_batch.info
         return learner_state, (metric, loss_info)
@@ -515,7 +494,12 @@ def learner_setup(
         config.network.actor_network.action_head, action_dim=num_actions
     )
     critic_torso = hydra.utils.instantiate(config.network.critic_network.pre_torso)
-    critic_head = hydra.utils.instantiate(config.network.critic_network.critic_head)
+    critic_head = hydra.utils.instantiate(
+        config.network.critic_network.critic_head,
+        num_atoms=config.system.critic_num_atoms,
+        vmin=config.system.critic_vmin,
+        vmax=config.system.critic_vmax,
+    )
 
     actor_network = Actor(
         torso=actor_torso, action_head=actor_action_head, input_layer=EmbeddingInput()
@@ -535,7 +519,12 @@ def learner_setup(
     )
     dynamics_network_torso = hydra.utils.instantiate(config.network.dynamics_network.torso)
     embedding_head = hydra.utils.instantiate(config.network.dynamics_network.embedding_head)
-    reward_head = hydra.utils.instantiate(config.network.dynamics_network.reward_head)
+    reward_head = hydra.utils.instantiate(
+        config.network.dynamics_network.reward_head,
+        num_atoms=config.system.reward_num_atoms,
+        vmin=config.system.reward_vmin,
+        vmax=config.system.reward_vmax,
+    )
     dynamics_input_layer = hydra.utils.instantiate(
         config.network.dynamics_network.input_layer, action_dim=num_actions
     )
@@ -546,35 +535,15 @@ def learner_setup(
         input_layer=dynamics_input_layer,
     )
 
-    world_model_lr = make_learning_rate(
-        config.system.world_model_lr,
+    lr = make_learning_rate(
+        config.system.lr,
         config,
         config.system.epochs,
     )
 
-    actor_lr = make_learning_rate(
-        config.system.actor_lr,
-        config,
-        config.system.epochs,
-    )
-    critic_lr = make_learning_rate(
-        config.system.critic_lr,
-        config,
-        config.system.epochs,
-    )
-
-    world_model_optim = optax.chain(
+    optim = optax.chain(
         optax.clip_by_global_norm(config.system.max_grad_norm),
-        optax.adam(world_model_lr, eps=1e-5),
-    )
-
-    actor_optim = optax.chain(
-        optax.clip_by_global_norm(config.system.max_grad_norm),
-        optax.adam(actor_lr, eps=1e-5),
-    )
-    critic_optim = optax.chain(
-        optax.clip_by_global_norm(config.system.max_grad_norm),
-        optax.adam(critic_lr, eps=1e-5),
+        optax.adam(lr, eps=1e-5),
     )
 
     # Initialise observation: Select only obs for a single agent.
@@ -588,28 +557,48 @@ def learner_setup(
     state_embedding = representation_network.apply(representation_params, init_x)
     dynamics_params = dynamics_network.init(dynamics_net_key, state_embedding, init_a)
     world_model_params = WorldModelParams(representation_params, dynamics_params)
-    world_model_opt_state = world_model_optim.init(world_model_params)
-
     actor_params = actor_network.init(actor_net_key, state_embedding)
-    actor_opt_state = actor_optim.init(actor_params)
-
     critic_params = critic_network.init(critic_net_key, state_embedding)
-    critic_opt_state = critic_optim.init(critic_params)
 
     # Pack params.
     prediction_params = ActorCriticParams(actor_params, critic_params)
     params = MZParams(prediction_params, world_model_params)
+
+    # Initialise optimiser state.
+    opt_state = optim.init(params)
 
     representation_network_apply_fn = representation_network.apply
     dynamics_network_apply_fn = dynamics_network.apply
     actor_network_apply_fn = actor_network.apply
     critic_network_apply_fn = critic_network.apply
 
+    # Initialise tx pairs.
+    critic_tx_pair = rlax.muzero_pair(
+        config.system.critic_vmin,
+        config.system.critic_vmax,
+        config.system.critic_num_atoms,
+        rlax.SIGNED_HYPERBOLIC_PAIR,
+    )
+    reward_tx_pair = rlax.muzero_pair(
+        config.system.reward_vmin,
+        config.system.reward_vmax,
+        config.system.reward_num_atoms,
+        rlax.SIGNED_HYPERBOLIC_PAIR,
+    )
+
     root_fn = make_root_fn(
-        representation_network_apply_fn, actor_network_apply_fn, critic_network_apply_fn
+        representation_network_apply_fn,
+        actor_network_apply_fn,
+        critic_network_apply_fn,
+        critic_tx_pair,
     )
     model_recurrent_fn = make_recurrent_fn(
-        dynamics_network_apply_fn, actor_network_apply_fn, critic_network_apply_fn
+        dynamics_network_apply_fn,
+        actor_network_apply_fn,
+        critic_network_apply_fn,
+        critic_tx_pair,
+        reward_tx_pair,
+        config,
     )
     search_method = parse_search_method(config)
     search_apply_fn = functools.partial(
@@ -628,7 +617,8 @@ def learner_setup(
         root_fn,
         search_apply_fn,
     )
-    update_fns = (world_model_optim.update, actor_optim.update, critic_optim.update)
+    update_fns = optim.update
+    transform_pairs = (critic_tx_pair, reward_tx_pair)
 
     # Create replay buffer
     dummy_transition = MZTransition(
@@ -653,7 +643,7 @@ def learner_setup(
     buffer_states = buffer_fn.init(dummy_transition)
 
     # Get batched iterated update and replicate it to pmap it over cores.
-    learn = get_learner_fn(env, apply_fns, update_fns, buffer_fns, config)
+    learn = get_learner_fn(env, apply_fns, update_fns, buffer_fns, transform_pairs, config)
     learn = jax.pmap(learn, axis_name="device")
 
     warmup = get_warmup_fn(env, params, apply_fns, buffer_fn.add, config)
@@ -686,8 +676,8 @@ def learner_setup(
 
     # Define params to be replicated across devices and batches.
     key, step_keys, warmup_keys = jax.random.split(key, num=3)
-    opt_states = MZOptStates(actor_opt_state, critic_opt_state, world_model_opt_state)
-    replicate_learner = (params, opt_states, buffer_states, step_keys, warmup_keys)
+
+    replicate_learner = (params, opt_state, buffer_states, step_keys, warmup_keys)
 
     # Duplicate learner for update_batch_size.
     broadcast = lambda x: jnp.broadcast_to(x, (config.system.update_batch_size,) + x.shape)
@@ -697,13 +687,13 @@ def learner_setup(
     replicate_learner = flax.jax_utils.replicate(replicate_learner, devices=jax.devices())
 
     # Initialise learner state.
-    params, opt_states, buffer_states, step_keys, warmup_keys = replicate_learner
+    params, opt_state, buffer_states, step_keys, warmup_keys = replicate_learner
     # Warmup the buffer.
     env_states, timesteps, keys, buffer_states = warmup(
         env_states, timesteps, buffer_states, warmup_keys
     )
     init_learner_state = MZLearnerState(
-        params, opt_states, buffer_states, step_keys, env_states, timesteps
+        params, opt_state, buffer_states, step_keys, env_states, timesteps
     )
 
     return learn, root_fn, search_apply_fn, init_learner_state
@@ -851,7 +841,7 @@ def run_experiment(_config: DictConfig) -> None:
     logger.stop()
 
 
-@hydra.main(config_path="../../configs", config_name="default_muzero.yaml", version_base="1.2")
+@hydra.main(config_path="../../configs", config_name="default_ff_mz.yaml", version_base="1.2")
 def hydra_entry_point(cfg: DictConfig) -> None:
     """Experiment entry point."""
     # Allow dynamic attributes.

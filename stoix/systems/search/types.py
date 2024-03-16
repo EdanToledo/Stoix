@@ -5,6 +5,7 @@ import mctx
 from distrax import DistributionLike
 from flax.core.frozen_dict import FrozenDict
 from jumanji.types import TimeStep
+from optax import OptState
 from typing_extensions import NamedTuple
 
 from stoix.systems.ppo.types import ActorCriticParams
@@ -41,15 +42,9 @@ class MZParams(NamedTuple):
     world_model_params: WorldModelParams
 
 
-class MZOptStates(NamedTuple):
-    actor_opt_state: chex.ArrayTree
-    critic_opt_state: chex.ArrayTree
-    world_model_opt_state: chex.ArrayTree
-
-
 class MZLearnerState(NamedTuple):
     params: MZParams
-    opt_states: MZOptStates
+    opt_states: OptState
     buffer_state: chex.ArrayTree
     key: chex.PRNGKey
     env_state: TimeStep

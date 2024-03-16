@@ -47,21 +47,22 @@ Stoix currently offers the following building blocks for Single-Agent RL researc
 
 ### Implementations of Algorithms 🥑
 
-- **Proximal Policy Optimization (PPO)** - [Paper](https://arxiv.org/abs/1707.06347)
 - **Deep Q-Network (DQN)** - [Paper](https://arxiv.org/abs/1312.5602)
 - **Dueling Q-Network** - [Paper](https://arxiv.org/abs/1511.06581)
 - **Categorical DQN (C51)** - [Paper](https://arxiv.org/abs/1707.06887)
 - **Munchausen DQN (M-DQN)** [Paper](https://arxiv.org/abs/2007.14430)
 - **Quantile Regression DQN (QR-DQN)** - [Paper](https://arxiv.org/abs/1710.10044)
 - **DQN with Regularized Q-learning (DQN-Reg)** [Paper](https://arxiv.org/abs/2101.03958)
-- **Soft Actor-Critic (SAC)** - [Paper](https://arxiv.org/abs/1801.01290)
+- **REINFORCE With Baseline** - [Paper](https://people.cs.umass.edu/~barto/courses/cs687/williams92simple.pdf)
 - **Deep Deterministic Policy Gradient (DDPG)** - [Paper](https://arxiv.org/abs/1509.02971)
 - **Twin Delayed DDPG (TD3)** - [Paper](https://arxiv.org/abs/1802.09477)
 - **Distributed Distributional DDPG (D4PG)** - [Paper](https://arxiv.org/abs/1804.08617)
-- **AlphaZero** - [Paper](https://arxiv.org/abs/1712.01815)
+- **Soft Actor-Critic (SAC)** - [Paper](https://arxiv.org/abs/1801.01290)
+- **Proximal Policy Optimization (PPO)** - [Paper](https://arxiv.org/abs/1707.06347)
 - **Discovered Policy Optimization (DPO)** [Paper](https://arxiv.org/abs/2210.05639)
 - **Maximum a Posteriori Policy Optimisation (MPO)** - [Paper](https://arxiv.org/abs/1806.06920)
-- **REINFORCE With Baseline** - [Paper](https://people.cs.umass.edu/~barto/courses/cs687/williams92simple.pdf)
+- **AlphaZero** - [Paper](https://arxiv.org/abs/1712.01815)
+- **MuZero** - [Paper](https://arxiv.org/abs/1911.08265)
 
 ### Environment Wrappers 🍬
 Stoix offers wrappers for [Gymnax][gymnax], [Jumanji][jumanji], [Brax][brax], [XMinigrid][xminigrid], [Craftax][craftax] and even [JAXMarl][jaxmarl] (although using Centralised Controllers).
@@ -129,7 +130,7 @@ We plan to iteratively expand Stoix in the following increments:
 - 📊 Benchmarks on more environments.
     - [ ] Create leaderboard of algorithms
 - 🦾 More algorithm implementations:
-    - [ ] MuZero - [Paper](https://www.nature.com/articles/s41586-020-03051-4.epdf?sharing_token=kTk-xTZpQOF8Ym8nTQK6EdRgN0jAjWel9jnR3ZoTv0PMSWGj38iNIyNOw_ooNp2BvzZ4nIcedo7GEXD7UmLqb0M_V_fop31mMY9VBBLNmGbm0K9jETKkZnJ9SgJ8Rwhp3ySvLuTcUr888puIYbngQ0fiMf45ZGDAQ7fUI66-u7Y%3D)
+    - [ ] MuZero - [Paper](https://arxiv.org/abs/1911.08265)
     - [ ] Muesli - [Paper](https://arxiv.org/abs/2104.06159)
     - [ ] DreamerV3 - [Paper](https://arxiv.org/abs/2301.04104)
     - [ ] Advantage Weighted Regression - [Paper](https://arxiv.org/abs/1910.00177)

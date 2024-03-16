@@ -1,8 +1,9 @@
 # ---MLP Actor Critic Networks---
 actor_network:
   pre_torso:
-    _target_: stoix.networks.torso.MLPTorso
-    layer_sizes: [32, 32]
+    _target_: stoix.networks.resnet.ResNetTorso
+    hidden_units_per_group: [64]
+    blocks_per_group: [2]
     use_layer_norm: False
     activation: relu
   action_head:
@@ -10,18 +11,20 @@ actor_network:
 
 critic_network:
   pre_torso:
-    _target_: stoix.networks.torso.MLPTorso
-    layer_sizes: [32, 32]
+    _target_: stoix.networks.resnet.ResNetTorso
+    hidden_units_per_group: [64]
+    blocks_per_group: [2]
     use_layer_norm: False
     activation: relu
   critic_head:
-    _target_: stoix.networks.heads.ScalarCriticHead
+    _target_: stoix.networks.heads.CategoricalCriticHead
 
 # ---MLP MuZero Networks---
 representation_network:
   torso:
-    _target_: stoix.networks.torso.MLPTorso
-    layer_sizes: [64, 64]
+    _target_: stoix.networks.resnet.ResNetTorso
+    hidden_units_per_group: [64]
+    blocks_per_group: [2]
     use_layer_norm: False
     activation: relu
   embedding_head:
@@ -32,12 +35,13 @@ dynamics_network:
   input_layer:
     _target_: stoix.networks.inputs.EmbeddingActionOnehotInput
   torso:
-    _target_: stoix.networks.torso.MLPTorso
-    layer_sizes: [64, 64]
+    _target_: stoix.networks.resnet.ResNetTorso
+    hidden_units_per_group: [64]
+    blocks_per_group: [2]
     use_layer_norm: False
     activation: relu
   embedding_head:
     _target_: stoix.networks.heads.LinearHead
     output_dim: 64 # Output dimension of the embedding head. This should match the output dimension of the representation network.
   reward_head:
-    _target_: stoix.networks.heads.ScalarCriticHead
+    _target_: stoix.networks.heads.CategoricalCriticHead

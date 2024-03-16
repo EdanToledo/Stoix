@@ -70,7 +70,7 @@ class ScalePostProcessor(nn.Module):
         return PostProcessedDistribution(distribution, post_processor)
 
 
-def min_max_normalize(inputs: chex.Array, epsilon: float = 1e-6) -> chex.Array:
+def min_max_normalize(inputs: chex.Array, epsilon: float = 1e-5) -> chex.Array:
     inputs_min = inputs.min(axis=-1, keepdims=True)
     inputs_max = inputs.max(axis=-1, keepdims=True)
     inputs_scale = inputs_max - inputs_min
