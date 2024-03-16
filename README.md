@@ -130,7 +130,6 @@ We plan to iteratively expand Stoix in the following increments:
 - 📊 Benchmarks on more environments.
     - [ ] Create leaderboard of algorithms
 - 🦾 More algorithm implementations:
-    - [ ] MuZero - [Paper](https://arxiv.org/abs/1911.08265)
     - [ ] Muesli - [Paper](https://arxiv.org/abs/2104.06159)
     - [ ] DreamerV3 - [Paper](https://arxiv.org/abs/2301.04104)
     - [ ] Advantage Weighted Regression - [Paper](https://arxiv.org/abs/1910.00177)
