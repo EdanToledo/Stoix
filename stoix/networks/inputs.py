@@ -7,7 +7,7 @@ from stoix.types import Observation
 
 
 class EmbeddingInput(nn.Module):
-    """Only Observation Input."""
+    """JAX Array Input."""
 
     @nn.compact
     def __call__(self, embedding: chex.Array) -> chex.Array:
