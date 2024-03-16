@@ -1,6 +1,7 @@
 from typing import Any, Optional
 
 import chex
+import jax
 import jax.numpy as jnp
 import numpy as np
 import tensorflow_probability as tf_tfp
@@ -127,6 +128,8 @@ class DiscreteValuedTfpDistribution(Categorical):
         """
         parameters = dict(locals())
         self._values = np.asarray(values)
+        self._logits: Optional[chex.Array] = None
+        self._probs: Optional[chex.Array] = None
 
         if logits is not None:
             logits = jnp.asarray(logits)
@@ -143,6 +146,18 @@ class DiscreteValuedTfpDistribution(Categorical):
     @property
     def values(self) -> chex.Array:
         return self._values
+
+    @property
+    def logits(self) -> chex.Array:
+        if self._logits is None:
+            self._logits = jax.nn.log_softmax(self._probs)
+        return self._logits
+
+    @property
+    def probs(self) -> chex.Array:
+        if self._probs is None:
+            self._probs = jax.nn.softmax(self._logits)
+        return self._probs
 
     @classmethod
     def _parameter_properties(cls, dtype: np.dtype, num_classes: Any = None) -> Any:

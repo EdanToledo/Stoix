@@ -4,6 +4,16 @@ import jax.numpy as jnp
 import numpy as np
 
 
+def scale_gradient(g: chex.Array, scale: float = 1) -> chex.Array:
+    """Scales the gradient of `g` by `scale` but keeps the original value unchanged."""
+    return g * scale + jax.lax.stop_gradient(g) * (1.0 - scale)
+
+
+def count_parameters(params: chex.ArrayTree) -> int:
+    """Counts the number of parameters in a parameter tree."""
+    return sum(x.size for x in jax.tree_util.tree_leaves(params))
+
+
 def ndim_at_least(x: chex.Array, num_dims: chex.Numeric) -> chex.Array:
     """Check if the number of dimensions of `x` is at least `num_dims`."""
     if not (isinstance(x, jax.Array) or isinstance(x, np.ndarray)):

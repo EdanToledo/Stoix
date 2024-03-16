@@ -118,7 +118,14 @@ class VisualResNetTorso(nn.Module):
 
     @nn.compact
     def __call__(self, observation: chex.Array) -> chex.Array:
-        assert observation.ndim == 4, "Expected inputs to have shape [B, H, W, C]."
+
+        if observation.ndim > 4:
+            return nn.batch_apply.BatchApply(self.__call__)(observation)
+
+        assert (
+            observation.ndim == 4
+        ), f"Expected inputs to have shape [B, H, W, C] but got shape {observation.shape}."
+
         output = observation
         channels_blocks_strategies = zip(
             self.channels_per_group, self.blocks_per_group, self.downsampling_strategies

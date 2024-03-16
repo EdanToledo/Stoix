@@ -19,7 +19,7 @@ from jumanji.wrappers import MultiToSingleWrapper
 from omegaconf import DictConfig
 from xminigrid.registration import _REGISTRY as XMINIGRID_REGISTRY
 
-from stoix.utils.debug_env import IdentityGame
+from stoix.utils.debug_env import IdentityGame, SequenceGame
 from stoix.wrappers import GymnaxWrapper, JumanjiWrapper, RecordEpisodeMetrics
 from stoix.wrappers.brax import BraxJumanjiWrapper
 from stoix.wrappers.jaxmarl import JaxMarlWrapper, MabraxWrapper, SmaxWrapper
@@ -249,9 +249,12 @@ def make_debug_env(env_name: str, config: DictConfig) -> Tuple[Environment, Envi
     Returns:
         A tuple of the environments.
     """
-
-    env = IdentityGame(**config.env.kwargs)
-    eval_env = IdentityGame(**config.env.kwargs)
+    if "identity" in config.env.scenario.task_name.lower():
+        env = IdentityGame(**config.env.kwargs)
+        eval_env = IdentityGame(**config.env.kwargs)
+    elif "sequence" in config.env.scenario.task_name.lower():
+        env = SequenceGame(**config.env.kwargs)
+        eval_env = SequenceGame(**config.env.kwargs)
 
     env = TruncationAutoResetWrapper(env)
     env = RecordEpisodeMetrics(env)

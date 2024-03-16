@@ -75,6 +75,7 @@ def make_recurrent_fn(
     environment_step: EnvironmentStep,
     actor_apply_fn: ActorApply,
     critic_apply_fn: CriticApply,
+    config: DictConfig,
 ) -> mctx.RecurrentFn:
     def recurrent_fn(
         params: ActorCriticParams,
@@ -91,7 +92,7 @@ def make_recurrent_fn(
 
         recurrent_fn_output = mctx.RecurrentFnOutput(
             reward=next_timestep.reward,
-            discount=next_timestep.discount,
+            discount=next_timestep.discount**config.system.gamma,
             prior_logits=logits,
             value=next_timestep.discount * value,
         )
@@ -396,7 +397,7 @@ def learner_setup(
     root_fn = make_root_fn(actor_network_apply_fn, critic_network_apply_fn)
     environment_model_step = jax.vmap(model_env.step)
     model_recurrent_fn = make_recurrent_fn(
-        environment_model_step, actor_network_apply_fn, critic_network_apply_fn
+        environment_model_step, actor_network_apply_fn, critic_network_apply_fn, config
     )
     search_method = parse_search_method(config)
     search_apply_fn = functools.partial(
