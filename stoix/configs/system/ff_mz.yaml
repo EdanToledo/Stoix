@@ -1,8 +1,8 @@
 # --- Defaults FF-MZ ---
 # This implementation of MuZero is not an exact replica of the original MuZero algorithm and serves more as an example.
 # It is a simplified version that uses a feed forward network for the representation function and does not use observation
-# history. A non-priority buffer is used as well. Additionally, the search method used can be chosen between muzero mcts and
-# gumbel mcts from mctx.
+# history. It also does not do tiling and encoding of actions in a 2D plane. A non-priority buffer is used as well.
+# Additionally, the search method used can be chosen between muzero mcts and gumbel mcts from mctx.
 
 system_name: ff_mz # Name of the system.
 
