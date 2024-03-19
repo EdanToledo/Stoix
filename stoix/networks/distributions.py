@@ -4,7 +4,6 @@ import chex
 import jax
 import jax.numpy as jnp
 import numpy as np
-import tensorflow_probability as tf_tfp
 import tensorflow_probability.substrates.jax as tfp
 from tensorflow_probability.substrates.jax.distributions import (
     Categorical,
@@ -93,7 +92,6 @@ class AffineTanhTransformedDistribution(TransformedDistribution):
         return td_properties
 
 
-@tf_tfp.experimental.auto_composite_tensor
 class DiscreteValuedTfpDistribution(Categorical):
     """This is a generalization of a categorical distribution.
 

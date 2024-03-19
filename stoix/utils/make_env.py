@@ -6,6 +6,7 @@ import hydra
 import jax.numpy as jnp
 import jaxmarl
 import jumanji
+import pgx
 import xminigrid
 from brax.envs import _envs as brax_environments
 from brax.envs import create as brax_make
@@ -24,6 +25,7 @@ from stoix.wrappers import GymnaxWrapper, JumanjiWrapper, RecordEpisodeMetrics
 from stoix.wrappers.brax import BraxJumanjiWrapper
 from stoix.wrappers.jaxmarl import JaxMarlWrapper, MabraxWrapper, SmaxWrapper
 from stoix.wrappers.jumanji import MultiBoundedToBounded, MultiDiscreteToDiscrete
+from stoix.wrappers.pgx import PGXWrapper
 from stoix.wrappers.truncation import TruncationAutoResetWrapper
 from stoix.wrappers.xminigrid import XMiniGridWrapper
 
@@ -282,6 +284,32 @@ def apply_optional_wrappers(
     return tuple(envs)  # type: ignore
 
 
+def make_pgx_env(env_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
+    """
+    Create a PGX environment for training and evaluation.
+
+    Args:
+        env_name (str): The name of the environment to create.
+        config (Dict): The configuration of the environment.
+
+    Returns:
+        A tuple of the environments.
+    """
+
+    # Config generator and select the wrapper.
+    # Create envs.
+    env = pgx.make(env_name, **config.env.kwargs)
+    eval_env = pgx.make(env_name, **config.env.kwargs)
+
+    env = PGXWrapper(env)
+    eval_env = PGXWrapper(eval_env)
+
+    env = TruncationAutoResetWrapper(env)
+    env = RecordEpisodeMetrics(env)
+
+    return env, eval_env
+
+
 def make(config: DictConfig) -> Tuple[Environment, Environment]:
     """
     Create environments for training and evaluation..
@@ -308,6 +336,8 @@ def make(config: DictConfig) -> Tuple[Environment, Environment]:
         envs = make_craftax_env(env_name, config)
     elif "debug" in env_name.lower():
         envs = make_debug_env(env_name, config)
+    elif env_name in pgx.available_envs():
+        envs = make_pgx_env(env_name, config)
     else:
         raise ValueError(f"{env_name} is not a supported environment.")
 

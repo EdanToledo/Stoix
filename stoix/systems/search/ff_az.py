@@ -92,7 +92,7 @@ def make_recurrent_fn(
 
         recurrent_fn_output = mctx.RecurrentFnOutput(
             reward=next_timestep.reward,
-            discount=next_timestep.discount**config.system.gamma,
+            discount=next_timestep.discount * config.system.gamma,
             prior_logits=logits,
             value=next_timestep.discount * value,
         )

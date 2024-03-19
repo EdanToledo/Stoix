@@ -17,10 +17,10 @@ neptune
 numpy
 omegaconf
 optax
+pgx
 protobuf
 rlax
 tdqm
 tensorboard_logger
-tensorflow==2.11.1
-tensorflow_probability==0.19.0
+tensorflow_probability
 xminigrid @ git+https://github.com/corl-team/xland-minigrid.git@main
