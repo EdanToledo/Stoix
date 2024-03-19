@@ -17,6 +17,9 @@ from jumanji.types import StepType, TimeStep
 from jumanji.wrappers import Wrapper
 from pgx import Env
 
+# This is a wrapper for PGX environments. However, currently none of the systems work
+# for two player games. This is future work.
+
 
 @dataclass(frozen=True)
 class PGXState:
