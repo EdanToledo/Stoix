@@ -19,8 +19,8 @@ RepresentationApply = Callable[[FrozenDict, Observation], chex.Array]
 DynamicsApply = Callable[[FrozenDict, chex.Array, chex.Array], Tuple[chex.Array, DistributionLike]]
 
 
-class AZTransition(NamedTuple):
-    """Transition tuple for AZ."""
+class ExItTransition(NamedTuple):
+    """Transition tuple for Expert Iteration."""
 
     done: Done
     action: Action

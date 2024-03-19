@@ -136,6 +136,7 @@ We plan to iteratively expand Stoix in the following increments:
     - [ ] Advantage Weighted Regression - [Paper](https://arxiv.org/abs/1910.00177)
     - [ ] R2D2 - [Paper](https://openreview.net/pdf?id=r1lyTjAqYX)
     - [ ] Rainbow - [Paper](https://arxiv.org/abs/1710.02298)
+- 🎮 Self-play 2-player Systems for board games.
 
 Please do follow along as we develop this next phase!
 

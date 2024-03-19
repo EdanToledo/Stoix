@@ -26,8 +26,8 @@ from stoix.systems.ppo.types import (
 )
 from stoix.systems.search.evaluator import search_evaluator_setup
 from stoix.systems.search.types import (
-    AZTransition,
     EnvironmentStep,
+    ExItTransition,
     RootFnApply,
     SearchApply,
 )
@@ -92,7 +92,7 @@ def make_recurrent_fn(
 
         recurrent_fn_output = mctx.RecurrentFnOutput(
             reward=next_timestep.reward,
-            discount=next_timestep.discount**config.system.gamma,
+            discount=next_timestep.discount * config.system.gamma,
             prior_logits=logits,
             value=next_timestep.discount * value,
         )
@@ -117,7 +117,7 @@ def get_learner_fn(
     def _update_step(learner_state: LearnerState, _: Any) -> Tuple[LearnerState, Tuple]:
         """A single update of the network."""
 
-        def _env_step(learner_state: LearnerState, _: Any) -> Tuple[LearnerState, AZTransition]:
+        def _env_step(learner_state: LearnerState, _: Any) -> Tuple[LearnerState, ExItTransition]:
             """Step the environment."""
             params, opt_states, key, env_state, last_timestep = learner_state
 
@@ -137,7 +137,7 @@ def get_learner_fn(
             done = timestep.last().reshape(-1)
             info = timestep.extras["episode_metrics"]
 
-            transition = AZTransition(
+            transition = ExItTransition(
                 done,
                 action,
                 behaviour_value,
@@ -177,7 +177,7 @@ def get_learner_fn(
 
                 def _actor_loss_fn(
                     actor_params: FrozenDict,
-                    traj_batch: AZTransition,
+                    traj_batch: ExItTransition,
                 ) -> Tuple:
                     """Calculate the actor loss."""
                     # RERUN NETWORK
@@ -196,7 +196,7 @@ def get_learner_fn(
 
                 def _critic_loss_fn(
                     critic_params: FrozenDict,
-                    traj_batch: AZTransition,
+                    traj_batch: ExItTransition,
                     targets: chex.Array,
                 ) -> Tuple:
                     """Calculate the critic loss."""
