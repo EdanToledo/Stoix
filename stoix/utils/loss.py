@@ -6,7 +6,7 @@ import tensorflow_probability.substrates.jax as tfp
 
 tfd = tfp.distributions
 
-# These losses are generally taken from rlax but edited to explictly take in a batch of data.
+# These losses are generally taken from rlax but edited to explicitly take in a batch of data.
 # This is because the original rlax losses are not batched and are meant to be used with vmap,
 # which is much slower.
 

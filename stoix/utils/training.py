@@ -31,7 +31,7 @@ def make_learning_rate_schedule(
 def make_learning_rate(
     init_lr: float, config: DictConfig, num_epochs: int, num_minibatches: Optional[int] = None
 ) -> Union[float, Callable]:
-    """Retuns a constant learning rate or a learning rate schedule.
+    """Returns a constant learning rate or a learning rate schedule.
 
     Args:
         init_lr: initial learning rate.

@@ -15,7 +15,7 @@ You generally only need to submit a CLA once, so if you've already submitted one
 (even if it was for a different project), you probably don't need to do it
 again.
 
-## Installing Stoix for developement
+## Installing Stoix for development
 
 To develop features for Stoix, clone the repository and install the core and development dependencies as follows:
 
