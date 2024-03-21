@@ -94,8 +94,8 @@ At the moment Stoix is not meant to be installed as a library, but rather to be 
 You can use Stoix by cloning the repo and pip installing as follows:
 
 ```bash
-git clone https://github.com/EdanToledo/stoix.git
-cd stoix
+git clone https://github.com/EdanToledo/Stoix.git
+cd Stoix
 pip install -e .
 ```
 
