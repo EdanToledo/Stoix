@@ -90,6 +90,12 @@ class GymnaxWrapper(Wrapper):
         )
         return state, timestep
 
+    def reward_spec(self) -> specs.Array:
+        return specs.Array(shape=(), dtype=float, name="reward")
+
+    def discount_spec(self) -> specs.BoundedArray:
+        return specs.BoundedArray(shape=(), dtype=float, minimum=0.0, maximum=1.0, name="discount")
+
     def action_spec(self) -> Spec:
         return gymnax_space_to_jumanji_spec(self._env.action_space(self._env_params))
 
