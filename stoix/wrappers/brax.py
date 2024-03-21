@@ -150,3 +150,9 @@ class BraxJumanjiWrapper(BraxWrapper):
             action_mask=specs.Array(shape=(self.action_size,), dtype=jnp.float32),
             step_count=specs.Array(shape=(), dtype=jnp.int32),
         )
+
+    def reward_spec(self) -> specs.Array:
+        return specs.Array(shape=(), dtype=float, name="reward")
+
+    def discount_spec(self) -> specs.BoundedArray:
+        return specs.BoundedArray(shape=(), dtype=float, minimum=0.0, maximum=1.0, name="discount")
