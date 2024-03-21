@@ -8,7 +8,7 @@ from flax.core.frozen_dict import FrozenDict
 from jumanji.env import Environment
 from omegaconf import DictConfig
 
-from stoix.types import (
+from stoix.base_types import (
     ActFn,
     ActorApply,
     EvalFn,

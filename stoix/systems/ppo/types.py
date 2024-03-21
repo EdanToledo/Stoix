@@ -6,7 +6,7 @@ from jumanji.types import TimeStep
 from optax._src.base import OptState
 from typing_extensions import NamedTuple
 
-from stoix.types import Action, Done, HiddenState, LogEnvState, Value
+from stoix.base_types import Action, Done, HiddenState, LogEnvState, Value
 
 
 class ActorCriticParams(NamedTuple):

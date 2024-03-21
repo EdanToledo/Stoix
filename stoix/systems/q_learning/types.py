@@ -6,7 +6,7 @@ from flax.core.frozen_dict import FrozenDict
 from jumanji.types import TimeStep
 from typing_extensions import NamedTuple
 
-from stoix.types import LogEnvState
+from stoix.base_types import LogEnvState
 
 
 class QsAndTarget(NamedTuple):

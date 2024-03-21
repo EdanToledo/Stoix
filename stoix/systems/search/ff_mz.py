@@ -20,13 +20,21 @@ from jumanji.types import TimeStep
 from omegaconf import DictConfig, OmegaConf
 from rich.pretty import pprint
 
+from stoix.base_types import (
+    ActorApply,
+    CriticApply,
+    DistributionCriticApply,
+    ExperimentOutput,
+    LearnerFn,
+    LogEnvState,
+)
 from stoix.networks.base import FeedForwardActor as Actor
 from stoix.networks.base import FeedForwardCritic as Critic
 from stoix.networks.inputs import EmbeddingInput
 from stoix.networks.model_based import Dynamics, Representation
 from stoix.systems.ppo.types import ActorCriticParams
 from stoix.systems.search.evaluator import search_evaluator_setup
-from stoix.systems.search.types import (
+from stoix.systems.search.search_types import (
     DynamicsApply,
     MZLearnerState,
     MZParams,
@@ -35,14 +43,6 @@ from stoix.systems.search.types import (
     RootFnApply,
     SearchApply,
     WorldModelParams,
-)
-from stoix.types import (
-    ActorApply,
-    CriticApply,
-    DistributionCriticApply,
-    ExperimentOutput,
-    LearnerFn,
-    LogEnvState,
 )
 from stoix.utils import make_env as environments
 from stoix.utils.checkpointing import Checkpointer

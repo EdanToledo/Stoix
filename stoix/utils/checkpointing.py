@@ -10,8 +10,8 @@ from flax.core.frozen_dict import FrozenDict
 from jax.tree_util import tree_map
 from omegaconf import DictConfig, OmegaConf
 
+from stoix.base_types import StoixState
 from stoix.systems.ppo.types import ActorCriticParams, HiddenStates
-from stoix.types import StoixState
 
 # Keep track of the version of the checkpointer
 # Any breaking API changes should be reflected in the major version (e.g. v0.1 -> v1.0)

@@ -18,7 +18,7 @@ from jumanji import specs
 from jumanji.types import StepType, TimeStep, restart
 from jumanji.wrappers import Wrapper
 
-from stoix.types import Observation, ObservationGlobalState, State
+from stoix.base_types import Observation, ObservationGlobalState, State
 
 if TYPE_CHECKING:  # https://github.com/python/mypy/issues/6239
     from dataclasses import dataclass

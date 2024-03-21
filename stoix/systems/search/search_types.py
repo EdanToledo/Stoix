@@ -8,8 +8,8 @@ from jumanji.types import TimeStep
 from optax import OptState
 from typing_extensions import NamedTuple
 
+from stoix.base_types import Action, Done, Observation, Value
 from stoix.systems.ppo.types import ActorCriticParams
-from stoix.types import Action, Done, Observation, Value
 
 SearchApply = Callable[[FrozenDict, chex.PRNGKey, mctx.RootFnOutput], mctx.PolicyOutput]
 RootFnApply = Callable[[FrozenDict, Observation, chex.ArrayTree], mctx.RootFnOutput]

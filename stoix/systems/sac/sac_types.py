@@ -7,30 +7,27 @@ from flax.core.frozen_dict import FrozenDict
 from jumanji.types import TimeStep
 from typing_extensions import NamedTuple
 
+from stoix.base_types import Action, LogEnvState, Observation, Value
 from stoix.systems.q_learning.types import QsAndTarget
-from stoix.types import Action, LogEnvState, Observation, Value
 
 ContinuousQApply = Callable[[FrozenDict, Observation, Action], Value]
 
 
-class ActorAndTarget(NamedTuple):
-    online: FrozenDict
-    target: FrozenDict
-
-
-class DDPGParams(NamedTuple):
-    actor_params: ActorAndTarget
+class SACParams(NamedTuple):
+    actor_params: FrozenDict
     q_params: QsAndTarget
+    log_alpha: chex.Array
 
 
-class DDPGOptStates(NamedTuple):
+class SACOptStates(NamedTuple):
     actor_opt_state: optax.OptState
     q_opt_state: optax.OptState
+    alpha_opt_state: optax.OptState
 
 
-class DDPGLearnerState(NamedTuple):
-    params: DDPGParams
-    opt_states: DDPGOptStates
+class SACLearnerState(NamedTuple):
+    params: SACParams
+    opt_states: SACOptStates
     buffer_state: BufferState
     key: chex.PRNGKey
     env_state: LogEnvState

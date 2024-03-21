@@ -9,7 +9,7 @@ from jumanji.specs import Array, MultiDiscreteArray, Spec
 from jumanji.types import TimeStep
 from jumanji.wrappers import MultiToSingleWrapper, Wrapper
 
-from stoix.types import Observation
+from stoix.base_types import Observation
 
 
 class JumanjiWrapper(Wrapper):

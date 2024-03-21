@@ -18,6 +18,7 @@ from jumanji.types import TimeStep
 from omegaconf import DictConfig, OmegaConf
 from rich.pretty import pprint
 
+from stoix.base_types import ActorApply, ExperimentOutput, LearnerFn, LogEnvState
 from stoix.evaluator import evaluator_setup, get_distribution_act_fn
 from stoix.networks.base import CompositeNetwork
 from stoix.networks.base import FeedForwardActor as Actor
@@ -34,8 +35,7 @@ from stoix.systems.mpo.types import (
     SequenceStep,
 )
 from stoix.systems.q_learning.types import QsAndTarget
-from stoix.systems.sac.types import ContinuousQApply
-from stoix.types import ActorApply, ExperimentOutput, LearnerFn, LogEnvState
+from stoix.systems.sac.sac_types import ContinuousQApply
 from stoix.utils import make_env as environments
 from stoix.utils.checkpointing import Checkpointer
 from stoix.utils.jax_utils import unreplicate_batch_dim, unreplicate_n_dims

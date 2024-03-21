@@ -30,15 +30,15 @@ from jumanji.types import TimeStep
 from omegaconf import DictConfig, OmegaConf
 from rich.pretty import pprint
 
-from stoix.evaluator import evaluator_setup, get_distribution_act_fn
-from stoix.networks.base import FeedForwardActor as Actor
-from stoix.types import (
+from stoix.base_types import (
     ActorApply,
     ExperimentOutput,
     LearnerFn,
     LogEnvState,
     Observation,
 )
+from stoix.evaluator import evaluator_setup, get_distribution_act_fn
+from stoix.networks.base import FeedForwardActor as Actor
 from stoix.utils import make_env as environments
 from stoix.utils.logger import LogEvent, StoixLogger
 from stoix.utils.total_timestep_checker import check_total_timesteps

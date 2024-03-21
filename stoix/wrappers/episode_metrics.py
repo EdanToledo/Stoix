@@ -6,7 +6,7 @@ import jax.numpy as jnp
 from jumanji.types import TimeStep
 from jumanji.wrappers import Wrapper
 
-from stoix.types import State
+from stoix.base_types import State
 
 if TYPE_CHECKING:  # https://github.com/python/mypy/issues/6239
     from dataclasses import dataclass
