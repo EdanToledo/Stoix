@@ -10,7 +10,7 @@ from jumanji.types import TimeStep
 from jumanji.wrappers import Wrapper
 from xminigrid.environment import Environment, EnvParams, State
 
-from stoix.types import Observation
+from stoix.base_types import Observation
 
 if TYPE_CHECKING:  # https://github.com/python/mypy/issues/6239
     from dataclasses import dataclass

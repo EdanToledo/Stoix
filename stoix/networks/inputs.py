@@ -3,7 +3,7 @@ import jax
 import jax.numpy as jnp
 from flax import linen as nn
 
-from stoix.types import Observation
+from stoix.base_types import Observation
 
 
 class EmbeddingInput(nn.Module):

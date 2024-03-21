@@ -5,7 +5,7 @@ import jax
 import jax.numpy as jnp
 from tensorflow_probability.substrates.jax.distributions import Categorical
 
-from stoix.systems.mpo.types import CategoricalDualParams, CategoricalMPOStats
+from stoix.systems.mpo.mpo_types import CategoricalDualParams, CategoricalMPOStats
 
 # These functions are largely taken from Acme's MPO implementation:
 

@@ -13,7 +13,7 @@ from jumanji.env import Environment
 from jumanji.specs import Array, DiscreteArray, Spec
 from jumanji.types import StepType, TimeStep, restart
 
-from stoix.types import Observation
+from stoix.base_types import Observation
 
 
 @dataclass

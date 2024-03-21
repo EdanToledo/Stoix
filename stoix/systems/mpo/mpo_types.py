@@ -7,8 +7,8 @@ from flax.core.frozen_dict import FrozenDict
 from jumanji.types import TimeStep
 from typing_extensions import NamedTuple
 
-from stoix.systems.q_learning.types import QsAndTarget
-from stoix.types import LogEnvState
+from stoix.base_types import LogEnvState
+from stoix.systems.q_learning.dqn_types import QsAndTarget
 
 
 class SequenceStep(NamedTuple):

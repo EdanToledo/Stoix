@@ -3,9 +3,9 @@ from typing import Callable
 import chex
 from flax import linen as nn
 
+from stoix.base_types import Observation
 from stoix.networks.inputs import ObservationInput
 from stoix.networks.postprocessors import min_max_normalize
-from stoix.types import Observation
 
 
 class Representation(nn.Module):

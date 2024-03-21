@@ -11,7 +11,7 @@ from jumanji import specs
 from jumanji.env import Environment, State
 from jumanji.types import StepType, TimeStep, restart
 
-from stoix.types import Observation
+from stoix.base_types import Observation
 
 
 @struct.dataclass

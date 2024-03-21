@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, Tuple
 import jax
 import jax.numpy as jnp
 
-from stoix.types import Observation
+from stoix.base_types import Observation
 
 if TYPE_CHECKING:
     from dataclasses import dataclass

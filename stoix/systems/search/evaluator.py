@@ -7,8 +7,8 @@ from flax.core.frozen_dict import FrozenDict
 from jumanji.env import Environment
 from omegaconf import DictConfig
 
-from stoix.systems.search.types import SearchApply
-from stoix.types import EvalFn, EvalState, ExperimentOutput
+from stoix.base_types import EvalFn, EvalState, ExperimentOutput
+from stoix.systems.search.search_types import SearchApply
 from stoix.utils.jax_utils import unreplicate_batch_dim
 
 
