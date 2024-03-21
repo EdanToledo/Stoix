@@ -127,13 +127,13 @@ def jaxmarl_space_to_jumanji_spec(space: jaxmarl_spaces.Space) -> specs.Spec:
         )
     elif _is_dict(space):
         # Jumanji needs something to hold the specs
-        contructor = namedtuple("SubSpace", list(space.spaces.keys()))  # type: ignore
+        constructor = namedtuple("SubSpace", list(space.spaces.keys()))  # type: ignore
         # Recursively convert spaces to specs
         sub_specs = {
             sub_space_name: jaxmarl_space_to_jumanji_spec(sub_space)
             for sub_space_name, sub_space in space.spaces.items()
         }
-        return specs.Spec(constructor=contructor, name="", **sub_specs)
+        return specs.Spec(constructor=constructor, name="", **sub_specs)
     elif _is_tuple(space):
         # Jumanji needs something to hold the specs
         field_names = [f"sub_space_{i}" for i in range(len(space.spaces))]
@@ -342,7 +342,7 @@ class SmaxWrapper(JaxMarlWrapper):
 
     @cached_property
     def state_size(self) -> chex.Array:
-        "Get the sate size of the global observation"
+        "Get the state size of the global observation"
         return self._env.state_size
 
     @cached_property
@@ -384,7 +384,7 @@ class MabraxWrapper(JaxMarlWrapper):
 
     @cached_property
     def state_size(self) -> chex.Array:
-        "Get the sate size of the global observation"
+        "Get the state size of the global observation"
         brax_env = self._env.env
         state_size = brax_env.observation_size
         return (

@@ -585,7 +585,7 @@ def run_experiment(_config: DictConfig) -> None:
             config.system.rollout_length % config.system.recurrent_chunk_size == 0
         ), "Rollout length must be divisible by recurrent chunk size."
 
-    # Create the enviroments for train and eval.
+    # Create the environments for train and eval.
     env, eval_env = environments.make(config)
 
     # PRNG keys.

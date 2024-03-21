@@ -393,7 +393,7 @@ def run_experiment(_config: DictConfig) -> None:
         config.arch.num_updates > config.arch.num_evaluation
     ), "Number of updates per evaluation must be less than total number of updates."
 
-    # Create the enviroments for train and eval.
+    # Create the environments for train and eval.
     env, eval_env = environments.make(config=config)
 
     # PRNG keys.

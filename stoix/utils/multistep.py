@@ -4,7 +4,7 @@ import chex
 import jax
 import jax.numpy as jnp
 
-# These functions are generally taken from rlax but edited to explictly take in a batch of data.
+# These functions are generally taken from rlax but edited to explicitly take in a batch of data.
 # This is because the original rlax functions are not batched and are meant to be used with vmap,
 # which can be much slower.
 

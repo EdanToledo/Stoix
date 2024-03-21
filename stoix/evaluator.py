@@ -64,7 +64,7 @@ def get_ff_evaluator_fn(
     """Get the evaluator function for feedforward networks.
 
     Args:
-        env (Environment): An evironment isntance for evaluation.
+        env (Environment): An environment instance for evaluation.
         act_fn (callable): The act_fn that returns the action taken by the agent.
         config (dict): Experiment configuration.
         eval_multiplier (int): A scalar that will increase the number of evaluation
