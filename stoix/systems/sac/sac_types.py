@@ -8,7 +8,7 @@ from jumanji.types import TimeStep
 from typing_extensions import NamedTuple
 
 from stoix.base_types import Action, LogEnvState, Observation, Value
-from stoix.systems.q_learning.types import QsAndTarget
+from stoix.systems.q_learning.dqn_types import QsAndTarget
 
 ContinuousQApply = Callable[[FrozenDict, Observation, Action], Value]
 

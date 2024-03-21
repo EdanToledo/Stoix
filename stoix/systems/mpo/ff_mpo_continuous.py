@@ -23,7 +23,7 @@ from stoix.evaluator import evaluator_setup, get_distribution_act_fn
 from stoix.networks.base import CompositeNetwork
 from stoix.networks.base import FeedForwardActor as Actor
 from stoix.systems.mpo.continuous_loss import clip_dual_params, mpo_loss
-from stoix.systems.mpo.types import (
+from stoix.systems.mpo.mpo_types import (
     ActorAndTarget,
     DualParams,
     MPOLearnerState,
@@ -31,7 +31,7 @@ from stoix.systems.mpo.types import (
     MPOParams,
     SequenceStep,
 )
-from stoix.systems.q_learning.types import QsAndTarget
+from stoix.systems.q_learning.dqn_types import QsAndTarget
 from stoix.systems.sac.sac_types import ContinuousQApply
 from stoix.utils import make_env as environments
 from stoix.utils.checkpointing import Checkpointer

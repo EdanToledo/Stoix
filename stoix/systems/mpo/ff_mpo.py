@@ -26,7 +26,7 @@ from stoix.systems.mpo.discrete_loss import (
     categorical_mpo_loss,
     clip_categorical_mpo_params,
 )
-from stoix.systems.mpo.types import (
+from stoix.systems.mpo.mpo_types import (
     ActorAndTarget,
     CategoricalDualParams,
     MPOLearnerState,
@@ -34,7 +34,7 @@ from stoix.systems.mpo.types import (
     MPOParams,
     SequenceStep,
 )
-from stoix.systems.q_learning.types import QsAndTarget
+from stoix.systems.q_learning.dqn_types import QsAndTarget
 from stoix.systems.sac.sac_types import ContinuousQApply
 from stoix.utils import make_env as environments
 from stoix.utils.checkpointing import Checkpointer

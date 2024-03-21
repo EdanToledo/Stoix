@@ -20,7 +20,7 @@ from rich.pretty import pprint
 from stoix.base_types import ActorApply, CriticApply, ExperimentOutput, LearnerFn
 from stoix.networks.base import FeedForwardActor as Actor
 from stoix.networks.base import FeedForwardCritic as Critic
-from stoix.systems.ppo.types import (
+from stoix.systems.ppo.ppo_types import (
     ActorCriticOptStates,
     ActorCriticParams,
     LearnerState,

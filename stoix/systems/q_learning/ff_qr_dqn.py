@@ -2,7 +2,7 @@ import copy
 import time
 from typing import TYPE_CHECKING, Any, Callable, Dict, Tuple
 
-from stoix.systems.q_learning.types import DQNLearnerState, QsAndTarget, Transition
+from stoix.systems.q_learning.dqn_types import DQNLearnerState, QsAndTarget, Transition
 from stoix.utils.checkpointing import Checkpointer
 from stoix.utils.jax_utils import unreplicate_batch_dim, unreplicate_n_dims
 from stoix.utils.loss import quantile_q_learning

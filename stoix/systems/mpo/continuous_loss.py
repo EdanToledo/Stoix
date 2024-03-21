@@ -10,7 +10,7 @@ from tensorflow_probability.substrates.jax.distributions import (
     Normal,
 )
 
-from stoix.systems.mpo.types import DualParams, MPOStats
+from stoix.systems.mpo.mpo_types import DualParams, MPOStats
 
 # These functions are largely taken from Acme's MPO implementation:
 

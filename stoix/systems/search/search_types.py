@@ -9,7 +9,7 @@ from optax import OptState
 from typing_extensions import NamedTuple
 
 from stoix.base_types import Action, Done, Observation, Value
-from stoix.systems.ppo.types import ActorCriticParams
+from stoix.systems.ppo.ppo_types import ActorCriticParams
 
 SearchApply = Callable[[FrozenDict, chex.PRNGKey, mctx.RootFnOutput], mctx.PolicyOutput]
 RootFnApply = Callable[[FrozenDict, Observation, chex.ArrayTree], mctx.RootFnOutput]

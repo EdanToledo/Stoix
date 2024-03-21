@@ -36,7 +36,7 @@ from stoix.systems.ddpg.ddpg_types import (
     DDPGOptStates,
     DDPGParams,
 )
-from stoix.systems.q_learning.types import QsAndTarget, Transition
+from stoix.systems.q_learning.dqn_types import QsAndTarget, Transition
 from stoix.systems.sac.sac_types import ContinuousQApply
 from stoix.utils import make_env as environments
 from stoix.utils.checkpointing import Checkpointer
