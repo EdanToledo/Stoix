@@ -1,0 +1,22 @@
+# --- Defaults FF-AWR---
+
+system_name: ff_awr # Name of the system.
+
+# --- RL hyperparameters ---
+update_batch_size: 1 # Number of vectorised gradient updates per device.
+rollout_length: 16 # Number of environment steps per vectorised environment.
+num_actor_steps: 400 # Number of sgd steps for the actor per rollout.
+num_critic_steps: 200 # Number of sgd steps for the critic per rollout.
+warmup_steps: 256  # Number of steps to collect before training.
+buffer_size: 50_000 # size of the replay buffer.
+batch_size: 4 # Number of samples to train on per device.
+sample_sequence_length: 64 # Number of steps to consider for each element of the batch.
+period : 1 # Period of the sampled sequences.
+actor_lr: 1e-4  # the learning rate of the policy network optimizer
+critic_lr: 1e-4  # the learning rate of the critic network network optimizer
+gamma: 0.99  # discount factor
+max_grad_norm: 0.5 # Maximum norm of the gradients for a weight update.
+decay_learning_rates: False # Whether learning rates should be linearly decayed during training.
+gae_lambda: 0.95 # The lambda parameter for the generalized advantage estimator.
+beta: 0.05 # The temperature of the exponentiated advantage weights.
+weight_clip: 20.0 # The maximum absolute value of the advtange weights.
