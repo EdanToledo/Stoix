@@ -11,14 +11,14 @@ id-marl-eval @ git+https://github.com/instadeepai/marl-eval
 jax>=0.4.10
 jaxlib
 jaxmarl
-jumanji @ git+https://github.com/instadeepai/jumanji.git@main
+jumanji==1.0.0
 mctx
 neptune
 numpy
 omegaconf
 optax
 pgx
-protobuf
+protobuf==3.20.1
 rlax
 tdqm
 tensorboard_logger
