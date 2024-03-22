@@ -1,0 +1,6 @@
+docs
+LICENSE
+.commitlint.config.js
+.github
+.gitignore
+.pre-commit-config.yaml

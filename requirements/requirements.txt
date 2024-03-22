@@ -1,5 +1,6 @@
 brax>=0.9.0
 colorama
+chex
 craftax
 distrax @ git+https://github.com/google-deepmind/distrax  # distrax release doesn't support jax > 0.4.13
 flashbax @ git+https://github.com/instadeepai/flashbax
@@ -22,5 +23,6 @@ protobuf
 rlax
 tdqm
 tensorboard_logger
+tensorflow
 tensorflow_probability
 xminigrid @ git+https://github.com/corl-team/xland-minigrid.git@main

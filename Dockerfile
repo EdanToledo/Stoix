@@ -1,3 +1,4 @@
+# FROM ubuntu:22.04 as base
 FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04
 
 # Ensure no installs try to launch interactive screen
@@ -17,29 +18,23 @@ RUN apt-get update -y && \
 ENV VIRTUAL_ENV /stoix
 ENV PATH /stoix/bin:$PATH
 
-# Location of stoix folder
-ARG folder=/home/app/stoix
-
 # Set working directory
-WORKDIR ${folder}
+WORKDIR /build
 
 # Copy all code needed to install dependencies
 COPY ./requirements ./requirements
-COPY setup.py .
-COPY README.md .
-COPY stoix/version.py stoix/version.py
-
-RUN echo "Installing requirements..."
-RUN pip install --quiet --upgrade pip setuptools wheel &&  \
-    pip install -e .
+COPY pyproject.toml ./pyproject.toml
+COPY ./stoix ./stoix
 
 # Need to use specific cuda versions for jax
 ARG USE_CUDA=true
-RUN if [ "$USE_CUDA" = true ] ; \
-    then pip install "jax[cuda11_pip]<=0.4.13" -f "https://storage.googleapis.com/jax-releases/jax_cuda_releases.html" ; \
+
+RUN pip install --quiet --upgrade pip setuptools wheel && \
+    if [ "$USE_CUDA" = true ]; then \
+        pip install "jax[cuda11_pip]<=0.4.13" -f "https://storage.googleapis.com/jax-releases/jax_cuda_releases.html"; \
     fi
 
-# Copy all code
-COPY . .
+# Install from pyproject.toml with verbose logging and ignore those packages already installed
+RUN pip install --verbose --no-cache-dir --ignore-installed -e .
 
-EXPOSE 6006
+ENTRYPOINT [ "/stoix/bin/python" ]
