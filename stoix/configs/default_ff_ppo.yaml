@@ -3,5 +3,5 @@ defaults:
   - arch: anakin
   - system: ff_ppo
   - network: mlp
-  - env: jumanji/snake
+  - env: gymnax/cartpole
   - _self_
