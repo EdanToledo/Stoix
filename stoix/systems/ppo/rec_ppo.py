@@ -29,7 +29,7 @@ from stoix.utils.checkpointing import Checkpointer
 from stoix.utils.jax_utils import unreplicate_batch_dim, unreplicate_n_dims
 from stoix.utils.logger import LogEvent, StoixLogger
 from stoix.utils.loss import clipped_value_loss, ppo_loss
-from stoix.utils.multistep import calculate_gae
+from stoix.utils.multistep import batch_truncated_generalized_advantage_estimation
 from stoix.utils.total_timestep_checker import check_total_timesteps
 from stoix.utils.training import make_learning_rate
 from stoix.wrappers.episode_metrics import get_final_step_metrics
@@ -172,10 +172,12 @@ def get_learner_fn(
         last_val = jnp.where(last_done, jnp.zeros_like(last_val), last_val)
 
         r_t = traj_batch.reward
-        v_t = traj_batch.value
+        v_t = jnp.concatenate([traj_batch.value, last_val[None, ...]], axis=0)
         d_t = 1.0 - traj_batch.done.astype(jnp.float32)
         d_t = (d_t * config.system.gamma).astype(jnp.float32)
-        advantages, targets = calculate_gae(v_t, r_t, d_t, last_val, config.system.gae_lambda)
+        advantages, targets = batch_truncated_generalized_advantage_estimation(
+            r_t, d_t, config.system.gae_lambda, v_t, time_major=True
+        )
 
         def _update_epoch(update_state: Tuple, _: Any) -> Tuple:
             """Update the network for a single epoch."""

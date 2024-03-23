@@ -62,6 +62,7 @@ Stoix currently offers the following building blocks for Single-Agent RL researc
 - **Proximal Policy Optimization (PPO)** - [Paper](https://arxiv.org/abs/1707.06347)
 - **Discovered Policy Optimization (DPO)** [Paper](https://arxiv.org/abs/2210.05639)
 - **Maximum a Posteriori Policy Optimisation (MPO)** - [Paper](https://arxiv.org/abs/1806.06920)
+- **Advantage-Weighted Regression (AWR)** - [Paper](https://arxiv.org/abs/1910.00177)
 - **AlphaZero** - [Paper](https://arxiv.org/abs/1712.01815)
 - **MuZero** - [Paper](https://arxiv.org/abs/1911.08265)
 
