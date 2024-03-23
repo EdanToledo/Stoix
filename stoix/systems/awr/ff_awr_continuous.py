@@ -338,23 +338,28 @@ def learner_setup(
     # Get available TPU cores.
     n_devices = len(jax.devices())
 
-    # Get number of actions or action dimension from the environment.
-    action_dim = int(env.action_spec().num_values)
+    # Get number of actions.
+    action_dim = int(env.action_spec().shape[-1])
     config.system.action_dim = action_dim
+    config.system.action_minimum = float(env.action_spec().minimum)
+    config.system.action_maximum = float(env.action_spec().maximum)
 
     # PRNG keys.
     key, actor_net_key, critic_net_key = keys
 
-    # Define actor_network, q_network and optimiser.
+    # Define network and optimiser.
     actor_torso = hydra.utils.instantiate(config.network.actor_network.pre_torso)
     actor_action_head = hydra.utils.instantiate(
-        config.network.actor_network.action_head, action_dim=action_dim
+        config.network.actor_network.action_head,
+        action_dim=action_dim,
+        minimum=env.action_spec().minimum,
+        maximum=env.action_spec().maximum,
     )
-    actor_network = Actor(torso=actor_torso, action_head=actor_action_head)
+    critic_torso = hydra.utils.instantiate(config.network.critic_network.pre_torso)
+    critic_head = hydra.utils.instantiate(config.network.critic_network.critic_head)
 
-    critic_network_torso = hydra.utils.instantiate(config.network.critic_network.pre_torso)
-    critic_network_head = hydra.utils.instantiate(config.network.critic_network.critic_head)
-    critic_network = Critic(torso=critic_network_torso, critic_head=critic_network_head)
+    actor_network = Actor(torso=actor_torso, action_head=actor_action_head)
+    critic_network = Critic(torso=critic_torso, critic_head=critic_head)
 
     actor_lr = make_learning_rate(config.system.actor_lr, config, config.system.num_actor_steps)
     critic_lr = make_learning_rate(config.system.critic_lr, config, config.system.num_critic_steps)
@@ -396,7 +401,7 @@ def learner_setup(
     # Create replay buffer
     dummy_sequence_step = SequenceStep(
         obs=jax.tree_util.tree_map(lambda x: x.squeeze(0), init_x),
-        action=jnp.zeros((), dtype=int),
+        action=jnp.zeros((action_dim,), dtype=float),
         reward=jnp.zeros((), dtype=float),
         done=jnp.zeros((), dtype=bool),
         info={"episode_return": 0.0, "episode_length": 0, "is_terminal_step": False},
@@ -606,7 +611,9 @@ def run_experiment(_config: DictConfig) -> None:
     logger.stop()
 
 
-@hydra.main(config_path="../../configs", config_name="default_ff_awr.yaml", version_base="1.2")
+@hydra.main(
+    config_path="../../configs", config_name="default_ff_awr_continuous.yaml", version_base="1.2"
+)
 def hydra_entry_point(cfg: DictConfig) -> None:
     """Experiment entry point."""
     # Allow dynamic attributes.
