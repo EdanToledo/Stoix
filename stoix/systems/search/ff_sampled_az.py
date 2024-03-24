@@ -50,6 +50,36 @@ from stoix.wrappers.episode_metrics import get_final_step_metrics
 tfd = tfp.distributions
 
 
+def make_sampled_search_apply_fn(
+    config: DictConfig,
+    model_recurrent_fn: mctx.RecurrentFn,
+) -> SearchApply:
+
+    search_method = parse_search_method(config)
+    mctx_search_apply_fn = functools.partial(
+        search_method,
+        recurrent_fn=model_recurrent_fn,
+        num_simulations=config.system.num_simulations,
+        max_depth=config.system.max_depth,
+    )
+
+    def search_apply_fn(
+        params: ActorCriticParams,
+        key: chex.PRNGKey,
+        root: mctx.RootFnOutput,
+    ) -> mctx.PolicyOutput:
+        """Apply the search function."""
+        root_sampled_actions = root.embedding["sampled_actions"]
+        search_output = mctx_search_apply_fn(params, key, root)
+        action_index = search_output.action
+        batch_indices = jnp.arange(action_index.shape[0])
+        action = root_sampled_actions[batch_indices, action_index]
+        chex.assert_shape(action, (action_index.shape[0], config.system.action_dim))
+        return search_output.replace(action=action)
+
+    return search_apply_fn
+
+
 def make_root_fn(
     actor_apply_fn: ActorApply, critic_apply_fn: CriticApply, config: DictConfig
 ) -> RootFnApply:
@@ -69,8 +99,14 @@ def make_root_fn(
         batch_size = value.shape[0]
         # Sample actions for the root node.
         sampled_actions = pi.sample(seed=sample_key, sample_shape=config.system.num_samples)
+        chex.assert_shape(
+            sampled_actions, (config.system.num_samples, batch_size, config.system.action_dim)
+        )
         # Swap axes to have (batch_size, num_samples, action_dim)
         sampled_actions = jnp.swapaxes(sampled_actions, 0, 1)
+        chex.assert_shape(
+            sampled_actions, (batch_size, config.system.num_samples, config.system.action_dim)
+        )
         # Add noise to the root sampled actions.
         if config.system.root_exploration_sigma != 0:
             sampled_actions = rlax.add_gaussian_noise(
@@ -101,35 +137,41 @@ def make_recurrent_fn(
     def recurrent_fn(
         params: ActorCriticParams,
         rng_key: chex.PRNGKey,
-        action: chex.Array,
+        action_index: chex.Array,
         search_tree_state: chex.ArrayTree,
     ) -> Tuple[mctx.RecurrentFnOutput, chex.ArrayTree]:
 
-        batch_size = action.shape[0]
+        batch_size = action_index.shape[0]
         batch_indices = jnp.arange(batch_size)
         # Get the sampled actions from the search tree state.
         sampled_actions = search_tree_state["sampled_actions"]
         # Select the action from the sampled actions.
-        selected_action = sampled_actions[batch_indices, action]
+        action = sampled_actions[batch_indices, action_index]
         # Get the environment state from the search tree state.
         state_embedding = search_tree_state["env_state"]
         # Step the environment.
-        next_state_embedding, next_timestep = environment_step(state_embedding, selected_action)
+        next_state_embedding, next_timestep = environment_step(state_embedding, action)
 
         # Calculate the value and policy for the next state.
         pi = actor_apply_fn(params.actor_params, next_timestep.observation)
         value = critic_apply_fn(params.critic_params, next_timestep.observation)
 
         # Sample actions for the next state.
-        sampled_actions = pi.sample(seed=rng_key, sample_shape=config.system.num_samples)
+        next_sampled_actions = pi.sample(seed=rng_key, sample_shape=config.system.num_samples)
+        chex.assert_shape(
+            next_sampled_actions, (config.system.num_samples, batch_size, config.system.action_dim)
+        )
         # Swap axes to have (batch_size, num_samples, action_dim)
-        sampled_actions = jnp.swapaxes(sampled_actions, 0, 1)
+        next_sampled_actions = jnp.swapaxes(next_sampled_actions, 0, 1)
+        chex.assert_shape(
+            next_sampled_actions, (batch_size, config.system.num_samples, config.system.action_dim)
+        )
         # Due to sampling, set all actions to have a uniform prior.
         selection_logits = jnp.ones((batch_size, config.system.num_samples))
         # Pack the search tree state.
         next_search_tree_state = {
             "env_state": next_state_embedding,
-            "sampled_actions": sampled_actions,
+            "sampled_actions": next_sampled_actions,
         }
 
         recurrent_fn_output = mctx.RecurrentFnOutput(
@@ -170,15 +212,13 @@ def get_learner_fn(
             root = root_fn(params, last_timestep.observation, env_state.env_state, root_key)
             root_sampled_actions = root.embedding["sampled_actions"]
             search_output = search_apply_fn(params, policy_key, root)
-            action_index = search_output.action
-            batch_indices = jnp.arange(action_index.shape[0])
-            actual_action = root_sampled_actions[batch_indices, action_index]
+            action = search_output.action
             search_policy = search_output.action_weights
             search_value = search_output.search_tree.node_values[:, mctx.Tree.ROOT_INDEX]
             behaviour_value = critic_apply_fn(params.critic_params, last_timestep.observation)
 
             # STEP ENVIRONMENT
-            env_state, timestep = jax.vmap(env.step, in_axes=(0, 0))(env_state, actual_action)
+            env_state, timestep = jax.vmap(env.step, in_axes=(0, 0))(env_state, action)
 
             # LOG EPISODE METRICS
             done = timestep.last().reshape(-1)
@@ -186,7 +226,7 @@ def get_learner_fn(
 
             transition = SampledExItTransition(
                 done,
-                actual_action,
+                action,
                 behaviour_value,
                 timestep.reward,
                 search_value,
@@ -238,7 +278,9 @@ def get_learner_fn(
                     actor_log_probs = jax.vmap(actor_policy.log_prob, in_axes=1, out_axes=1)(
                         traj_batch.sampled_actions
                     )
-                    actor_loss = -jnp.mean(actor_log_probs * traj_batch.search_policy)
+                    actor_loss = -jnp.sum(
+                        actor_log_probs * traj_batch.search_policy, axis=-1
+                    ).mean()
 
                     entropy = actor_policy.entropy(seed=rng_key).mean()
 
@@ -380,7 +422,10 @@ def get_learner_fn(
 def parse_search_method(config: DictConfig) -> Any:
     """Parse search method from config."""
     if config.system.search_method.lower() == "muzero":
-        search_method = mctx.muzero_policy
+        # Set the search method to MuZero with no dirichlet noise.
+        search_method = functools.partial(
+            mctx.muzero_policy, dirichlet_fraction=0.0, dirichlet_alpha=0.0
+        )
     elif config.system.search_method.lower() == "gumbel":
         search_method = mctx.gumbel_muzero_policy
     else:
@@ -458,13 +503,7 @@ def learner_setup(
     model_recurrent_fn = make_recurrent_fn(
         environment_model_step, actor_network_apply_fn, critic_network_apply_fn, config
     )
-    search_method = parse_search_method(config)
-    search_apply_fn = functools.partial(
-        search_method,
-        recurrent_fn=model_recurrent_fn,
-        num_simulations=config.system.num_simulations,
-        max_depth=config.system.max_depth,
-    )
+    search_apply_fn = make_sampled_search_apply_fn(config, model_recurrent_fn)
 
     # Pack apply and update functions.
     apply_fns = (
