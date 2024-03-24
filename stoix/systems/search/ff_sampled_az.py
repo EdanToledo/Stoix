@@ -10,6 +10,7 @@ import jax
 import jax.numpy as jnp
 import mctx
 import optax
+import rlax
 import tensorflow_probability.substrates.jax as tfp
 from colorama import Fore, Style
 from flax.core.frozen_dict import FrozenDict
@@ -59,16 +60,25 @@ def make_root_fn(
         rng_key: chex.PRNGKey,
     ) -> mctx.RootFnOutput:
 
+        sample_key, noise_key = jax.random.split(rng_key, 2)
+
+        # Calculate the value and policy for the root node.
         pi = actor_apply_fn(params.actor_params, observation)
         value = critic_apply_fn(params.critic_params, observation)
 
         batch_size = value.shape[0]
-        num_sampled_actions = config.system.num_samples
-        sampled_actions = pi.sample(seed=rng_key, sample_shape=num_sampled_actions)
+        # Sample actions for the root node.
+        sampled_actions = pi.sample(seed=sample_key, sample_shape=config.system.num_samples)
+        # Swap axes to have (batch_size, num_samples, action_dim)
         sampled_actions = jnp.swapaxes(sampled_actions, 0, 1)
-
-        selection_logits = jnp.ones((batch_size, num_sampled_actions))
-
+        # Add noise to the root sampled actions.
+        if config.system.root_exploration_sigma != 0:
+            sampled_actions = rlax.add_gaussian_noise(
+                noise_key, sampled_actions, config.system.root_exploration_sigma
+            )
+        # Due to sampling, set all actions to have a uniform prior.
+        selection_logits = jnp.ones((batch_size, config.system.num_samples))
+        # Pack the search tree state.
         search_tree_state = {"env_state": state_embedding, "sampled_actions": sampled_actions}
 
         root_fn_output = mctx.RootFnOutput(
@@ -97,22 +107,26 @@ def make_recurrent_fn(
 
         batch_size = action.shape[0]
         batch_indices = jnp.arange(batch_size)
+        # Get the sampled actions from the search tree state.
         sampled_actions = search_tree_state["sampled_actions"]
+        # Select the action from the sampled actions.
         selected_action = sampled_actions[batch_indices, action]
-
+        # Get the environment state from the search tree state.
         state_embedding = search_tree_state["env_state"]
-
+        # Step the environment.
         next_state_embedding, next_timestep = environment_step(state_embedding, selected_action)
 
+        # Calculate the value and policy for the next state.
         pi = actor_apply_fn(params.actor_params, next_timestep.observation)
         value = critic_apply_fn(params.critic_params, next_timestep.observation)
 
-        num_sampled_actions = config.system.num_samples
-        sampled_actions = pi.sample(seed=rng_key, sample_shape=num_sampled_actions)
+        # Sample actions for the next state.
+        sampled_actions = pi.sample(seed=rng_key, sample_shape=config.system.num_samples)
+        # Swap axes to have (batch_size, num_samples, action_dim)
         sampled_actions = jnp.swapaxes(sampled_actions, 0, 1)
-
-        selection_logits = jnp.ones((batch_size, num_sampled_actions))
-
+        # Due to sampling, set all actions to have a uniform prior.
+        selection_logits = jnp.ones((batch_size, config.system.num_samples))
+        # Pack the search tree state.
         next_search_tree_state = {
             "env_state": next_state_embedding,
             "sampled_actions": sampled_actions,
