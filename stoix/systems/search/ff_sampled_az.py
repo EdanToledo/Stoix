@@ -28,8 +28,8 @@ from stoix.systems.ppo.ppo_types import (
 from stoix.systems.search.evaluator import search_evaluator_setup
 from stoix.systems.search.search_types import (
     EnvironmentStep,
-    ExItTransition,
     RootFnApply,
+    SampledExItTransition,
     SearchApply,
 )
 from stoix.utils import make_env as environments
@@ -49,7 +49,9 @@ from stoix.wrappers.episode_metrics import get_final_step_metrics
 tfd = tfp.distributions
 
 
-def make_root_fn(actor_apply_fn: ActorApply, critic_apply_fn: CriticApply) -> RootFnApply:
+def make_root_fn(
+    actor_apply_fn: ActorApply, critic_apply_fn: CriticApply, config: DictConfig
+) -> RootFnApply:
     def root_fn(
         params: ActorCriticParams,
         observation: chex.ArrayTree,
@@ -59,12 +61,20 @@ def make_root_fn(actor_apply_fn: ActorApply, critic_apply_fn: CriticApply) -> Ro
 
         pi = actor_apply_fn(params.actor_params, observation)
         value = critic_apply_fn(params.critic_params, observation)
-        logits = pi.logits
+
+        batch_size = value.shape[0]
+        num_sampled_actions = config.system.num_samples
+        sampled_actions = pi.sample(seed=rng_key, sample_shape=num_sampled_actions)
+        sampled_actions = jnp.swapaxes(sampled_actions, 0, 1)
+
+        selection_logits = jnp.ones((batch_size, num_sampled_actions))
+
+        search_tree_state = {"env_state": state_embedding, "sampled_actions": sampled_actions}
 
         root_fn_output = mctx.RootFnOutput(
-            prior_logits=logits,
+            prior_logits=selection_logits,
             value=value,
-            embedding=state_embedding,
+            embedding=search_tree_state,
         )
 
         return root_fn_output
@@ -82,23 +92,40 @@ def make_recurrent_fn(
         params: ActorCriticParams,
         rng_key: chex.PRNGKey,
         action: chex.Array,
-        state_embedding: chex.ArrayTree,
+        search_tree_state: chex.ArrayTree,
     ) -> Tuple[mctx.RecurrentFnOutput, chex.ArrayTree]:
 
-        next_state_embedding, next_timestep = environment_step(state_embedding, action)
+        batch_size = action.shape[0]
+        batch_indices = jnp.arange(batch_size)
+        sampled_actions = search_tree_state["sampled_actions"]
+        selected_action = sampled_actions[batch_indices, action]
+
+        state_embedding = search_tree_state["env_state"]
+
+        next_state_embedding, next_timestep = environment_step(state_embedding, selected_action)
 
         pi = actor_apply_fn(params.actor_params, next_timestep.observation)
         value = critic_apply_fn(params.critic_params, next_timestep.observation)
-        logits = pi.logits
+
+        num_sampled_actions = config.system.num_samples
+        sampled_actions = pi.sample(seed=rng_key, sample_shape=num_sampled_actions)
+        sampled_actions = jnp.swapaxes(sampled_actions, 0, 1)
+
+        selection_logits = jnp.ones((batch_size, num_sampled_actions))
+
+        next_search_tree_state = {
+            "env_state": next_state_embedding,
+            "sampled_actions": sampled_actions,
+        }
 
         recurrent_fn_output = mctx.RecurrentFnOutput(
             reward=next_timestep.reward,
             discount=next_timestep.discount * config.system.gamma,
-            prior_logits=logits,
+            prior_logits=selection_logits,
             value=next_timestep.discount * value,
         )
 
-        return recurrent_fn_output, next_state_embedding
+        return recurrent_fn_output, next_search_tree_state
 
     return recurrent_fn
 
@@ -118,33 +145,39 @@ def get_learner_fn(
     def _update_step(learner_state: LearnerState, _: Any) -> Tuple[LearnerState, Tuple]:
         """A single update of the network."""
 
-        def _env_step(learner_state: LearnerState, _: Any) -> Tuple[LearnerState, ExItTransition]:
+        def _env_step(
+            learner_state: LearnerState, _: Any
+        ) -> Tuple[LearnerState, SampledExItTransition]:
             """Step the environment."""
             params, opt_states, key, env_state, last_timestep = learner_state
 
             # SELECT ACTION
             key, root_key, policy_key = jax.random.split(key, num=3)
             root = root_fn(params, last_timestep.observation, env_state.env_state, root_key)
+            root_sampled_actions = root.embedding["sampled_actions"]
             search_output = search_apply_fn(params, policy_key, root)
-            action = search_output.action
+            action_index = search_output.action
+            batch_indices = jnp.arange(action_index.shape[0])
+            actual_action = root_sampled_actions[batch_indices, action_index]
             search_policy = search_output.action_weights
             search_value = search_output.search_tree.node_values[:, mctx.Tree.ROOT_INDEX]
             behaviour_value = critic_apply_fn(params.critic_params, last_timestep.observation)
 
             # STEP ENVIRONMENT
-            env_state, timestep = jax.vmap(env.step, in_axes=(0, 0))(env_state, action)
+            env_state, timestep = jax.vmap(env.step, in_axes=(0, 0))(env_state, actual_action)
 
             # LOG EPISODE METRICS
             done = timestep.last().reshape(-1)
             info = timestep.extras["episode_metrics"]
 
-            transition = ExItTransition(
+            transition = SampledExItTransition(
                 done,
-                action,
+                actual_action,
                 behaviour_value,
                 timestep.reward,
                 search_value,
                 search_policy,
+                root_sampled_actions,
                 last_timestep.observation,
                 info,
             )
@@ -175,31 +208,32 @@ def get_learner_fn(
                 """Update the network for a single minibatch."""
 
                 # UNPACK TRAIN STATE AND BATCH INFO
-                params, opt_states = train_state
+                params, opt_states, key = train_state
                 traj_batch, targets = batch_info
 
                 def _actor_loss_fn(
                     actor_params: FrozenDict,
-                    traj_batch: ExItTransition,
+                    traj_batch: SampledExItTransition,
+                    rng_key: chex.PRNGKey,
                 ) -> Tuple:
                     """Calculate the actor loss."""
                     # RERUN NETWORK
                     actor_policy = actor_apply_fn(actor_params, traj_batch.obs)
 
                     # CALCULATE LOSS
-                    actor_loss = (
-                        tfd.Categorical(probs=traj_batch.search_policy)
-                        .kl_divergence(actor_policy)
-                        .mean()
+                    actor_log_probs = jax.vmap(actor_policy.log_prob, in_axes=1, out_axes=1)(
+                        traj_batch.sampled_actions
                     )
-                    entropy = actor_policy.entropy().mean()
+                    actor_loss = -jnp.mean(actor_log_probs * traj_batch.search_policy)
+
+                    entropy = actor_policy.entropy(seed=rng_key).mean()
 
                     total_loss_actor = actor_loss - config.system.ent_coef * entropy
                     return total_loss_actor, (actor_loss, entropy)
 
                 def _critic_loss_fn(
                     critic_params: FrozenDict,
-                    traj_batch: ExItTransition,
+                    traj_batch: SampledExItTransition,
                     targets: chex.Array,
                 ) -> Tuple:
                     """Calculate the critic loss."""
@@ -215,8 +249,11 @@ def get_learner_fn(
                     return critic_total_loss, (value_loss)
 
                 # CALCULATE ACTOR LOSS
+                key, actor_loss_key = jax.random.split(key)
                 actor_grad_fn = jax.value_and_grad(_actor_loss_fn, has_aux=True)
-                actor_loss_info, actor_grads = actor_grad_fn(params.actor_params, traj_batch)
+                actor_loss_info, actor_grads = actor_grad_fn(
+                    params.actor_params, traj_batch, actor_loss_key
+                )
 
                 # CALCULATE CRITIC LOSS
                 critic_grad_fn = jax.value_and_grad(_critic_loss_fn, has_aux=True)
@@ -271,7 +308,7 @@ def get_learner_fn(
                     "actor_loss": actor_loss,
                     "entropy": entropy,
                 }
-                return (new_params, new_opt_state), loss_info
+                return (new_params, new_opt_state, key), loss_info
 
             params, opt_states, traj_batch, targets, key = update_state
             key, shuffle_key = jax.random.split(key)
@@ -290,8 +327,8 @@ def get_learner_fn(
             )
 
             # UPDATE MINIBATCHES
-            (params, opt_states), loss_info = jax.lax.scan(
-                _update_minibatch, (params, opt_states), minibatches
+            (params, opt_states, key), loss_info = jax.lax.scan(
+                _update_minibatch, (params, opt_states, key), minibatches
             )
 
             update_state = (params, opt_states, traj_batch, targets, key)
@@ -345,9 +382,11 @@ def learner_setup(
     # Get available TPU cores.
     n_devices = len(jax.devices())
 
-    # Get number of actions and agents.
-    num_actions = int(env.action_spec().num_values)
+    # Get number of actions.
+    num_actions = int(env.action_spec().shape[-1])
     config.system.action_dim = num_actions
+    config.system.action_minimum = float(env.action_spec().minimum)
+    config.system.action_maximum = float(env.action_spec().maximum)
 
     # PRNG keys.
     key, actor_net_key, critic_net_key = keys
@@ -355,7 +394,10 @@ def learner_setup(
     # Define network and optimiser.
     actor_torso = hydra.utils.instantiate(config.network.actor_network.pre_torso)
     actor_action_head = hydra.utils.instantiate(
-        config.network.actor_network.action_head, action_dim=num_actions
+        config.network.actor_network.action_head,
+        action_dim=num_actions,
+        minimum=env.action_spec().minimum,
+        maximum=env.action_spec().maximum,
     )
     critic_torso = hydra.utils.instantiate(config.network.critic_network.pre_torso)
     critic_head = hydra.utils.instantiate(config.network.critic_network.critic_head)
@@ -397,7 +439,7 @@ def learner_setup(
     actor_network_apply_fn = actor_network.apply
     critic_network_apply_fn = critic_network.apply
 
-    root_fn = make_root_fn(actor_network_apply_fn, critic_network_apply_fn)
+    root_fn = make_root_fn(actor_network_apply_fn, critic_network_apply_fn, config)
     environment_model_step = jax.vmap(model_env.step)
     model_recurrent_fn = make_recurrent_fn(
         environment_model_step, actor_network_apply_fn, critic_network_apply_fn, config
@@ -605,7 +647,9 @@ def run_experiment(_config: DictConfig) -> None:
     logger.stop()
 
 
-@hydra.main(config_path="../../configs", config_name="default_ff_az.yaml", version_base="1.2")
+@hydra.main(
+    config_path="../../configs", config_name="default_ff_sampled_az.yaml", version_base="1.2"
+)
 def hydra_entry_point(cfg: DictConfig) -> None:
     """Experiment entry point."""
     # Allow dynamic attributes.
@@ -614,7 +658,7 @@ def hydra_entry_point(cfg: DictConfig) -> None:
     # Run experiment.
     run_experiment(cfg)
 
-    print(f"{Fore.CYAN}{Style.BRIGHT}AZ experiment completed{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}{Style.BRIGHT}Sampled AZ experiment completed{Style.RESET_ALL}")
 
 
 if __name__ == "__main__":

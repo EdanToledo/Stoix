@@ -70,6 +70,7 @@ def make_root_fn(
         params: MZParams,
         observation: chex.ArrayTree,
         _: chex.ArrayTree,  # This is the state of the environment and unused in MuZero
+        rng_key: chex.PRNGKey,
     ) -> mctx.RootFnOutput:
         observation_embedding = representation_apply_fn(
             params.world_model_params.representation_params, observation
@@ -150,8 +151,8 @@ def get_warmup_fn(
 
             env_state, last_timestep, key = carry
             # SELECT ACTION
-            key, policy_key = jax.random.split(key)
-            root = root_fn(params, last_timestep.observation, env_state.env_state)
+            key, root_key, policy_key = jax.random.split(key, num=3)
+            root = root_fn(params, last_timestep.observation, env_state.env_state, root_key)
             search_output = search_apply_fn(params, policy_key, root)
             action = search_output.action
             search_policy = search_output.action_weights
@@ -232,8 +233,8 @@ def get_learner_fn(
             params, opt_state, buffer_state, key, env_state, last_timestep = learner_state
 
             # SELECT ACTION
-            key, policy_key = jax.random.split(key)
-            root = root_fn(params, last_timestep.observation, env_state.env_state)
+            key, root_key, policy_key = jax.random.split(key, num=3)
+            root = root_fn(params, last_timestep.observation, env_state.env_state, root_key)
             search_output = search_apply_fn(params, policy_key, root)
             action = search_output.action
             search_policy = search_output.action_weights

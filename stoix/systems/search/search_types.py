@@ -12,7 +12,7 @@ from stoix.base_types import Action, Done, Observation, Value
 from stoix.systems.ppo.ppo_types import ActorCriticParams
 
 SearchApply = Callable[[FrozenDict, chex.PRNGKey, mctx.RootFnOutput], mctx.PolicyOutput]
-RootFnApply = Callable[[FrozenDict, Observation, chex.ArrayTree], mctx.RootFnOutput]
+RootFnApply = Callable[[FrozenDict, Observation, chex.ArrayTree, chex.PRNGKey], mctx.RootFnOutput]
 EnvironmentStep = Callable[[chex.ArrayTree, Action], Tuple[chex.ArrayTree, TimeStep]]
 
 RepresentationApply = Callable[[FrozenDict, Observation], chex.Array]
@@ -20,14 +20,24 @@ DynamicsApply = Callable[[FrozenDict, chex.Array, chex.Array], Tuple[chex.Array,
 
 
 class ExItTransition(NamedTuple):
-    """Transition tuple for Expert Iteration."""
-
     done: Done
     action: Action
     value: Value
     reward: chex.Array
     search_value: Value
     search_policy: chex.Array
+    obs: chex.Array
+    info: Dict
+
+
+class SampledExItTransition(NamedTuple):
+    done: Done
+    action: Action
+    value: Value
+    reward: chex.Array
+    search_value: Value
+    search_policy: chex.Array
+    sampled_actions: chex.Array
     obs: chex.Array
     info: Dict
 
