@@ -36,13 +36,13 @@ from stoix.systems.ppo.ppo_types import ActorCriticParams
 from stoix.systems.search.evaluator import search_evaluator_setup
 from stoix.systems.search.search_types import (
     DynamicsApply,
-    MZLearnerState,
+    ExItTransition,
     MZParams,
-    MZTransition,
     RepresentationApply,
     RootFnApply,
     SearchApply,
     WorldModelParams,
+    ZLearnerState,
 )
 from stoix.utils import make_env as environments
 from stoix.utils.checkpointing import Checkpointer
@@ -146,7 +146,7 @@ def get_warmup_fn(
     ) -> Tuple[LogEnvState, TimeStep, BufferState, chex.PRNGKey]:
         def _env_step(
             carry: Tuple[LogEnvState, TimeStep, chex.PRNGKey], _: Any
-        ) -> Tuple[Tuple[LogEnvState, TimeStep, chex.PRNGKey], MZTransition]:
+        ) -> Tuple[Tuple[LogEnvState, TimeStep, chex.PRNGKey], ExItTransition]:
             """Step the environment."""
 
             env_state, last_timestep, key = carry
@@ -165,7 +165,7 @@ def get_warmup_fn(
             done = timestep.last().reshape(-1)
             info = timestep.extras["episode_metrics"]
 
-            transition = MZTransition(
+            transition = ExItTransition(
                 done,
                 action,
                 timestep.reward,
@@ -210,7 +210,7 @@ def get_learner_fn(
     buffer_fns: Tuple[Callable, Callable],
     transform_pairs: Tuple[rlax.TxPair, rlax.TxPair],
     config: DictConfig,
-) -> LearnerFn[MZLearnerState]:
+) -> LearnerFn[ZLearnerState]:
     """Get the learner function."""
 
     # Get apply and update functions for actor and critic networks.
@@ -225,10 +225,10 @@ def get_learner_fn(
     buffer_add_fn, buffer_sample_fn = buffer_fns
     critic_tx_pair, reward_tx_pair = transform_pairs
 
-    def _update_step(learner_state: MZLearnerState, _: Any) -> Tuple[MZLearnerState, Tuple]:
+    def _update_step(learner_state: ZLearnerState, _: Any) -> Tuple[ZLearnerState, Tuple]:
         """A single update of the network."""
 
-        def _env_step(learner_state: MZLearnerState, _: Any) -> Tuple[MZLearnerState, MZTransition]:
+        def _env_step(learner_state: ZLearnerState, _: Any) -> Tuple[ZLearnerState, ExItTransition]:
             """Step the environment."""
             params, opt_state, buffer_state, key, env_state, last_timestep = learner_state
 
@@ -247,7 +247,7 @@ def get_learner_fn(
             done = timestep.last().reshape(-1)
             info = timestep.extras["episode_metrics"]
 
-            transition = MZTransition(
+            transition = ExItTransition(
                 done,
                 action,
                 timestep.reward,
@@ -256,9 +256,7 @@ def get_learner_fn(
                 last_timestep.observation,
                 info,
             )
-            learner_state = MZLearnerState(
-                params, opt_state, buffer_state, key, env_state, timestep
-            )
+            learner_state = ZLearnerState(params, opt_state, buffer_state, key, env_state, timestep)
             return learner_state, transition
 
         # STEP ENVIRONMENT FOR ROLLOUT LENGTH
@@ -275,7 +273,7 @@ def get_learner_fn(
         def _update_epoch(update_state: Tuple, _: Any) -> Tuple:
             def _loss_fn(
                 muzero_params: MZParams,
-                sequence: MZTransition,
+                sequence: ExItTransition,
             ) -> Tuple:
                 """Calculate the total MuZero loss."""
 
@@ -394,7 +392,7 @@ def get_learner_fn(
 
             # SAMPLE SEQUENCES
             sequence_sample = buffer_sample_fn(buffer_state, sample_key)
-            sequence: MZTransition = sequence_sample.experience
+            sequence: ExItTransition = sequence_sample.experience
 
             # CALCULATE LOSS
             grad_fn = jax.value_and_grad(_loss_fn, has_aux=True)
@@ -438,13 +436,13 @@ def get_learner_fn(
         )
 
         params, opt_state, buffer_state, key = update_state
-        learner_state = MZLearnerState(
+        learner_state = ZLearnerState(
             params, opt_state, buffer_state, key, env_state, last_timestep
         )
         metric = traj_batch.info
         return learner_state, (metric, loss_info)
 
-    def learner_fn(learner_state: MZLearnerState) -> ExperimentOutput[MZLearnerState]:
+    def learner_fn(learner_state: ZLearnerState) -> ExperimentOutput[ZLearnerState]:
         """Learner function."""
 
         batched_update_step = jax.vmap(_update_step, in_axes=(0, None), axis_name="batch")
@@ -477,7 +475,7 @@ def learner_setup(
     env: Environment,
     keys: chex.Array,
     config: DictConfig,
-) -> Tuple[LearnerFn[MZLearnerState], RootFnApply, SearchApply, MZLearnerState]:
+) -> Tuple[LearnerFn[ZLearnerState], RootFnApply, SearchApply, ZLearnerState]:
     """Initialise learner_fn, network, optimiser, environment and states."""
     # Get available TPU cores.
     n_devices = len(jax.devices())
@@ -622,7 +620,7 @@ def learner_setup(
     transform_pairs = (critic_tx_pair, reward_tx_pair)
 
     # Create replay buffer
-    dummy_transition = MZTransition(
+    dummy_transition = ExItTransition(
         done=jnp.array(False),
         action=jnp.array(0),
         reward=jnp.array(0.0),
@@ -693,7 +691,7 @@ def learner_setup(
     env_states, timesteps, keys, buffer_states = warmup(
         env_states, timesteps, buffer_states, warmup_keys
     )
-    init_learner_state = MZLearnerState(
+    init_learner_state = ZLearnerState(
         params, opt_state, buffer_states, step_keys, env_states, timesteps
     )
 

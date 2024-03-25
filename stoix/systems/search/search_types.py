@@ -1,4 +1,4 @@
-from typing import Callable, Dict, Tuple
+from typing import Callable, Dict, Tuple, Union
 
 import chex
 import mctx
@@ -22,7 +22,17 @@ DynamicsApply = Callable[[FrozenDict, chex.Array, chex.Array], Tuple[chex.Array,
 class ExItTransition(NamedTuple):
     done: Done
     action: Action
-    value: Value
+    reward: chex.Array
+    search_value: Value
+    search_policy: chex.Array
+    obs: chex.Array
+    info: Dict
+
+
+class SampledExItTransition(NamedTuple):
+    done: chex.Array
+    action: Action
+    sampled_actions: chex.Array
     reward: chex.Array
     search_value: Value
     search_policy: chex.Array
@@ -40,31 +50,10 @@ class MZParams(NamedTuple):
     world_model_params: WorldModelParams
 
 
-class MZLearnerState(NamedTuple):
-    params: MZParams
+class ZLearnerState(NamedTuple):
+    params: Union[MZParams, ActorCriticParams]
     opt_states: OptState
     buffer_state: chex.ArrayTree
     key: chex.PRNGKey
     env_state: TimeStep
     timestep: TimeStep
-
-
-class MZTransition(NamedTuple):
-    done: chex.Array
-    action: Action
-    reward: chex.Array
-    search_value: Value
-    search_policy: chex.Array
-    obs: chex.Array
-    info: Dict
-
-
-class SampledMZTransition(NamedTuple):
-    done: chex.Array
-    action: Action
-    sampled_actions: chex.Array
-    reward: chex.Array
-    search_value: Value
-    search_policy: chex.Array
-    obs: chex.Array
-    info: Dict
