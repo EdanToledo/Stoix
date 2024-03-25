@@ -8,14 +8,14 @@ from jumanji.env import Environment
 from omegaconf import DictConfig
 
 from stoix.base_types import EvalFn, EvalState, ExperimentOutput
-from stoix.systems.search.search_types import SearchApply
+from stoix.systems.search.search_types import RootFnApply, SearchApply
 from stoix.utils.jax_utils import unreplicate_batch_dim
 
 
 def get_search_evaluator_fn(
     env: Environment,
     search_apply_fn: SearchApply,
-    root_fn: Callable,
+    root_fn: RootFnApply,
     config: DictConfig,
     eval_multiplier: int = 1,
 ) -> EvalFn:
@@ -30,11 +30,11 @@ def get_search_evaluator_fn(
             key, env_state, last_timestep, step_count, episode_return = eval_state
 
             # Select action.
-            key, policy_key = jax.random.split(key)
+            key, root_key, policy_key = jax.random.split(key, num=3)
             obs, model_env_state = jax.tree_map(
                 lambda x: x[jnp.newaxis, ...], (last_timestep.observation, env_state)
             )
-            root = root_fn(params, obs, model_env_state)
+            root = root_fn(params, obs, model_env_state, root_key)
             search_output = search_apply_fn(params, policy_key, root)
             action = search_output.action
 

@@ -1,8 +1,9 @@
-# --- Defaults FF-MZ ---
-# This implementation of MuZero is not an exact replica of the original MuZero algorithm and serves more as an example.
+# --- Defaults FF-Sampled-MZ ---
+# This implementation of Sampled MuZero is not an exact replica of the original Sampled MuZero algorithm.
 # It is a simplified version that uses a feed forward network for the representation function and does not use observation
 # history. It also does not do tiling and encoding of actions in a 2D plane. A non-priority buffer is used as well.
-# Additionally, the search method used can be chosen between muzero mcts and gumbel mcts from mctx.
+# Additionally, the search method used can be chosen between muzero mcts and gumbel mcts from mctx. Lastly, this version
+# is designed with a Gaussian policy in mind.
 
 system_name: ff_mz # Name of the system.
 
@@ -18,11 +19,11 @@ sample_sequence_length: 6 # Number of steps to consider for each element of the 
 period : 1 # Period of the sampled sequences.
 gamma: 0.99 # Discounting factor.
 n_steps: 5 # Number of steps to use for bootstrapped returns.
-ent_coef: 0.0 # Entropy regularisation term for loss function.
+ent_coef: 0.005 # Entropy regularisation term for loss function.
 vf_coef: 0.25 # Critic weight in
 max_grad_norm: 0.5 # Maximum norm of the gradients for a weight update.
 decay_learning_rates: False # Whether learning rates should be linearly decayed during training.
-num_simulations: 20 # Number of simulations to run.
+num_simulations: 50 # Number of simulations to run.
 max_depth: ~ # Maximum depth of the search tree.
 search_method : muzero # Search method to use. Options: gumbel, muzero.
 critic_vmin: -300.0 # Minimum value for the critic.
@@ -31,3 +32,5 @@ critic_num_atoms: 601 # Number of atoms for the categorical critic head.
 reward_vmin: -300.0 # Minimum value for the reward.
 reward_vmax: 300.0 # Maximum value for the reward.
 reward_num_atoms: 601 # Number of atoms for the categorical reward head.
+num_samples: 10 # Number of action samples to use in search.
+root_exploration_sigma : 0.05 # Noise to add to the root node sampled actions.

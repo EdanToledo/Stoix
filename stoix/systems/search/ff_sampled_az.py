@@ -1,4 +1,5 @@
 import copy
+import functools
 import time
 from typing import Any, Callable, Dict, Tuple
 
@@ -8,8 +9,10 @@ import flax
 import hydra
 import jax
 import jax.numpy as jnp
+import mctx
 import optax
 import rlax
+import tensorflow_probability.substrates.jax as tfp
 from colorama import Fore, Style
 from flashbax.buffers.trajectory_buffer import BufferState
 from flax.core.frozen_dict import FrozenDict
@@ -25,41 +28,198 @@ from stoix.base_types import (
     LearnerFn,
     LogEnvState,
 )
-from stoix.evaluator import evaluator_setup, get_distribution_act_fn
 from stoix.networks.base import FeedForwardActor as Actor
 from stoix.networks.base import FeedForwardCritic as Critic
-from stoix.systems.awr.awr_types import AWRLearnerState, SequenceStep
 from stoix.systems.ppo.ppo_types import ActorCriticOptStates, ActorCriticParams
+from stoix.systems.search.evaluator import search_evaluator_setup
+from stoix.systems.search.search_types import (
+    EnvironmentStep,
+    RootFnApply,
+    SampledExItTransition,
+    SearchApply,
+    ZLearnerState,
+)
 from stoix.utils import make_env as environments
 from stoix.utils.checkpointing import Checkpointer
-from stoix.utils.jax_utils import unreplicate_batch_dim, unreplicate_n_dims
+from stoix.utils.jax_utils import (
+    merge_leading_dims,
+    unreplicate_batch_dim,
+    unreplicate_n_dims,
+)
 from stoix.utils.logger import LogEvent, StoixLogger
 from stoix.utils.multistep import batch_truncated_generalized_advantage_estimation
 from stoix.utils.total_timestep_checker import check_total_timesteps
 from stoix.utils.training import make_learning_rate
 from stoix.wrappers.episode_metrics import get_final_step_metrics
 
+tfd = tfp.distributions
+
+# This is a implementation of sampled muzero using a perfect environment model
+# for search such as AlphaZero.
+
+
+def make_root_fn(
+    actor_apply_fn: ActorApply,
+    critic_apply_fn: CriticApply,
+    config: DictConfig,
+) -> RootFnApply:
+    def root_fn(
+        params: ActorCriticParams,
+        observation: chex.ArrayTree,
+        env_state: chex.ArrayTree,
+        rng_key: chex.PRNGKey,
+    ) -> mctx.RootFnOutput:
+
+        sample_key, noise_key = jax.random.split(rng_key, 2)
+
+        pi = actor_apply_fn(params.actor_params, observation)
+        value = critic_apply_fn(params.critic_params, observation)
+        batch_size = value.shape[0]
+        # Sample actions for the root node.
+        sampled_actions = pi.sample(seed=sample_key, sample_shape=config.system.num_samples)
+        chex.assert_shape(
+            sampled_actions, (config.system.num_samples, batch_size, config.system.action_dim)
+        )
+        # Swap axes to have (batch_size, num_samples, action_dim)
+        sampled_actions = jnp.swapaxes(sampled_actions, 0, 1)
+        chex.assert_shape(
+            sampled_actions, (batch_size, config.system.num_samples, config.system.action_dim)
+        )
+        # Add noise to the root sampled actions.
+        if config.system.root_exploration_sigma != 0:
+            sampled_actions = rlax.add_gaussian_noise(
+                noise_key, sampled_actions, config.system.root_exploration_sigma
+            )
+        # Due to sampling from a gaussian, set all actions to have a uniform prior.
+        selection_logits = jnp.ones((batch_size, config.system.num_samples))
+        # Pack the search tree state.
+        search_tree_state = {
+            "env_state": env_state,
+            "sampled_actions": sampled_actions,
+        }
+
+        root_fn_output = mctx.RootFnOutput(
+            prior_logits=selection_logits,
+            value=value,
+            embedding=search_tree_state,
+        )
+
+        return root_fn_output
+
+    return root_fn
+
+
+def make_recurrent_fn(
+    environment_step: EnvironmentStep,
+    actor_apply_fn: ActorApply,
+    critic_apply_fn: CriticApply,
+    config: DictConfig,
+) -> mctx.RecurrentFn:
+    def recurrent_fn(
+        params: ActorCriticParams,
+        rng_key: chex.PRNGKey,
+        action_index: chex.Array,
+        search_tree_state: chex.ArrayTree,
+    ) -> Tuple[mctx.RecurrentFnOutput, chex.ArrayTree]:
+
+        env_state = search_tree_state["env_state"]
+        batch_size = action_index.shape[0]
+        batch_indices = jnp.arange(batch_size)
+        action = search_tree_state["sampled_actions"][batch_indices, action_index]
+
+        next_env_state, next_timestep = environment_step(env_state, action)
+
+        pi = actor_apply_fn(params.actor_params, next_timestep.observation)
+        value = critic_apply_fn(params.critic_params, next_timestep.observation)
+
+        # Sample actions for the next state.
+        next_sampled_actions = pi.sample(seed=rng_key, sample_shape=config.system.num_samples)
+        chex.assert_shape(
+            next_sampled_actions, (config.system.num_samples, batch_size, config.system.action_dim)
+        )
+        # Swap axes to have (batch_size, num_samples, action_dim)
+        next_sampled_actions = jnp.swapaxes(next_sampled_actions, 0, 1)
+        chex.assert_shape(
+            next_sampled_actions, (batch_size, config.system.num_samples, config.system.action_dim)
+        )
+        # Due to sampling from a gaussian, set all actions to have a uniform prior.
+        selection_logits = jnp.ones((batch_size, config.system.num_samples))
+
+        recurrent_fn_output = mctx.RecurrentFnOutput(
+            reward=next_timestep.reward,
+            discount=next_timestep.discount * config.system.gamma,
+            prior_logits=selection_logits,
+            value=next_timestep.discount * value,
+        )
+
+        # Pack the search tree state.
+        next_search_tree_state = {
+            "env_state": next_env_state,
+            "sampled_actions": next_sampled_actions,
+        }
+
+        return recurrent_fn_output, next_search_tree_state
+
+    return recurrent_fn
+
+
+def make_sampled_search_apply_fn(
+    config: DictConfig,
+    model_recurrent_fn: mctx.RecurrentFn,
+) -> SearchApply:
+
+    search_method = parse_search_method(config)
+    mctx_search_apply_fn = functools.partial(
+        search_method,
+        recurrent_fn=model_recurrent_fn,
+        num_simulations=config.system.num_simulations,
+        max_depth=config.system.max_depth,
+    )
+
+    def search_apply_fn(
+        params: ActorCriticParams,
+        key: chex.PRNGKey,
+        root: mctx.RootFnOutput,
+    ) -> mctx.PolicyOutput:
+        """Apply the search function."""
+        root_sampled_actions = root.embedding["sampled_actions"]
+        search_output = mctx_search_apply_fn(params, key, root)
+        action_index = search_output.action
+        batch_indices = jnp.arange(action_index.shape[0])
+        action = root_sampled_actions[batch_indices, action_index]
+        chex.assert_shape(action, (action_index.shape[0], config.system.action_dim))
+        return search_output.replace(action=action)
+
+    return search_apply_fn
+
 
 def get_warmup_fn(
     env: Environment,
     params: ActorCriticParams,
-    actor_apply_fn: ActorApply,
+    apply_fns: Tuple[ActorApply, CriticApply, RootFnApply, SearchApply],
     buffer_add_fn: Callable,
     config: DictConfig,
 ) -> Callable:
+
+    _, _, root_fn, search_apply_fn = apply_fns
+
     def warmup(
         env_states: LogEnvState, timesteps: TimeStep, buffer_states: BufferState, keys: chex.PRNGKey
     ) -> Tuple[LogEnvState, TimeStep, BufferState, chex.PRNGKey]:
         def _env_step(
             carry: Tuple[LogEnvState, TimeStep, chex.PRNGKey], _: Any
-        ) -> Tuple[Tuple[LogEnvState, TimeStep, chex.PRNGKey], SequenceStep]:
+        ) -> Tuple[Tuple[LogEnvState, TimeStep, chex.PRNGKey], SampledExItTransition]:
             """Step the environment."""
 
             env_state, last_timestep, key = carry
             # SELECT ACTION
-            key, policy_key = jax.random.split(key)
-            actor_policy = actor_apply_fn(params.actor_params, last_timestep.observation)
-            action = actor_policy.sample(seed=policy_key)
+            key, root_key, policy_key = jax.random.split(key, num=3)
+            root = root_fn(params, last_timestep.observation, env_state.env_state, root_key)
+            search_output = search_apply_fn(params, policy_key, root)
+            action = search_output.action
+            search_policy = search_output.action_weights
+            search_value = search_output.search_tree.node_values[:, mctx.Tree.ROOT_INDEX]
+            root_sampled_actions = root.embedding["sampled_actions"]
 
             # STEP ENVIRONMENT
             env_state, timestep = jax.vmap(env.step, in_axes=(0, 0))(env_state, action)
@@ -68,11 +228,18 @@ def get_warmup_fn(
             done = timestep.last().reshape(-1)
             info = timestep.extras["episode_metrics"]
 
-            sequence_step = SequenceStep(
-                last_timestep.observation, action, timestep.reward, done, info
+            transition = SampledExItTransition(
+                done,
+                action,
+                root_sampled_actions,
+                timestep.reward,
+                search_value,
+                search_policy,
+                last_timestep.observation,
+                info,
             )
 
-            return (env_state, timestep, key), sequence_step
+            return (env_state, timestep, key), transition
 
         # STEP ENVIRONMENT FOR ROLLOUT LENGTH
         (env_states, timesteps, keys), traj_batch = jax.lax.scan(
@@ -95,29 +262,35 @@ def get_warmup_fn(
 
 def get_learner_fn(
     env: Environment,
-    apply_fns: Tuple[ActorApply, CriticApply],
+    apply_fns: Tuple[ActorApply, CriticApply, RootFnApply, SearchApply],
     update_fns: Tuple[optax.TransformUpdateFn, optax.TransformUpdateFn],
     buffer_fns: Tuple[Callable, Callable],
     config: DictConfig,
-) -> LearnerFn[AWRLearnerState]:
+) -> LearnerFn[ZLearnerState]:
     """Get the learner function."""
 
     # Get apply and update functions for actor and critic networks.
-    actor_apply_fn, critic_apply_fn = apply_fns
+    actor_apply_fn, critic_apply_fn, root_fn, search_apply_fn = apply_fns
     actor_update_fn, critic_update_fn = update_fns
     buffer_add_fn, buffer_sample_fn = buffer_fns
 
-    def _update_step(learner_state: AWRLearnerState, _: Any) -> Tuple[AWRLearnerState, Tuple]:
+    def _update_step(learner_state: ZLearnerState, _: Any) -> Tuple[ZLearnerState, Tuple]:
+        """A single update of the network."""
+
         def _env_step(
-            learner_state: AWRLearnerState, _: Any
-        ) -> Tuple[AWRLearnerState, SequenceStep]:
+            learner_state: ZLearnerState, _: Any
+        ) -> Tuple[ZLearnerState, SampledExItTransition]:
             """Step the environment."""
             params, opt_states, buffer_state, key, env_state, last_timestep = learner_state
 
             # SELECT ACTION
-            key, policy_key = jax.random.split(key)
-            actor_policy = actor_apply_fn(params.actor_params, last_timestep.observation)
-            action = actor_policy.sample(seed=policy_key)
+            key, root_key, policy_key = jax.random.split(key, num=3)
+            root = root_fn(params, last_timestep.observation, env_state.env_state, root_key)
+            search_output = search_apply_fn(params, policy_key, root)
+            action = search_output.action
+            search_policy = search_output.action_weights
+            search_value = search_output.search_tree.node_values[:, mctx.Tree.ROOT_INDEX]
+            root_sampled_actions = root.embedding["sampled_actions"]
 
             # STEP ENVIRONMENT
             env_state, timestep = jax.vmap(env.step, in_axes=(0, 0))(env_state, action)
@@ -126,20 +299,25 @@ def get_learner_fn(
             done = timestep.last().reshape(-1)
             info = timestep.extras["episode_metrics"]
 
-            sequence_step = SequenceStep(
-                last_timestep.observation, action, timestep.reward, done, info
+            transition = SampledExItTransition(
+                done,
+                action,
+                root_sampled_actions,
+                timestep.reward,
+                search_value,
+                search_policy,
+                last_timestep.observation,
+                info,
             )
-
-            learner_state = AWRLearnerState(
+            learner_state = ZLearnerState(
                 params, opt_states, buffer_state, key, env_state, timestep
             )
-            return learner_state, sequence_step
+            return learner_state, transition
 
         # STEP ENVIRONMENT FOR ROLLOUT LENGTH
         learner_state, traj_batch = jax.lax.scan(
             _env_step, learner_state, None, config.system.rollout_length
         )
-
         params, opt_states, buffer_state, key, env_state, last_timestep = learner_state
 
         # Add the trajectory to the buffer.
@@ -147,112 +325,66 @@ def get_learner_fn(
         traj_batch = jax.tree_map(lambda x: jnp.swapaxes(x, 0, 1), traj_batch)
         buffer_state = buffer_add_fn(buffer_state, traj_batch)
 
-        def _update_critic_step(update_state: Tuple, _: Any) -> Tuple:
-            def _critic_loss_fn(
-                critic_params: FrozenDict,
-                observations: chex.Array,
-                target_vals: jnp.ndarray,
-            ) -> jnp.ndarray:
+        def _update_epoch(update_state: Tuple, _: Any) -> Tuple:
+            """Update the network for a single epoch."""
 
-                pred_v = critic_apply_fn(critic_params, observations)[:, :-1]
-                critic_loss = rlax.l2_loss(pred_v, target_vals).mean()
-
-                loss_info = {
-                    "critic_loss": critic_loss,
-                }
-
-                return critic_loss, loss_info
-
-            params, opt_states, buffer_state, key, static_params = update_state
-
-            key, sample_key = jax.random.split(key)
-
-            # SAMPLE SEQUENCES
-            sequence_sample = buffer_sample_fn(buffer_state, sample_key)
-            sequence: SequenceStep = sequence_sample.experience
-
-            # CALCULATE TARGETS USING LAST ITERATION CRITIC
-            v_t = critic_apply_fn(static_critic_params, sequence.obs)
-            r_t = sequence.reward[:, :-1]
-            d_t = (1 - sequence.done.astype(jnp.float32)[:, :-1]) * config.system.gamma
-            _, target_vals = batch_truncated_generalized_advantage_estimation(
-                r_t, d_t, config.system.gae_lambda, v_t, time_major=False
-            )
-
-            # CALCULATE CRITIC LOSS
-            critic_grad_fn = jax.grad(_critic_loss_fn, has_aux=True)
-            critic_grads, critic_loss_info = critic_grad_fn(
-                params.critic_params, sequence.obs, target_vals
-            )
-
-            # Compute the parallel mean (pmean) over the batch.
-            # This calculation is inspired by the Anakin architecture demo notebook.
-            # available at https://tinyurl.com/26tdzs5x
-            # This pmean could be a regular mean as the batch axis is on the same device.
-
-            critic_grads, critic_loss_info = jax.lax.pmean(
-                (critic_grads, critic_loss_info), axis_name="batch"
-            )
-            critic_grads, critic_loss_info = jax.lax.pmean(
-                (critic_grads, critic_loss_info), axis_name="device"
-            )
-
-            # UPDATE CRITIC PARAMS AND OPTIMISER STATE
-            critic_updates, critic_new_opt_state = critic_update_fn(
-                critic_grads, opt_states.critic_opt_state
-            )
-            critic_new_params = optax.apply_updates(params.critic_params, critic_updates)
-
-            # PACK NEW PARAMS AND OPTIMISER STATE
-            new_params = ActorCriticParams(params.actor_params, critic_new_params)
-            new_opt_state = ActorCriticOptStates(opt_states.actor_opt_state, critic_new_opt_state)
-
-            return (
-                new_params,
-                new_opt_state,
-                buffer_state,
-                key,
-                static_critic_params,
-            ), critic_loss_info
-
-        def _update_actor_step(update_state: Tuple, _: Any) -> Tuple:
             def _actor_loss_fn(
                 actor_params: FrozenDict,
-                sequence: SequenceStep,
-                weights: chex.Array,
-            ) -> chex.Array:
-
+                sequence: SampledExItTransition,
+                rng_key: chex.PRNGKey,
+            ) -> Tuple:
+                """Calculate the actor loss."""
+                # RERUN NETWORK
+                sequence = jax.tree_map(lambda x: merge_leading_dims(x, 2), sequence)
                 actor_policy = actor_apply_fn(actor_params, sequence.obs)
-                log_probs = actor_policy.log_prob(sequence.action)[:, :-1]
-                actor_loss = -jnp.mean(log_probs * weights)
 
-                loss_info = {
-                    "actor_loss": actor_loss,
-                }
+                # CALCULATE LOSS
+                log_prob = jax.vmap(actor_policy.log_prob, in_axes=1, out_axes=1)(
+                    sequence.sampled_actions
+                )
+                actor_loss = -jnp.sum(log_prob * sequence.search_policy, -1).mean()
+                entropy = actor_policy.entropy(seed=rng_key).mean()
 
-                return actor_loss, loss_info
+                total_loss_actor = actor_loss - config.system.ent_coef * entropy
+                return total_loss_actor, (actor_loss, entropy)
+
+            def _critic_loss_fn(
+                critic_params: FrozenDict,
+                sequence: SampledExItTransition,
+            ) -> Tuple:
+                """Calculate the critic loss."""
+                # RERUN NETWORK
+                value = critic_apply_fn(critic_params, sequence.obs)[:, :-1]
+
+                # COMPUTE TARGETS
+                _, targets = batch_truncated_generalized_advantage_estimation(
+                    sequence.reward[:, :-1],
+                    (1 - sequence.done)[:, :-1] * config.system.gamma,
+                    config.system.gae_lambda,
+                    sequence.search_value,
+                )
+
+                # CALCULATE VALUE LOSS
+                value_loss = rlax.l2_loss(value, targets).mean()
+
+                critic_total_loss = config.system.vf_coef * value_loss
+                return critic_total_loss, (value_loss)
 
             params, opt_states, buffer_state, key = update_state
 
-            key, sample_key = jax.random.split(key)
+            key, sample_key, actor_key = jax.random.split(key, num=3)
 
             # SAMPLE SEQUENCES
             sequence_sample = buffer_sample_fn(buffer_state, sample_key)
-            sequence: SequenceStep = sequence_sample.experience
+            sequence: SampledExItTransition = sequence_sample.experience
 
-            # CALCULATE WEIGHTS USING LATEST STATIC CRITIC
-            v_t = critic_apply_fn(params.critic_params, sequence.obs)
-            r_t = sequence.reward[:, :-1]
-            d_t = (1 - sequence.done.astype(jnp.float32)[:, :-1]) * config.system.gamma
-            advantages, _ = batch_truncated_generalized_advantage_estimation(
-                r_t, d_t, config.system.gae_lambda, v_t, time_major=False
-            )
-            weights = jnp.exp(advantages / config.system.beta)
-            weights = jnp.minimum(weights, config.system.weight_clip)
+            # CALCULATE ACTOR LOSS
+            actor_grad_fn = jax.value_and_grad(_actor_loss_fn, has_aux=True)
+            actor_loss_info, actor_grads = actor_grad_fn(params.actor_params, sequence, actor_key)
 
-            # CALCULATE ACTOR AND DUAL LOSS
-            actor_grad_fn = jax.grad(_actor_loss_fn, argnums=(0), has_aux=True)
-            actor_grads, actor_loss_info = actor_grad_fn(params.actor_params, sequence, weights)
+            # CALCULATE CRITIC LOSS
+            critic_grad_fn = jax.value_and_grad(_critic_loss_fn, has_aux=True)
+            critic_loss_info, critic_grads = critic_grad_fn(params.critic_params, sequence)
 
             # Compute the parallel mean (pmean) over the batch.
             # This calculation is inspired by the Anakin architecture demo notebook.
@@ -266,56 +398,59 @@ def get_learner_fn(
                 (actor_grads, actor_loss_info), axis_name="device"
             )
 
+            critic_grads, critic_loss_info = jax.lax.pmean(
+                (critic_grads, critic_loss_info), axis_name="batch"
+            )
+            # pmean over devices.
+            critic_grads, critic_loss_info = jax.lax.pmean(
+                (critic_grads, critic_loss_info), axis_name="device"
+            )
+
             # UPDATE ACTOR PARAMS AND OPTIMISER STATE
             actor_updates, actor_new_opt_state = actor_update_fn(
                 actor_grads, opt_states.actor_opt_state
             )
             actor_new_params = optax.apply_updates(params.actor_params, actor_updates)
 
+            # UPDATE CRITIC PARAMS AND OPTIMISER STATE
+            critic_updates, critic_new_opt_state = critic_update_fn(
+                critic_grads, opt_states.critic_opt_state
+            )
+            critic_new_params = optax.apply_updates(params.critic_params, critic_updates)
+
             # PACK NEW PARAMS AND OPTIMISER STATE
-            new_params = ActorCriticParams(actor_new_params, params.critic_params)
-            new_opt_state = ActorCriticOptStates(actor_new_opt_state, opt_states.critic_opt_state)
+            new_params = ActorCriticParams(actor_new_params, critic_new_params)
+            new_opt_state = ActorCriticOptStates(actor_new_opt_state, critic_new_opt_state)
 
-            return (new_params, new_opt_state, buffer_state, key), actor_loss_info
+            # PACK LOSS INFO
+            total_loss = actor_loss_info[0] + critic_loss_info[0]
+            value_loss = critic_loss_info[1]
+            actor_loss = actor_loss_info[1][0]
+            entropy = actor_loss_info[1][1]
+            loss_info = {
+                "total_loss": total_loss,
+                "value_loss": value_loss,
+                "actor_loss": actor_loss,
+                "entropy": entropy,
+            }
+            return (new_params, new_opt_state, buffer_state, key), loss_info
 
-        # We copy the params here to allow us to use the same critic for creating the target values.
-        static_critic_params = params.critic_params
-        update_state = (params, opt_states, buffer_state, key, static_critic_params)
-
-        # UPDATE CRITIC STEPS
-        update_state, critic_loss_info = jax.lax.scan(
-            _update_critic_step, update_state, None, config.system.num_critic_steps
-        )
-
-        # We then remove static critic params from the update state.
-        # Since we will be using the latest critic params for the actor update.
-        params, opt_states, buffer_state, key, _ = update_state
         update_state = (params, opt_states, buffer_state, key)
 
-        # UPDATE ACTOR STEPS
-        update_state, actor_loss_info = jax.lax.scan(
-            _update_actor_step, update_state, None, config.system.num_actor_steps
+        # UPDATE EPOCHS
+        update_state, loss_info = jax.lax.scan(
+            _update_epoch, update_state, None, config.system.epochs
         )
 
-        loss_info = {
-            **actor_loss_info,
-            **critic_loss_info,
-        }
-
         params, opt_states, buffer_state, key = update_state
-        learner_state = AWRLearnerState(
+        learner_state = ZLearnerState(
             params, opt_states, buffer_state, key, env_state, last_timestep
         )
         metric = traj_batch.info
         return learner_state, (metric, loss_info)
 
-    def learner_fn(learner_state: AWRLearnerState) -> ExperimentOutput[AWRLearnerState]:
-        """Learner function.
-
-        This function represents the learner, it updates the network parameters
-        by iteratively applying the `_update_step` function for a fixed number of
-        updates. The `_update_step` function is vectorized over a batch of inputs.
-        """
+    def learner_fn(learner_state: ZLearnerState) -> ExperimentOutput[ZLearnerState]:
+        """Learner function."""
 
         batched_update_step = jax.vmap(_update_step, in_axes=(0, None), axis_name="batch")
 
@@ -331,9 +466,21 @@ def get_learner_fn(
     return learner_fn
 
 
+def parse_search_method(config: DictConfig) -> Any:
+    """Parse search method from config."""
+    if config.system.search_method.lower() == "muzero":
+        search_method = mctx.muzero_policy
+    elif config.system.search_method.lower() == "gumbel":
+        search_method = mctx.gumbel_muzero_policy
+    else:
+        raise ValueError(f"Search method {config.system.search_method} not supported.")
+
+    return search_method
+
+
 def learner_setup(
-    env: Environment, keys: chex.Array, config: DictConfig
-) -> Tuple[LearnerFn[AWRLearnerState], Actor, AWRLearnerState]:
+    env: Environment, keys: chex.Array, config: DictConfig, model_env: Environment
+) -> Tuple[LearnerFn[ZLearnerState], RootFnApply, SearchApply, ZLearnerState]:
     """Initialise learner_fn, network, optimiser, environment and states."""
     # Get available TPU cores.
     n_devices = len(jax.devices())
@@ -361,8 +508,16 @@ def learner_setup(
     actor_network = Actor(torso=actor_torso, action_head=actor_action_head)
     critic_network = Critic(torso=critic_torso, critic_head=critic_head)
 
-    actor_lr = make_learning_rate(config.system.actor_lr, config, config.system.num_actor_steps)
-    critic_lr = make_learning_rate(config.system.critic_lr, config, config.system.num_critic_steps)
+    actor_lr = make_learning_rate(
+        config.system.actor_lr,
+        config,
+        config.system.epochs,
+    )
+    critic_lr = make_learning_rate(
+        config.system.critic_lr,
+        config,
+        config.system.epochs,
+    )
 
     actor_optim = optax.chain(
         optax.clip_by_global_norm(config.system.max_grad_norm),
@@ -381,29 +536,41 @@ def learner_setup(
     actor_params = actor_network.init(actor_net_key, init_x)
     actor_opt_state = actor_optim.init(actor_params)
 
-    # Initialise q params and optimiser state.
+    # Initialise critic params and optimiser state.
     critic_params = critic_network.init(critic_net_key, init_x)
     critic_opt_state = critic_optim.init(critic_params)
 
-    params = ActorCriticParams(
-        actor_params,
-        critic_params,
-    )
-    opt_states = ActorCriticOptStates(actor_opt_state, critic_opt_state)
+    # Pack params.
+    params = ActorCriticParams(actor_params, critic_params)
 
     actor_network_apply_fn = actor_network.apply
     critic_network_apply_fn = critic_network.apply
 
+    root_fn = make_root_fn(actor_network_apply_fn, critic_network_apply_fn, config)
+    environment_model_step = jax.vmap(model_env.step)
+    model_recurrent_fn = make_recurrent_fn(
+        environment_model_step, actor_network_apply_fn, critic_network_apply_fn, config
+    )
+    search_apply_fn = make_sampled_search_apply_fn(config, model_recurrent_fn)
+
     # Pack apply and update functions.
-    apply_fns = (actor_network_apply_fn, critic_network_apply_fn)
+    apply_fns = (
+        actor_network_apply_fn,
+        critic_network_apply_fn,
+        root_fn,
+        search_apply_fn,
+    )
     update_fns = (actor_optim.update, critic_optim.update)
 
     # Create replay buffer
-    dummy_sequence_step = SequenceStep(
+    dummy_transition = SampledExItTransition(
+        done=jnp.array(False),
+        action=jnp.zeros(action_dim, dtype=jnp.float32),
+        sampled_actions=jnp.zeros((config.system.num_samples, action_dim), dtype=jnp.float32),
+        reward=jnp.array(0.0),
+        search_value=jnp.array(0.0),
+        search_policy=jnp.zeros((config.system.num_samples,), dtype=jnp.float32),
         obs=jax.tree_util.tree_map(lambda x: x.squeeze(0), init_x),
-        action=jnp.zeros((action_dim,), dtype=float),
-        reward=jnp.zeros((), dtype=float),
-        done=jnp.zeros((), dtype=bool),
         info={"episode_return": 0.0, "episode_length": 0, "is_terminal_step": False},
     )
 
@@ -416,13 +583,13 @@ def learner_setup(
         add_batch_size=config.arch.num_envs,
     )
     buffer_fns = (buffer_fn.add, buffer_fn.sample)
-    buffer_states = buffer_fn.init(dummy_sequence_step)
+    buffer_states = buffer_fn.init(dummy_transition)
 
     # Get batched iterated update and replicate it to pmap it over cores.
     learn = get_learner_fn(env, apply_fns, update_fns, buffer_fns, config)
     learn = jax.pmap(learn, axis_name="device")
 
-    warmup = get_warmup_fn(env, params, actor_network_apply_fn, buffer_fn.add, config)
+    warmup = get_warmup_fn(env, params, apply_fns, buffer_fn.add, config)
     warmup = jax.pmap(warmup, axis_name="device")
 
     # Initialise environment states and timesteps: across devices and batches.
@@ -446,13 +613,13 @@ def learner_setup(
             **config.logger.checkpointing.load_args,  # Other checkpoint args
         )
         # Restore the learner state from the checkpoint
-        restored_params, _ = loaded_checkpoint.restore_params(TParams=ActorCriticParams)
+        restored_params, _ = loaded_checkpoint.restore_params()
         # Update the params
         params = restored_params
 
     # Define params to be replicated across devices and batches.
     key, step_keys, warmup_keys = jax.random.split(key, num=3)
-
+    opt_states = ActorCriticOptStates(actor_opt_state, critic_opt_state)
     replicate_learner = (params, opt_states, buffer_states, step_keys, warmup_keys)
 
     # Duplicate learner for update_batch_size.
@@ -468,11 +635,11 @@ def learner_setup(
     env_states, timesteps, keys, buffer_states = warmup(
         env_states, timesteps, buffer_states, warmup_keys
     )
-    init_learner_state = AWRLearnerState(
+    init_learner_state = ZLearnerState(
         params, opt_states, buffer_states, step_keys, env_states, timesteps
     )
 
-    return learn, actor_network, init_learner_state
+    return learn, root_fn, search_apply_fn, init_learner_state
 
 
 def run_experiment(_config: DictConfig) -> None:
@@ -495,16 +662,17 @@ def run_experiment(_config: DictConfig) -> None:
     )
 
     # Setup learner.
-    learn, actor_network, learner_state = learner_setup(
-        env, (key, actor_net_key, critic_net_key), config
+    learn, root_fn, search_apply_fn, learner_state = learner_setup(
+        env, (key, actor_net_key, critic_net_key), config, eval_env
     )
 
     # Setup evaluator.
-    evaluator, absolute_metric_evaluator, (trained_params, eval_keys) = evaluator_setup(
+    evaluator, absolute_metric_evaluator, (trained_params, eval_keys) = search_evaluator_setup(
         eval_env=eval_env,
         key_e=key_e,
-        eval_act_fn=get_distribution_act_fn(config, actor_network.apply),
-        params=learner_state.params.actor_params,
+        search_apply_fn=search_apply_fn,
+        root_fn=root_fn,
+        params=learner_state.params,
         config=config,
     )
 
@@ -534,8 +702,8 @@ def run_experiment(_config: DictConfig) -> None:
         )
 
     # Run experiment for a total number of evaluations.
-    max_episode_return = jnp.float32(-1e6)
-    best_params = unreplicate_batch_dim(learner_state.params.actor_params)
+    max_episode_return = jnp.float32(-1e7)
+    best_params = unreplicate_batch_dim(learner_state.params)
     for eval_step in range(config.arch.num_evaluation):
         # Train.
         start_time = time.time()
@@ -558,7 +726,7 @@ def run_experiment(_config: DictConfig) -> None:
         # Prepare for evaluation.
         start_time = time.time()
         trained_params = unreplicate_batch_dim(
-            learner_output.learner_state.params.actor_params
+            learner_output.learner_state.params
         )  # Select only actor params
         key_e, *eval_keys = jax.random.split(key_e, n_devices + 1)
         eval_keys = jnp.stack(eval_keys)
@@ -577,6 +745,7 @@ def run_experiment(_config: DictConfig) -> None:
         logger.log(evaluator_output.episode_metrics, t, eval_step, LogEvent.EVAL)
 
         if save_checkpoint:
+            # Save checkpoint of learner state
             checkpointer.save(
                 timestep=int(steps_per_rollout * (eval_step + 1)),
                 unreplicated_learner_state=unreplicate_n_dims(learner_output.learner_state),
@@ -612,7 +781,7 @@ def run_experiment(_config: DictConfig) -> None:
 
 
 @hydra.main(
-    config_path="../../configs", config_name="default_ff_awr_continuous.yaml", version_base="1.2"
+    config_path="../../configs", config_name="default_ff_sampled_az.yaml", version_base="1.2"
 )
 def hydra_entry_point(cfg: DictConfig) -> None:
     """Experiment entry point."""
@@ -622,7 +791,7 @@ def hydra_entry_point(cfg: DictConfig) -> None:
     # Run experiment.
     run_experiment(cfg)
 
-    print(f"{Fore.CYAN}{Style.BRIGHT}AWR experiment completed{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}{Style.BRIGHT}Sampled AlphaZero experiment completed{Style.RESET_ALL}")
 
 
 if __name__ == "__main__":

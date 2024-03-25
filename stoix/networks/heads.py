@@ -63,7 +63,7 @@ class MultivariateNormalDiagHead(nn.Module):
 
     action_dim: int
     init_scale: float = 0.3
-    min_scale: float = 1e-6
+    min_scale: float = 1e-3
     kernel_init: Initializer = orthogonal(0.01)
 
     @nn.compact
