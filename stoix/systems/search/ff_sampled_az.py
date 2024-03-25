@@ -147,9 +147,9 @@ def make_recurrent_fn(
 
         recurrent_fn_output = mctx.RecurrentFnOutput(
             reward=next_timestep.reward,
-            discount=jnp.ones_like(next_timestep.reward) * config.system.gamma,
+            discount=next_timestep.discount * config.system.gamma,
             prior_logits=selection_logits,
-            value=value,
+            value=next_timestep.discount * value,
         )
 
         # Pack the search tree state.
