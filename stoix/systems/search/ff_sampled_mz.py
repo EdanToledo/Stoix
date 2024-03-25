@@ -101,7 +101,7 @@ def make_root_fn(
             sampled_actions = rlax.add_gaussian_noise(
                 noise_key, sampled_actions, config.system.root_exploration_sigma
             )
-        # Due to sampling, set all actions to have a uniform prior.
+        # Due to sampling from a gaussian, set all actions to have a uniform prior.
         selection_logits = jnp.ones((batch_size, config.system.num_samples))
         # Pack the search tree state.
         search_tree_state = {
@@ -159,7 +159,7 @@ def make_recurrent_fn(
         chex.assert_shape(
             next_sampled_actions, (batch_size, config.system.num_samples, config.system.action_dim)
         )
-        # Due to sampling, set all actions to have a uniform prior.
+        # Due to sampling from a gaussian, set all actions to have a uniform prior.
         selection_logits = jnp.ones((batch_size, config.system.num_samples))
 
         recurrent_fn_output = mctx.RecurrentFnOutput(

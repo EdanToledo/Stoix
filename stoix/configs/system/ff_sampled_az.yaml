@@ -1,8 +1,8 @@
-# --- Defaults FF-AZ ---
-# This implementation of AZ is not an exact replica of the original AlphaZero algorithm and serves more as an example.
-# It is a simplified version that uses the same training loop as PPO i.e. epochs and minibatches of on-policy data.
-# Additionally, it uses a clipped value loss and entropy loss. Additionally, the search method used can be chosen
-# between muzero mcts and gumbel mcts from mctx.
+# --- Defaults FF-Sampled-AZ ---
+
+# This is an implementation of Sampled MuZero but using a perfect environment model for the search as in AlphaZero.
+# Additionally, the search method used can be chosen between muzero mcts and gumbel mcts from mctx.
+# Lastly, this version is designed with a Gaussian policy in mind.
 
 system_name: ff_az # Name of the system.
 
@@ -12,7 +12,7 @@ critic_lr: 3e-4 # Learning rate for critic network
 update_batch_size: 1 # Number of vectorised gradient updates per device.
 rollout_length: 8 # Number of environment steps per vectorised environment.
 epochs: 8 # Number of epochs per training data batch.
-warmup_steps: 128 # Number of steps to collect before training.
+warmup_steps: 64 # Number of steps to collect before training.
 buffer_size: 10_000 # Size of the replay buffer.
 batch_size: 128 # Number of samples to train on per device.
 sample_sequence_length: 6 # Number of steps to consider for each element of the batch.

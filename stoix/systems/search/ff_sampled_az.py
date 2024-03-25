@@ -54,6 +54,9 @@ from stoix.wrappers.episode_metrics import get_final_step_metrics
 
 tfd = tfp.distributions
 
+# This is a implementation of sampled muzero using a perfect environment model
+# for search such as AlphaZero.
+
 
 def make_root_fn(
     actor_apply_fn: ActorApply,
@@ -87,7 +90,7 @@ def make_root_fn(
             sampled_actions = rlax.add_gaussian_noise(
                 noise_key, sampled_actions, config.system.root_exploration_sigma
             )
-        # Due to sampling, set all actions to have a uniform prior.
+        # Due to sampling from a gaussian, set all actions to have a uniform prior.
         selection_logits = jnp.ones((batch_size, config.system.num_samples))
         # Pack the search tree state.
         search_tree_state = {
@@ -139,7 +142,7 @@ def make_recurrent_fn(
         chex.assert_shape(
             next_sampled_actions, (batch_size, config.system.num_samples, config.system.action_dim)
         )
-        # Due to sampling, set all actions to have a uniform prior.
+        # Due to sampling from a gaussian, set all actions to have a uniform prior.
         selection_logits = jnp.ones((batch_size, config.system.num_samples))
 
         recurrent_fn_output = mctx.RecurrentFnOutput(

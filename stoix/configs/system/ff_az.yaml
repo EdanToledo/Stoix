@@ -1,8 +1,6 @@
 # --- Defaults FF-AZ ---
-# This implementation of AZ is not an exact replica of the original AlphaZero algorithm and serves more as an example.
-# It is a simplified version that uses the same training loop as PPO i.e. epochs and minibatches of on-policy data.
-# Additionally, it uses a clipped value loss and entropy loss. Additionally, the search method used can be chosen
-# between muzero mcts and gumbel mcts from mctx.
+# This implementation of AZ is not an exact replica of the original AlphaZero algorithm and serves more as a AlphaZero-like algorithm.
+# Additionally, the search method used can be chosen between muzero mcts and gumbel mcts from mctx.
 
 system_name: ff_az # Name of the system.
 
