@@ -1,7 +1,7 @@
 defaults:
   - logger: base_logger
   - arch: anakin
-  - system: ff_ppo
-  - network: mlp_continuous
+  - system: ff_sampled_mz
+  - network: sampled_muzero
   - env: gymnax/pendulum
   - _self_

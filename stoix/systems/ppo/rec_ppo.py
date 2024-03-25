@@ -421,7 +421,7 @@ def learner_setup(
     # Get available TPU cores.
     n_devices = len(jax.devices())
 
-    # Get number of actions and agents.
+    # Get number/dimension of actions.
     num_actions = int(env.action_spec().num_values)
     config.system.action_dim = num_actions
 
@@ -477,7 +477,7 @@ def learner_setup(
         optax.adam(critic_lr, eps=1e-5),
     )
 
-    # Initialise observation: Select only obs for a single agent.
+    # Initialise observation
     init_obs = env.observation_spec().generate_value()
     init_obs = jax.tree_util.tree_map(
         lambda x: jnp.repeat(x[jnp.newaxis, ...], config.arch.num_envs, axis=0),

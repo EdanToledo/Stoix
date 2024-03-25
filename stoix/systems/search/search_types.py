@@ -30,18 +30,6 @@ class ExItTransition(NamedTuple):
     info: Dict
 
 
-class SampledExItTransition(NamedTuple):
-    done: Done
-    action: Action
-    value: Value
-    reward: chex.Array
-    search_value: Value
-    search_policy: chex.Array
-    sampled_actions: chex.Array
-    obs: chex.Array
-    info: Dict
-
-
 class WorldModelParams(NamedTuple):
     representation_params: FrozenDict
     dynamics_params: FrozenDict
@@ -64,6 +52,17 @@ class MZLearnerState(NamedTuple):
 class MZTransition(NamedTuple):
     done: chex.Array
     action: Action
+    reward: chex.Array
+    search_value: Value
+    search_policy: chex.Array
+    obs: chex.Array
+    info: Dict
+
+
+class SampledMZTransition(NamedTuple):
+    done: chex.Array
+    action: Action
+    sampled_actions: chex.Array
     reward: chex.Array
     search_value: Value
     search_policy: chex.Array

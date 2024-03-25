@@ -33,6 +33,16 @@ class ObservationActionInput(nn.Module):
         return x
 
 
+class EmbeddingActionInput(nn.Module):
+
+    action_dim: int
+
+    @nn.compact
+    def __call__(self, observation_embedding: chex.Array, action: chex.Array) -> chex.Array:
+        x = jnp.concatenate([observation_embedding, action], axis=-1)
+        return x
+
+
 class EmbeddingActionOnehotInput(nn.Module):
 
     action_dim: int

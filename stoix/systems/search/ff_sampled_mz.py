@@ -38,9 +38,9 @@ from stoix.systems.search.search_types import (
     DynamicsApply,
     MZLearnerState,
     MZParams,
-    MZTransition,
     RepresentationApply,
     RootFnApply,
+    SampledMZTransition,
     SearchApply,
     WorldModelParams,
 )
@@ -59,19 +59,25 @@ from stoix.wrappers.episode_metrics import get_final_step_metrics
 
 tfd = tfp.distributions
 
+# This implementation of Sampled MuZero is designed for a Gaussian policy.
+
 
 def make_root_fn(
     representation_apply_fn: RepresentationApply,
     actor_apply_fn: ActorApply,
     critic_apply_fn: DistributionCriticApply,
     critic_tx_pair: rlax.TxPair,
+    config: DictConfig,
 ) -> RootFnApply:
     def root_fn(
         params: MZParams,
         observation: chex.ArrayTree,
-        _: chex.ArrayTree,  # This is the state of the environment and unused in MuZero
+        _: chex.ArrayTree,  # This is the env_state, which is not used in MuZero.
         rng_key: chex.PRNGKey,
     ) -> mctx.RootFnOutput:
+
+        sample_key, noise_key = jax.random.split(rng_key, 2)
+
         observation_embedding = representation_apply_fn(
             params.world_model_params.representation_params, observation
         )
@@ -79,12 +85,34 @@ def make_root_fn(
         pi = actor_apply_fn(params.prediction_params.actor_params, observation_embedding)
         value_dist = critic_apply_fn(params.prediction_params.critic_params, observation_embedding)
         value = critic_tx_pair.apply_inv(value_dist.probs)
-        logits = pi.logits
+        batch_size = value.shape[0]
+        # Sample actions for the root node.
+        sampled_actions = pi.sample(seed=sample_key, sample_shape=config.system.num_samples)
+        chex.assert_shape(
+            sampled_actions, (config.system.num_samples, batch_size, config.system.action_dim)
+        )
+        # Swap axes to have (batch_size, num_samples, action_dim)
+        sampled_actions = jnp.swapaxes(sampled_actions, 0, 1)
+        chex.assert_shape(
+            sampled_actions, (batch_size, config.system.num_samples, config.system.action_dim)
+        )
+        # Add noise to the root sampled actions.
+        if config.system.root_exploration_sigma != 0:
+            sampled_actions = rlax.add_gaussian_noise(
+                noise_key, sampled_actions, config.system.root_exploration_sigma
+            )
+        # Due to sampling, set all actions to have a uniform prior.
+        selection_logits = jnp.ones((batch_size, config.system.num_samples))
+        # Pack the search tree state.
+        search_tree_state = {
+            "observation_embedding": observation_embedding,
+            "sampled_actions": sampled_actions,
+        }
 
         root_fn_output = mctx.RootFnOutput(
-            prior_logits=logits,
+            prior_logits=selection_logits,
             value=value,
-            embedding=observation_embedding,
+            embedding=search_tree_state,
         )
 
         return root_fn_output
@@ -103,9 +131,14 @@ def make_recurrent_fn(
     def recurrent_fn(
         params: MZParams,
         rng_key: chex.PRNGKey,
-        action: chex.Array,
-        state_embedding: chex.ArrayTree,
+        action_index: chex.Array,
+        search_tree_state: chex.ArrayTree,
     ) -> Tuple[mctx.RecurrentFnOutput, chex.ArrayTree]:
+
+        state_embedding = search_tree_state["observation_embedding"]
+        batch_size = action_index.shape[0]
+        batch_indices = jnp.arange(batch_size)
+        action = search_tree_state["sampled_actions"][batch_indices, action_index]
 
         next_state_embedding, next_reward_dist = dynamics_apply_fn(
             params.world_model_params.dynamics_params, state_embedding, action
@@ -115,18 +148,66 @@ def make_recurrent_fn(
         pi = actor_apply_fn(params.prediction_params.actor_params, next_state_embedding)
         value_dist = critic_apply_fn(params.prediction_params.critic_params, next_state_embedding)
         value = critic_tx_pair.apply_inv(value_dist.probs)
-        logits = pi.logits
+
+        # Sample actions for the next state.
+        next_sampled_actions = pi.sample(seed=rng_key, sample_shape=config.system.num_samples)
+        chex.assert_shape(
+            next_sampled_actions, (config.system.num_samples, batch_size, config.system.action_dim)
+        )
+        # Swap axes to have (batch_size, num_samples, action_dim)
+        next_sampled_actions = jnp.swapaxes(next_sampled_actions, 0, 1)
+        chex.assert_shape(
+            next_sampled_actions, (batch_size, config.system.num_samples, config.system.action_dim)
+        )
+        # Due to sampling, set all actions to have a uniform prior.
+        selection_logits = jnp.ones((batch_size, config.system.num_samples))
 
         recurrent_fn_output = mctx.RecurrentFnOutput(
             reward=next_reward,
             discount=jnp.ones_like(next_reward) * config.system.gamma,
-            prior_logits=logits,
+            prior_logits=selection_logits,
             value=value,
         )
 
-        return recurrent_fn_output, next_state_embedding
+        # Pack the search tree state.
+        next_search_tree_state = {
+            "observation_embedding": next_state_embedding,
+            "sampled_actions": next_sampled_actions,
+        }
+
+        return recurrent_fn_output, next_search_tree_state
 
     return recurrent_fn
+
+
+def make_sampled_search_apply_fn(
+    config: DictConfig,
+    model_recurrent_fn: mctx.RecurrentFn,
+) -> SearchApply:
+
+    search_method = parse_search_method(config)
+    mctx_search_apply_fn = functools.partial(
+        search_method,
+        recurrent_fn=model_recurrent_fn,
+        num_simulations=config.system.num_simulations,
+        max_depth=config.system.max_depth,
+    )
+
+    def search_apply_fn(
+        params: ActorCriticParams,
+        key: chex.PRNGKey,
+        root: mctx.RootFnOutput,
+    ) -> mctx.PolicyOutput:
+        """Apply the search function."""
+        root_sampled_actions = root.embedding["sampled_actions"]
+        search_output = mctx_search_apply_fn(params, key, root)
+        action_index = search_output.action
+        batch_indices = jnp.arange(action_index.shape[0])
+        action = root_sampled_actions[batch_indices, action_index]
+        chex.assert_shape(action, (action_index.shape[0], config.system.action_dim))
+        return search_output.replace(action=action)
+
+    return search_apply_fn
 
 
 def get_warmup_fn(
@@ -146,7 +227,7 @@ def get_warmup_fn(
     ) -> Tuple[LogEnvState, TimeStep, BufferState, chex.PRNGKey]:
         def _env_step(
             carry: Tuple[LogEnvState, TimeStep, chex.PRNGKey], _: Any
-        ) -> Tuple[Tuple[LogEnvState, TimeStep, chex.PRNGKey], MZTransition]:
+        ) -> Tuple[Tuple[LogEnvState, TimeStep, chex.PRNGKey], SampledMZTransition]:
             """Step the environment."""
 
             env_state, last_timestep, key = carry
@@ -157,6 +238,7 @@ def get_warmup_fn(
             action = search_output.action
             search_policy = search_output.action_weights
             search_value = search_output.search_tree.node_values[:, mctx.Tree.ROOT_INDEX]
+            root_sampled_actions = root.embedding["sampled_actions"]
 
             # STEP ENVIRONMENT
             env_state, timestep = jax.vmap(env.step, in_axes=(0, 0))(env_state, action)
@@ -165,9 +247,10 @@ def get_warmup_fn(
             done = timestep.last().reshape(-1)
             info = timestep.extras["episode_metrics"]
 
-            transition = MZTransition(
+            transition = SampledMZTransition(
                 done,
                 action,
+                root_sampled_actions,
                 timestep.reward,
                 search_value,
                 search_policy,
@@ -228,7 +311,9 @@ def get_learner_fn(
     def _update_step(learner_state: MZLearnerState, _: Any) -> Tuple[MZLearnerState, Tuple]:
         """A single update of the network."""
 
-        def _env_step(learner_state: MZLearnerState, _: Any) -> Tuple[MZLearnerState, MZTransition]:
+        def _env_step(
+            learner_state: MZLearnerState, _: Any
+        ) -> Tuple[MZLearnerState, SampledMZTransition]:
             """Step the environment."""
             params, opt_state, buffer_state, key, env_state, last_timestep = learner_state
 
@@ -239,6 +324,7 @@ def get_learner_fn(
             action = search_output.action
             search_policy = search_output.action_weights
             search_value = search_output.search_tree.node_values[:, mctx.Tree.ROOT_INDEX]
+            root_sampled_actions = root.embedding["sampled_actions"]
 
             # STEP ENVIRONMENT
             env_state, timestep = jax.vmap(env.step, in_axes=(0, 0))(env_state, action)
@@ -247,9 +333,10 @@ def get_learner_fn(
             done = timestep.last().reshape(-1)
             info = timestep.extras["episode_metrics"]
 
-            transition = MZTransition(
+            transition = SampledMZTransition(
                 done,
                 action,
+                root_sampled_actions,
                 timestep.reward,
                 search_value,
                 search_policy,
@@ -275,7 +362,8 @@ def get_learner_fn(
         def _update_epoch(update_state: Tuple, _: Any) -> Tuple:
             def _loss_fn(
                 muzero_params: MZParams,
-                sequence: MZTransition,
+                sequence: SampledMZTransition,
+                rng_key: chex.PRNGKey,
             ) -> Tuple:
                 """Calculate the total MuZero loss."""
 
@@ -298,11 +386,21 @@ def get_learner_fn(
                 ]  # B, T=0
 
                 def unroll_fn(
-                    carry: Tuple[chex.Array, chex.Array, MZParams, chex.Array],
-                    targets: Tuple[chex.Array, chex.Array, chex.Array, chex.Array, chex.Array],
+                    carry: Tuple[chex.Array, chex.Array, MZParams, chex.Array, chex.PRNGKey],
+                    targets: Tuple[
+                        chex.Array, chex.Array, chex.Array, chex.Array, chex.Array, chex.Array
+                    ],
                 ) -> Tuple[chex.Array, chex.Array]:
-                    total_loss, state_embedding, muzero_params, mask = carry
-                    action, reward_target, search_policy, value_targets, done = targets
+                    total_loss, state_embedding, muzero_params, mask, key = carry
+                    key, rng_key = jax.random.split(key)
+                    (
+                        action,
+                        reward_target,
+                        search_policy,
+                        value_targets,
+                        done,
+                        sampled_actions,
+                    ) = targets
                     actor_policy = actor_apply_fn(
                         muzero_params.prediction_params.actor_params, state_embedding
                     )
@@ -317,12 +415,15 @@ def get_learner_fn(
                     # CALCULATE ACTOR LOSS
                     # We use the KL divergence between the search policy and the actor policy
                     # as the actor loss
-                    actor_loss = tfd.Categorical(probs=search_policy).kl_divergence(actor_policy)
+                    log_prob = jax.vmap(actor_policy.log_prob, in_axes=1, out_axes=1)(
+                        sampled_actions
+                    )
+                    actor_loss = -jnp.sum(log_prob * search_policy, -1)
                     # We mask the loss past the episode end
                     actor_loss = actor_loss * mask
 
                     # CALCULATE ENTROPY LOSS
-                    entropy_loss = config.system.ent_coef * actor_policy.entropy()
+                    entropy_loss = config.system.ent_coef * actor_policy.entropy(seed=rng_key)
                     # We mask the loss past the episode end
                     entropy_loss = entropy_loss * mask
 
@@ -355,7 +456,7 @@ def get_learner_fn(
                     # Update the mask - This is to ensure that the loss is
                     # not updated for any steps after the episode is done
                     mask = mask * (1.0 - done.astype(jnp.float32))
-                    return (total_loss, next_state_embedding, muzero_params, mask), None
+                    return (total_loss, next_state_embedding, muzero_params, mask, key), None
 
                 targets = (
                     sequence.action[:, :-1],
@@ -363,6 +464,7 @@ def get_learner_fn(
                     sequence.search_policy[:, :-1],
                     value_targets,
                     sequence.done[:, :-1],
+                    sequence.sampled_actions[:, :-1],
                 )  # B, T
 
                 targets = jax.tree_map(lambda x: jnp.swapaxes(x, 0, 1), targets)  # T, B
@@ -373,8 +475,10 @@ def get_learner_fn(
                     "entropy": jnp.array(0.0),
                 }
                 init_mask = jnp.ones((config.system.batch_size,))
-                (losses, _, _, _), _ = jax.lax.scan(
-                    unroll_fn, (init_total_loss, state_embedding, muzero_params, init_mask), targets
+                (losses, _, _, _, _), _ = jax.lax.scan(
+                    unroll_fn,
+                    (init_total_loss, state_embedding, muzero_params, init_mask, rng_key),
+                    targets,
                 )
                 # Divide by the number of unrolled steps to ensure a consistent scale
                 # across different unroll lengths
@@ -390,18 +494,15 @@ def get_learner_fn(
 
             params, opt_state, buffer_state, key = update_state
 
-            key, sample_key = jax.random.split(key)
+            key, sample_key, loss_key = jax.random.split(key, num=3)
 
             # SAMPLE SEQUENCES
             sequence_sample = buffer_sample_fn(buffer_state, sample_key)
-            sequence: MZTransition = sequence_sample.experience
+            sequence: SampledMZTransition = sequence_sample.experience
 
             # CALCULATE LOSS
             grad_fn = jax.value_and_grad(_loss_fn, has_aux=True)
-            loss_info, grads = grad_fn(
-                params,
-                sequence,
-            )
+            loss_info, grads = grad_fn(params, sequence, loss_key)
 
             # Compute the parallel mean (pmean) over the batch.
             # This calculation is inspired by the Anakin architecture demo notebook.
@@ -482,9 +583,11 @@ def learner_setup(
     # Get available TPU cores.
     n_devices = len(jax.devices())
 
-    # Get number/dimension of actions.
-    num_actions = int(env.action_spec().num_values)
-    config.system.action_dim = num_actions
+    # Get number of actions.
+    action_dim = int(env.action_spec().shape[-1])
+    config.system.action_dim = action_dim
+    config.system.action_minimum = float(env.action_spec().minimum)
+    config.system.action_maximum = float(env.action_spec().maximum)
 
     # PRNG keys.
     key, representation_net_key, dynamics_net_key, actor_net_key, critic_net_key = keys
@@ -492,7 +595,10 @@ def learner_setup(
     # Define network and optimiser.
     actor_torso = hydra.utils.instantiate(config.network.actor_network.pre_torso)
     actor_action_head = hydra.utils.instantiate(
-        config.network.actor_network.action_head, action_dim=num_actions
+        config.network.actor_network.action_head,
+        action_dim=action_dim,
+        minimum=env.action_spec().minimum,
+        maximum=env.action_spec().maximum,
     )
     critic_torso = hydra.utils.instantiate(config.network.critic_network.pre_torso)
     critic_head = hydra.utils.instantiate(
@@ -527,7 +633,7 @@ def learner_setup(
         vmax=config.system.reward_vmax,
     )
     dynamics_input_layer = hydra.utils.instantiate(
-        config.network.dynamics_network.input_layer, action_dim=num_actions
+        config.network.dynamics_network.input_layer, action_dim=action_dim
     )
     dynamics_network = Dynamics(
         torso=dynamics_network_torso,
@@ -592,6 +698,7 @@ def learner_setup(
         actor_network_apply_fn,
         critic_network_apply_fn,
         critic_tx_pair,
+        config,
     )
     model_recurrent_fn = make_recurrent_fn(
         dynamics_network_apply_fn,
@@ -601,13 +708,7 @@ def learner_setup(
         reward_tx_pair,
         config,
     )
-    search_method = parse_search_method(config)
-    search_apply_fn = functools.partial(
-        search_method,
-        recurrent_fn=model_recurrent_fn,
-        num_simulations=config.system.num_simulations,
-        max_depth=config.system.max_depth,
-    )
+    search_apply_fn = make_sampled_search_apply_fn(config, model_recurrent_fn)
 
     # Pack apply and update functions.
     apply_fns = (
@@ -622,12 +723,13 @@ def learner_setup(
     transform_pairs = (critic_tx_pair, reward_tx_pair)
 
     # Create replay buffer
-    dummy_transition = MZTransition(
+    dummy_transition = SampledMZTransition(
         done=jnp.array(False),
-        action=jnp.array(0),
+        action=jnp.zeros(action_dim, dtype=jnp.float32),
+        sampled_actions=jnp.zeros((config.system.num_samples, action_dim), dtype=jnp.float32),
         reward=jnp.array(0.0),
         search_value=jnp.array(0.0),
-        search_policy=jnp.zeros((num_actions,)),
+        search_policy=jnp.zeros((config.system.num_samples,), dtype=jnp.float32),
         obs=jax.tree_util.tree_map(lambda x: x.squeeze(0), init_x),
         info={"episode_return": 0.0, "episode_length": 0, "is_terminal_step": False},
     )
@@ -838,7 +940,9 @@ def run_experiment(_config: DictConfig) -> None:
     logger.stop()
 
 
-@hydra.main(config_path="../../configs", config_name="default_ff_mz.yaml", version_base="1.2")
+@hydra.main(
+    config_path="../../configs", config_name="default_ff_sampled_mz.yaml", version_base="1.2"
+)
 def hydra_entry_point(cfg: DictConfig) -> None:
     """Experiment entry point."""
     # Allow dynamic attributes.
@@ -847,7 +951,7 @@ def hydra_entry_point(cfg: DictConfig) -> None:
     # Run experiment.
     run_experiment(cfg)
 
-    print(f"{Fore.CYAN}{Style.BRIGHT}MuZero experiment completed{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}{Style.BRIGHT}Sampled MuZero experiment completed{Style.RESET_ALL}")
 
 
 if __name__ == "__main__":
