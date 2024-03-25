@@ -65,7 +65,7 @@ Stoix currently offers the following building blocks for Single-Agent RL researc
 - **Advantage-Weighted Regression (AWR)** - [Paper](https://arxiv.org/abs/1910.00177)
 - **AlphaZero** - [Paper](https://arxiv.org/abs/1712.01815)
 - **MuZero** - [Paper](https://arxiv.org/abs/1911.08265)
-- **Sampled Alpha/Mu/Zero** - [Paper](https://arxiv.org/abs/2104.06303)
+- **Sampled Alpha/Mu-Zero** - [Paper](https://arxiv.org/abs/2104.06303)
 
 ### Environment Wrappers 🍬
 Stoix offers wrappers for [Gymnax][gymnax], [Jumanji][jumanji], [Brax][brax], [XMinigrid][xminigrid], [Craftax][craftax] and even [JAXMarl][jaxmarl] (although using Centralised Controllers).
