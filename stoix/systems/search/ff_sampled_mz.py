@@ -191,6 +191,7 @@ def make_sampled_search_apply_fn(
         recurrent_fn=model_recurrent_fn,
         num_simulations=config.system.num_simulations,
         max_depth=config.system.max_depth,
+        **config.system.search_method_kwargs,
     )
 
     def search_apply_fn(
@@ -563,7 +564,8 @@ def get_learner_fn(
 def parse_search_method(config: DictConfig) -> Any:
     """Parse search method from config."""
     if config.system.search_method.lower() == "muzero":
-        search_method = mctx.muzero_policy
+        # We turn off the dirichlet noise for the Sampled MuZero search method
+        search_method = functools.partial(mctx.muzero_policy, dirichlet_fraction=0.0)
     elif config.system.search_method.lower() == "gumbel":
         search_method = mctx.gumbel_muzero_policy
     else:
