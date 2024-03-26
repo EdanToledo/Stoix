@@ -19,7 +19,8 @@ numpy
 omegaconf
 optax
 pgx
-protobuf==3.20.1
+popjym @ git+https://github.com/EdanToledo/popjym.git
+protobuf==3.20.3
 rlax
 tdqm
 tensorboard_logger
