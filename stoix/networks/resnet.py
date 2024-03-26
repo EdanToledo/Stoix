@@ -23,12 +23,8 @@ class ResidualBlock(nn.Module):
         self.inner_op2 = self.make_inner_op()
 
         if self.use_layer_norm:
-            self.layernorm1 = nn.LayerNorm(
-                reduction_axes=(-3, -2, -1), use_scale=True, use_bias=True, epsilon=1e-6
-            )
-            self.layernorm2 = nn.LayerNorm(
-                reduction_axes=(-3, -2, -1), use_scale=True, use_bias=True, epsilon=1e-6
-            )
+            self.layernorm1 = nn.LayerNorm(use_scale=True, use_bias=True, epsilon=1e-6)
+            self.layernorm2 = nn.LayerNorm(use_scale=True, use_bias=True, epsilon=1e-6)
 
     def __call__(self, x: chex.Array) -> chex.Array:
         output = x

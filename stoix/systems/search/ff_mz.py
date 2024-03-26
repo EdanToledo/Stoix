@@ -605,6 +605,7 @@ def learner_setup(
         recurrent_fn=model_recurrent_fn,
         num_simulations=config.system.num_simulations,
         max_depth=config.system.max_depth,
+        **config.system.search_method_kwargs,
     )
 
     # Pack apply and update functions.

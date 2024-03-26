@@ -21,6 +21,7 @@ ent_coef: 0.0 # Entropy regularisation term for loss function.
 vf_coef: 1.0 # Critic weight in
 max_grad_norm: 0.5 # Maximum norm of the gradients for a weight update.
 decay_learning_rates: False # Whether learning rates should be linearly decayed during training.
-num_simulations: 20 # Number of simulations to run.
+num_simulations: 25 # Number of simulations to run.
 max_depth: ~ # Maximum depth of the search tree.
-search_method : gumbel # Search method to use. Options: gumbel, muzero.
+search_method : muzero # Search method to use. Options: gumbel, muzero.
+search_method_kwargs: {} # Additional kwargs for the search method.
