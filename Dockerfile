@@ -18,23 +18,22 @@ RUN apt-get update -y && \
 ENV VIRTUAL_ENV /stoix
 ENV PATH /stoix/bin:$PATH
 
-# Set working directory
-WORKDIR /build
+# Location of stoix folder
+ARG folder=/home/app/stoix
 
-# Copy all code needed to install dependencies
-COPY ./requirements ./requirements
-COPY pyproject.toml ./pyproject.toml
-COPY ./stoix ./stoix
+# Set working directory
+WORKDIR ${folder}
+
+# Copy all code to the container
+COPY . .
+
+RUN echo "Installing requirements..."
+RUN pip install --quiet --upgrade pip setuptools wheel &&  \
+    pip install -e .
 
 # Need to use specific cuda versions for jax
 ARG USE_CUDA=true
-
-RUN pip install --quiet --upgrade pip setuptools wheel && \
-    if [ "$USE_CUDA" = true ]; then \
-        pip install "jax[cuda11_pip]<=0.4.13" -f "https://storage.googleapis.com/jax-releases/jax_cuda_releases.html"; \
+RUN if [ "$USE_CUDA" = true ] ; \
+    then pip install "jax[cuda11_pip]<=0.4.13" -f "https://storage.googleapis.com/jax-releases/jax_cuda_releases.html" ; \
     fi
-
-# Install from pyproject.toml with verbose logging and ignore those packages already installed
-RUN pip install --verbose --no-cache-dir --ignore-installed -e .
-
-ENTRYPOINT [ "/stoix/bin/python" ]
+EXPOSE 6006
