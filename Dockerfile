@@ -1,3 +1,4 @@
+# FROM ubuntu:22.04 as base
 FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04
 
 # Ensure no installs try to launch interactive screen
@@ -23,11 +24,8 @@ ARG folder=/home/app/stoix
 # Set working directory
 WORKDIR ${folder}
 
-# Copy all code needed to install dependencies
-COPY ./requirements ./requirements
-COPY setup.py .
-COPY README.md .
-COPY stoix/version.py stoix/version.py
+# Copy all code to the container
+COPY . .
 
 RUN echo "Installing requirements..."
 RUN pip install --quiet --upgrade pip setuptools wheel &&  \
@@ -38,8 +36,4 @@ ARG USE_CUDA=true
 RUN if [ "$USE_CUDA" = true ] ; \
     then pip install "jax[cuda11_pip]<=0.4.13" -f "https://storage.googleapis.com/jax-releases/jax_cuda_releases.html" ; \
     fi
-
-# Copy all code
-COPY . .
-
 EXPOSE 6006
