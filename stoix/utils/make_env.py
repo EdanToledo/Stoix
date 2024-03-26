@@ -214,7 +214,9 @@ def make_craftax_env(env_name: str, config: DictConfig) -> Tuple[Environment, En
     from craftax.craftax.envs.craftax_pixels_env import CraftaxPixelsEnv
     from craftax.craftax.envs.craftax_symbolic_env import CraftaxSymbolicEnv
     from craftax.craftax_classic.envs.craftax_pixels_env import CraftaxClassicPixelsEnv
-    from craftax.craftax_classic.envs.craftax_symbolic_env import CraftaxClassicSymbolicEnv
+    from craftax.craftax_classic.envs.craftax_symbolic_env import (
+        CraftaxClassicSymbolicEnv,
+    )
 
     # Config generator and select the wrapper.
     craftax_environments = {
