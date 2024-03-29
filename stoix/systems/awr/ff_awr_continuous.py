@@ -613,10 +613,6 @@ def run_experiment(_config: DictConfig) -> float:
     # calculated, this will be the final evaluation run.
     eval_performance = float(jnp.mean(evaluator_output.episode_metrics[config.env.eval_metric]))
     return eval_performance
-    # Record the performance for the final evaluation run. If the absolute metric is not
-    # calculated, this will be the final evaluation run.
-    eval_performance = float(jnp.mean(evaluator_output.episode_metrics[config.env.eval_metric]))
-    return eval_performance
 
 
 @hydra.main(
