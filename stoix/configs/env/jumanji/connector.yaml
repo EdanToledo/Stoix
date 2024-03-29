@@ -13,3 +13,7 @@ kwargs:
     _target_: jumanji.environments.routing.connector.generator.RandomWalkGenerator
     grid_size: 6
     num_agents: 2
+
+# Defines the metric that will be used to evaluate the performance of the agent.
+# This metric is returned at the end of an experiment and can be used for hyperparameter tuning.
+eval_metric: episode_return
