@@ -20,7 +20,7 @@
 </div>
 
 <h2 align="center">
-    <p>Distributed Single-Agent Reinforcement Learning in JAX • End-to-End JAX RL</p>
+    <p>Distributed End-to-End Single-Agent Reinforcement Learning in JAX</p>
 </h2>
 
 <div align="center">
