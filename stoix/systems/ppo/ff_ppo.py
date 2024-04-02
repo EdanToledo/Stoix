@@ -404,7 +404,6 @@ def run_experiment(_config: DictConfig) -> float:
     # Calculate total timesteps.
     n_devices = len(jax.devices())
     config.num_devices = n_devices
-    config.num_devices = n_devices
     config = check_total_timesteps(config)
     assert (
         config.arch.num_updates > config.arch.num_evaluation
