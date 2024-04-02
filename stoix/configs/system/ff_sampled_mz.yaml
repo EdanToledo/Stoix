@@ -11,9 +11,9 @@ system_name: ff_sampled_mz # Name of the system.
 lr: 3e-4 # Learning rate for entire algorithm.
 update_batch_size: 1 # Number of vectorised gradient updates per device.
 rollout_length: 8 # Number of environment steps per vectorised environment.
-epochs: 16 # Number of epochs per training data batch.
+epochs: 8 # Number of epochs per training data batch.
 warmup_steps: 8 # Number of steps to collect before training.
-buffer_size: 4096 # Size of the replay buffer.
+buffer_size: 500 # Size of the replay buffer.
 batch_size: 16 # Number of samples to train on per device.
 sample_sequence_length: 8 # Number of steps to consider for each element of the batch.
 period : 1 # Period of the sampled sequences.
@@ -33,5 +33,5 @@ critic_num_atoms: 51 # Number of atoms for the categorical critic head.
 reward_vmin: -10.0 # Minimum value for the reward.
 reward_vmax: 10.0 # Maximum value for the reward.
 reward_num_atoms: 51 # Number of atoms for the categorical reward head.
-num_samples: 5 # Number of action samples to use in search.
-root_exploration_sigma : 0.1 # Noise to add to the root node sampled actions.
+num_samples: 10 # Number of action samples to use in search.
+root_exploration_sigma : 0.05 # Noise to add to the root node sampled actions.
