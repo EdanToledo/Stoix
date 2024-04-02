@@ -23,4 +23,4 @@ hydra:
     params:
       system.clip_eps: range(0.1, 0.3, step=0.1)
       system.gae_lambda: range(0, 1, step=0.05)
-      system.ppo_epochs: range(1, 10, step=1)
+      system.epochs: range(1, 10, step=1)

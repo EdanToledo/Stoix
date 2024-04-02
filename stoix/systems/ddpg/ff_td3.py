@@ -52,8 +52,11 @@ def get_default_behavior_policy(config: DictConfig, actor_apply_fn: ActorApply) 
         params: DDPGParams, observation: Observation, key: chex.PRNGKey
     ) -> chex.Array:
         action = actor_apply_fn(params, observation).mode()
+        action_scale = (config.system.action_maximum - config.system.action_minimum) / 2
         if config.system.exploration_sigma != 0:
-            action = rlax.add_gaussian_noise(key, action, config.system.exploration_sigma)
+            action = rlax.add_gaussian_noise(
+                key, action, config.system.exploration_sigma * action_scale
+            ).clip(config.system.action_minimum, config.system.action_maximum)
         return action
 
     return behavior_policy
@@ -182,14 +185,17 @@ def get_learner_fn(
             ) -> jnp.ndarray:
 
                 q_tm1 = q_apply_fn(q_params, transitions.obs, transitions.action)
-
-                clipped_noise = jnp.clip(
-                    (
-                        jax.random.normal(rng_key, transitions.action.shape)
-                        * config.system.policy_noise
-                    ),
-                    -config.system.noise_clip,
-                    config.system.noise_clip,
+                action_scale = (config.system.action_maximum - config.system.action_minimum) / 2
+                clipped_noise = (
+                    jnp.clip(
+                        (
+                            jax.random.normal(rng_key, transitions.action.shape)
+                            * config.system.policy_noise
+                        ),
+                        -config.system.noise_clip,
+                        config.system.noise_clip,
+                    )
+                    * action_scale
                 )
                 next_action = (
                     actor_apply_fn(target_actor_params, transitions.next_obs).mode() + clipped_noise
@@ -357,6 +363,8 @@ def learner_setup(
     # Get number of actions.
     action_dim = int(env.action_spec().shape[-1])
     config.system.action_dim = action_dim
+    config.system.action_minimum = float(env.action_spec().minimum)
+    config.system.action_maximum = float(env.action_spec().maximum)
 
     # PRNG keys.
     key, actor_net_key, q_net_key = keys
@@ -433,6 +441,16 @@ def learner_setup(
         info={"episode_return": 0.0, "episode_length": 0, "is_terminal_step": False},
     )
 
+    assert config.system.total_buffer_size % n_devices == 0, (
+        f"{Fore.RED}{Style.BRIGHT}The total buffer size should be divisible "
+        + "by the number of devices!{Style.RESET_ALL}"
+    )
+    assert config.system.total_batch_size % n_devices == 0, (
+        f"{Fore.RED}{Style.BRIGHT}The total batch size should be divisible "
+        + "by the number of devices!{Style.RESET_ALL}"
+    )
+    config.system.buffer_size = config.system.total_buffer_size // n_devices
+    config.system.batch_size = config.system.total_batch_size // n_devices
     buffer_fn = fbx.make_item_buffer(
         max_length=config.system.buffer_size,
         min_length=config.system.batch_size,
@@ -476,9 +494,14 @@ def learner_setup(
         params = restored_params
 
     # Define params to be replicated across devices and batches.
-    key, step_keys, warmup_keys = jax.random.split(key, num=3)
+    key, step_key, warmup_key = jax.random.split(key, num=3)
+    step_keys = jax.random.split(step_key, n_devices * config.system.update_batch_size)
+    warmup_keys = jax.random.split(warmup_key, n_devices * config.system.update_batch_size)
+    reshape_keys = lambda x: x.reshape((n_devices, config.system.update_batch_size) + x.shape[1:])
+    step_keys = reshape_keys(jnp.stack(step_keys))
+    warmup_keys = reshape_keys(jnp.stack(warmup_keys))
 
-    replicate_learner = (params, opt_states, buffer_states, step_keys, warmup_keys)
+    replicate_learner = (params, opt_states, buffer_states)
 
     # Duplicate learner for update_batch_size.
     broadcast = lambda x: jnp.broadcast_to(x, (config.system.update_batch_size,) + x.shape)
@@ -488,7 +511,7 @@ def learner_setup(
     replicate_learner = flax.jax_utils.replicate(replicate_learner, devices=jax.devices())
 
     # Initialise learner state.
-    params, opt_states, buffer_states, step_keys, warmup_keys = replicate_learner
+    params, opt_states, buffer_states = replicate_learner
     # Warmup the buffer.
     env_states, timesteps, keys, buffer_states = warmup(
         env_states, timesteps, buffer_states, warmup_keys
@@ -506,6 +529,7 @@ def run_experiment(_config: DictConfig) -> float:
 
     # Calculate total timesteps.
     n_devices = len(jax.devices())
+    config.num_devices = n_devices
     config = check_total_timesteps(config)
     assert (
         config.arch.num_updates > config.arch.num_evaluation
