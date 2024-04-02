@@ -62,6 +62,31 @@ tfd = tfp.distributions
 # This implementation of Sampled MuZero is designed for a Gaussian policy.
 
 
+def add_gaussian_noise(
+    key: chex.PRNGKey,
+    action: chex.Array,
+    exploration_fraction: float,
+    action_min: float,
+    action_max: float,
+) -> chex.Array:
+    """Returns continuous action with noise drawn from a Gaussian distribution.
+
+    Args:
+        key: a key from `jax.random`.
+        action: continuous action scalar or vector.
+        exploration_fraction: scale of the noise.
+        action_min: minimum value of the action.
+        action_max: maximum value of the action.
+
+    Returns:
+        noisy action, of the same shape as input action.
+    """
+    shape = action.shape
+    noise = jax.random.truncated_normal(key, action_min, action_max, shape=shape)
+    action = (1 - exploration_fraction) * action + exploration_fraction * noise
+    return jnp.clip(action, action_min, action_max)
+
+
 def make_root_fn(
     representation_apply_fn: RepresentationApply,
     actor_apply_fn: ActorApply,
@@ -97,9 +122,13 @@ def make_root_fn(
             sampled_actions, (batch_size, config.system.num_samples, config.system.action_dim)
         )
         # Add noise to the root sampled actions.
-        if config.system.root_exploration_sigma != 0:
-            sampled_actions = rlax.add_gaussian_noise(
-                noise_key, sampled_actions, config.system.root_exploration_sigma
+        if config.system.root_exploration_fraction != 0:
+            sampled_actions = add_gaussian_noise(
+                noise_key,
+                sampled_actions,
+                config.system.root_exploration_fraction,
+                config.system.action_minimum,
+                config.system.action_maximum,
             )
         # Due to sampling from a gaussian, set all actions to have a uniform prior.
         selection_logits = jnp.ones((batch_size, config.system.num_samples))
