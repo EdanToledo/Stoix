@@ -16,6 +16,7 @@ def batch_truncated_generalized_advantage_estimation(
     values: chex.Array,
     stop_target_gradients: bool = True,
     time_major: bool = False,
+    standardize_advantages: bool = False,
 ) -> Tuple[chex.Array, chex.Array]:
     """Computes truncated generalized advantage estimates for a sequence length k.
 
@@ -39,6 +40,7 @@ def batch_truncated_generalized_advantage_estimation(
         to targets.
         time_major: If True, the first dimension of the input tensors is the time
         dimension.
+        standardize_advantages: If True, standardize the advantages.
 
     Returns:
         Multistep truncated generalized advantage estimation at times [0, k-1].
@@ -83,6 +85,9 @@ def batch_truncated_generalized_advantage_estimation(
         advantage_t, target_values = jax.tree_map(
             lambda x: jax.lax.stop_gradient(x), (advantage_t, target_values)
         )
+
+    if standardize_advantages:
+        advantage_t = jax.nn.standardize(advantage_t, axis=(0, 1))
 
     return advantage_t, target_values
 

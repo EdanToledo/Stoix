@@ -245,7 +245,12 @@ def get_learner_fn(
             r_t = sequence.reward[:, :-1]
             d_t = (1 - sequence.done.astype(jnp.float32)[:, :-1]) * config.system.gamma
             advantages, _ = batch_truncated_generalized_advantage_estimation(
-                r_t, d_t, config.system.gae_lambda, v_t, time_major=False
+                r_t,
+                d_t,
+                config.system.gae_lambda,
+                v_t,
+                time_major=False,
+                standardize_advantages=config.system.standardize_advantages,
             )
             weights = jnp.exp(advantages / config.system.beta)
             weights = jnp.minimum(weights, config.system.weight_clip)
