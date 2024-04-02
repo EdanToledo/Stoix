@@ -52,8 +52,11 @@ def get_default_behavior_policy(config: DictConfig, actor_apply_fn: ActorApply) 
         params: DDPGParams, observation: Observation, key: chex.PRNGKey
     ) -> chex.Array:
         action = actor_apply_fn(params, observation).mode()
+        action_scale = (config.system.action_maximum - config.system.action_minimum) / 2
         if config.system.exploration_sigma != 0:
-            action = rlax.add_gaussian_noise(key, action, config.system.exploration_sigma)
+            action = rlax.add_gaussian_noise(
+                key, action, config.system.exploration_sigma * action_scale
+            ).clip(config.system.action_minimum, config.system.action_maximum)
         return action
 
     return behavior_policy
@@ -333,6 +336,8 @@ def learner_setup(
     # Get number of actions.
     action_dim = int(env.action_spec().shape[-1])
     config.system.action_dim = action_dim
+    config.system.action_minimum = float(env.action_spec().minimum)
+    config.system.action_maximum = float(env.action_spec().maximum)
 
     # PRNG keys.
     key, actor_net_key, q_net_key = keys

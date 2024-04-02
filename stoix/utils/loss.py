@@ -101,7 +101,10 @@ def q_learning(
     # Compute Q-learning n-step TD-error.
     target_tm1 = r_t + d_t * jnp.max(q_t, axis=-1)
     td_error = target_tm1 - q_tm1[batch_indices, a_tm1]
-    batch_loss = rlax.huber_loss(td_error, huber_loss_parameter)
+    if huber_loss_parameter > 0.0:
+        batch_loss = rlax.huber_loss(td_error, huber_loss_parameter)
+    else:
+        batch_loss = rlax.l2_loss(td_error)
 
     return jnp.mean(batch_loss)
 
@@ -120,7 +123,10 @@ def double_q_learning(
     # Compute double Q-learning n-step TD-error.
     target_tm1 = r_t + d_t * q_t_value[batch_indices, q_t_selector.argmax(-1)]
     td_error = target_tm1 - q_tm1[batch_indices, a_tm1]
-    batch_loss = rlax.huber_loss(td_error, huber_loss_parameter)
+    if huber_loss_parameter > 0.0:
+        batch_loss = rlax.huber_loss(td_error, huber_loss_parameter)
+    else:
+        batch_loss = rlax.l2_loss(td_error)
 
     return jnp.mean(batch_loss)
 
@@ -134,7 +140,11 @@ def td_learning(
 ) -> chex.Array:
     """Calculates the temporal difference error. Each input is a batch."""
     target_tm1 = r_t + discount_t * v_t
-    batch_loss = rlax.huber_loss(target_tm1 - v_tm1, huber_loss_parameter)
+    td_errors = target_tm1 - v_tm1
+    if huber_loss_parameter > 0.0:
+        batch_loss = rlax.huber_loss(td_errors, huber_loss_parameter)
+    else:
+        batch_loss = rlax.l2_loss(td_errors)
     return jnp.mean(batch_loss)
 
 
@@ -189,8 +199,11 @@ def munchausen_q_learning(
     target_q = jax.lax.stop_gradient(
         r_t + munchausen_coefficient * munchausen_term_a + d_t * next_v
     )
-
-    batch_loss = rlax.huber_loss(target_q - q_tm1_a, huber_loss_parameter)
+    td_error = target_q - q_tm1_a
+    if huber_loss_parameter > 0.0:
+        batch_loss = rlax.huber_loss(td_error, huber_loss_parameter)
+    else:
+        batch_loss = rlax.l2_loss(td_error)
     batch_loss = jnp.mean(batch_loss)
     return batch_loss
 

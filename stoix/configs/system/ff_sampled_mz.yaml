@@ -33,5 +33,5 @@ critic_num_atoms: 51 # Number of atoms for the categorical critic head.
 reward_vmin: -10.0 # Minimum value for the reward.
 reward_vmax: 10.0 # Maximum value for the reward.
 reward_num_atoms: 51 # Number of atoms for the categorical reward head.
-num_samples: 5 # Number of action samples to use in search.
-root_exploration_sigma : 0.1 # Noise to add to the root node sampled actions.
+num_samples: 10 # Number of action samples to use in search.
+root_exploration_fraction : 0.1 # Noise to add to the root node sampled actions.

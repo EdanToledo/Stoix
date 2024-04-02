@@ -16,10 +16,10 @@ q_lr: 1e-4  # the learning rate of the Q network network optimizer
 dual_lr: 1e-2  # the learning rate of the alpha optimizer
 tau: 0.005  # smoothing coefficient for target networks
 gamma: 0.99  # discount factor
-max_grad_norm: 40.0 # Maximum norm of the gradients for a weight update.
+max_grad_norm: 0.5 # Maximum norm of the gradients for a weight update.
 decay_learning_rates: False # Whether learning rates should be linearly decayed during training.
 max_abs_reward : 20_000  # maximum absolute reward value
-num_samples: 20 # Number of MPO action samples for the policy update.
+num_samples: 128 # Number of MPO action samples for the policy update.
 epsilon: 0.01 # KL constraint on the non-parametric auxiliary policy, the one associated with the dual variable called temperature.
 epsilon_mean : 1e-3 # KL constraint on the mean of the Gaussian policy, the one associated with the dual variable called alpha_mean.
 epsilon_stddev: 1e-5 # KL constraint on the stddev of the Gaussian policy, the one associated with the dual variable called alpha_mean.
@@ -31,6 +31,6 @@ action_penalization: True # whether to use a KL constraint to penalize actions v
 epsilon_penalty: 0.001 # KL constraint on the probability of violating the action constraint.
 stochastic_policy_eval: True # whether to use a stochastic policy for Q function target evaluation.
 use_online_policy_to_bootstrap: False # whether to use the online policy to bootstrap the Q function targets.
-use_retrace : False # whether to use the retrace algorithm for off-policy correction.
+use_retrace : True # whether to use the retrace algorithm for off-policy correction.
 retrace_lambda : 0.95 # the retrace lambda parameter.
 n_step_for_sequence_bootstrap : 5 # the number of steps to use for the sequence bootstrap. This is only used if use_retrace is False.

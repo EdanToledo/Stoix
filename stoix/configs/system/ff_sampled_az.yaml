@@ -20,12 +20,12 @@ period : 1 # Period of the sampled sequences.
 gamma: 0.99 # Discounting factor.
 gae_lambda: 0.95 # Lambda value for GAE computation.
 ent_coef: 0.005 # Entropy regularisation term for loss function.
-vf_coef: 0.5 # Critic weight in
+vf_coef: 1.0 # Critic weight in
 max_grad_norm: 0.5 # Maximum norm of the gradients for a weight update.
 decay_learning_rates: False # Whether learning rates should be linearly decayed during training.
 num_simulations: 25 # Number of simulations to run.
 max_depth: ~ # Maximum depth of the search tree.
 search_method : muzero # Search method to use. Options: gumbel, muzero.
 search_method_kwargs: {} # Additional kwargs for the search method.
-num_samples: 5 # Number of action samples to use in search.
-root_exploration_sigma : 0.1 # Noise to add to the root node sampled actions.
+num_samples: 8 # Number of action samples to use in search.
+root_exploration_fraction : 0.1 # Noise to add to the root node sampled actions.

@@ -8,7 +8,7 @@ rollout_length: 1 # Number of environment steps per vectorised environment.
 epochs: 1 # Number of sgd steps per rollout.
 warmup_steps: 16  # Number of steps to collect before training.
 total_buffer_size: 25_000 # Total effective size of the replay buffer across all devices. This means each device has a buffer of size buffer_size/num_devices. This must be divisible by num_devices.
-total_batch_size: 32 # Total effective number of samples to train on. This means each device has a batch size of batch_size/num_devices. This must be divisible by num_devices.
+total_batch_size: 256 # Total effective number of samples to train on. This means each device has a batch size of batch_size/num_devices. This must be divisible by num_devices.
 q_lr: 1e-4  # the learning rate of the Q network network optimizer
 tau: 0.005  # smoothing coefficient for target networks
 gamma: 0.99  # discount factor
@@ -17,7 +17,7 @@ decay_learning_rates: False # Whether learning rates should be linearly decayed 
 training_epsilon: 0.1  # epsilon for the epsilon-greedy policy during training
 evaluation_epsilon: 0.00  # epsilon for the epsilon-greedy policy during evaluation
 max_abs_reward : 1000.0  # maximum absolute reward value
-huber_loss_parameter: 1.0  # parameter for the huber loss
+huber_loss_parameter: 1.0  # parameter for the huber loss. If 0, it uses MSE loss.
 entropy_temperature: 0.03  # tau parameter
 munchausen_coefficient: 0.9  # alpha parameter
 clip_value_min: -1e3

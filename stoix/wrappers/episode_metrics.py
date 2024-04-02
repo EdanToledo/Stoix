@@ -55,7 +55,7 @@ class RecordEpisodeMetrics(Wrapper):
         not_done = 1 - done
 
         # Counting episode return and length.
-        new_episode_return = state.running_count_episode_return + jnp.mean(timestep.reward)
+        new_episode_return = state.running_count_episode_return + timestep.reward
         new_episode_length = state.running_count_episode_length + 1
 
         # Previous episode return/length until done and then the next episode return.
@@ -96,7 +96,5 @@ def get_final_step_metrics(metrics: Dict[str, chex.Array]) -> Tuple[Dict[str, ch
         final_metrics = jax.tree_util.tree_map(jnp.zeros_like, metrics)
     else:
         final_metrics = jax.tree_util.tree_map(lambda x: x[is_final_ep], metrics)
-
-    final_metrics = jax.tree_util.tree_map(lambda x: x.squeeze(), final_metrics)
 
     return final_metrics, has_final_ep_step
