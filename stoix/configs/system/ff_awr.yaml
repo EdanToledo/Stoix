@@ -20,3 +20,4 @@ decay_learning_rates: False # Whether learning rates should be linearly decayed 
 gae_lambda: 0.95 # The lambda parameter for the generalized advantage estimator.
 beta: 0.05 # The temperature of the exponentiated advantage weights.
 weight_clip: 20.0 # The maximum absolute value of the advantage weights.
+standardize_advantages: False # Whether to standardize the advantages.
