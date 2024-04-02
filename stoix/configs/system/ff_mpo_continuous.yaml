@@ -6,9 +6,9 @@ system_name: ff_mpo # Name of the system.
 update_batch_size: 1 # Number of vectorised gradient updates per device.
 rollout_length: 8 # Number of environment steps per vectorised environment.
 epochs: 32 # Number of sgd steps per rollout.
-warmup_steps: 256  # Number of steps to collect before training.
-buffer_size: 1_000_000 # size of the replay buffer.
-batch_size: 8 # Number of samples to train on per device.
+warmup_steps: 16  # Number of steps to collect before training.
+total_buffer_size: 25_000 # Total effective size of the replay buffer across all devices. This means each device has a buffer of size buffer_size/num_devices. This must be divisible by num_devices.
+total_batch_size: 32 # Total effective number of samples to train on. This means each device has a batch size of batch_size/num_devices. This must be divisible by num_devices.
 sample_sequence_length: 8 # Number of steps to consider for each element of the batch.
 period : 1 # Period of the sampled sequences.
 actor_lr: 1e-4  # the learning rate of the policy network optimizer

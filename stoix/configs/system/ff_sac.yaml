@@ -6,9 +6,9 @@ system_name: ff_sac # Name of the system.
 update_batch_size: 1 # Number of vectorised gradient updates per device.
 rollout_length: 10 # Number of environment steps per vectorised environment.
 epochs: 32 # Number of sgd steps per rollout.
-warmup_steps: 256  # Number of steps to collect before training.
-buffer_size: 100_000 # size of the replay buffer.
-batch_size: 128 # Number of samples to train on per device.
+warmup_steps: 16  # Number of steps to collect before training.
+total_buffer_size: 25_000 # Total effective size of the replay buffer across all devices. This means each device has a buffer of size buffer_size/num_devices. This must be divisible by num_devices.
+total_batch_size: 32 # Total effective number of samples to train on. This means each device has a batch size of batch_size/num_devices. This must be divisible by num_devices.
 actor_lr: 3e-4  # the learning rate of the policy network optimizer
 q_lr: 3e-4  # the learning rate of the Q network network optimizer
 alpha_lr: 3e-4  # the learning rate of the alpha optimizer

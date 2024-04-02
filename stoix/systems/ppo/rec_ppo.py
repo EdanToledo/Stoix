@@ -366,7 +366,7 @@ def get_learner_fn(
 
         # UPDATE EPOCHS
         update_state, loss_info = jax.lax.scan(
-            _update_epoch, update_state, None, config.system.ppo_epochs
+            _update_epoch, update_state, None, config.system.epochs
         )
 
         params, opt_states, _, traj_batch, advantages, targets, key = update_state
@@ -462,10 +462,10 @@ def learner_setup(
     )
 
     actor_lr = make_learning_rate(
-        config.system.actor_lr, config, config.system.ppo_epochs, config.system.num_minibatches
+        config.system.actor_lr, config, config.system.epochs, config.system.num_minibatches
     )
     critic_lr = make_learning_rate(
-        config.system.critic_lr, config, config.system.ppo_epochs, config.system.num_minibatches
+        config.system.critic_lr, config, config.system.epochs, config.system.num_minibatches
     )
 
     actor_optim = optax.chain(
@@ -543,9 +543,12 @@ def learner_setup(
         (config.arch.num_envs,),
         dtype=bool,
     )
-    key, step_keys = jax.random.split(key)
+    key, step_key = jax.random.split(key)
+    step_keys = jax.random.split(step_key, n_devices * config.system.update_batch_size)
+    reshape_keys = lambda x: x.reshape((n_devices, config.system.update_batch_size) + x.shape[1:])
+    step_keys = reshape_keys(jnp.stack(step_keys))
     opt_states = ActorCriticOptStates(actor_opt_state, critic_opt_state)
-    replicate_learner = (params, opt_states, hstates, step_keys, dones)
+    replicate_learner = (params, opt_states, hstates, dones)
 
     # Duplicate learner for update_batch_size.
     broadcast = lambda x: jnp.broadcast_to(x, (config.system.update_batch_size,) + x.shape)
@@ -555,7 +558,7 @@ def learner_setup(
     replicate_learner = flax.jax_utils.replicate(replicate_learner, devices=jax.devices())
 
     # Initialise learner state.
-    params, opt_states, hstates, step_keys, dones = replicate_learner
+    params, opt_states, hstates, dones = replicate_learner
     init_learner_state = RNNLearnerState(
         params=params,
         opt_states=opt_states,
@@ -574,6 +577,7 @@ def run_experiment(_config: DictConfig) -> float:
 
     # Calculate total timesteps.
     n_devices = len(jax.devices())
+    config.num_devices = n_devices
     config = check_total_timesteps(config)
     assert (
         config.arch.num_updates > config.arch.num_evaluation

@@ -305,9 +305,12 @@ def learner_setup(
         params = restored_params
 
     # Define params to be replicated across devices and batches.
-    key, step_keys = jax.random.split(key)
+    key, step_key = jax.random.split(key)
+    step_keys = jax.random.split(step_key, n_devices * config.system.update_batch_size)
+    reshape_keys = lambda x: x.reshape((n_devices, config.system.update_batch_size) + x.shape[1:])
+    step_keys = reshape_keys(jnp.stack(step_keys))
     opt_states = ActorCriticOptStates(actor_opt_state, critic_opt_state)
-    replicate_learner = (params, opt_states, step_keys)
+    replicate_learner = (params, opt_states)
 
     # Duplicate learner for update_batch_size.
     broadcast = lambda x: jnp.broadcast_to(x, (config.system.update_batch_size,) + x.shape)
@@ -317,7 +320,7 @@ def learner_setup(
     replicate_learner = flax.jax_utils.replicate(replicate_learner, devices=jax.devices())
 
     # Initialise learner state.
-    params, opt_states, step_keys = replicate_learner
+    params, opt_states = replicate_learner
     init_learner_state = LearnerState(params, opt_states, step_keys, env_states, timesteps)
 
     return learn, actor_network, init_learner_state
@@ -329,6 +332,7 @@ def run_experiment(_config: DictConfig) -> float:
 
     # Calculate total timesteps.
     n_devices = len(jax.devices())
+    config.num_devices = n_devices
     config = check_total_timesteps(config)
     assert (
         config.arch.num_updates > config.arch.num_evaluation
