@@ -55,7 +55,7 @@ class RecordEpisodeMetrics(Wrapper):
         not_done = 1 - done
 
         # Counting episode return and length.
-        new_episode_return = state.running_count_episode_return + jnp.mean(timestep.reward)
+        new_episode_return = state.running_count_episode_return + timestep.reward
         new_episode_length = state.running_count_episode_length + 1
 
         # Previous episode return/length until done and then the next episode return.
