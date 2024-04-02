@@ -9,7 +9,7 @@ epochs: 1 # Number of sgd steps per rollout.
 warmup_steps: 16  # Number of steps to collect before training.
 total_buffer_size: 50_000 # Total effective size of the replay buffer across all devices. This means each device has a buffer of size buffer_size/num_devices. This must be divisible by num_devices.
 total_batch_size: 256 # Total effective number of samples to train on. This means each device has a batch size of batch_size/num_devices. This must be divisible by num_devices.
-q_lr: 1e-4  # the learning rate of the Q network network optimizer
+q_lr: 1e-5  # the learning rate of the Q network network optimizer
 tau: 0.005  # smoothing coefficient for target networks
 gamma: 0.99  # discount factor
 max_grad_norm: 0.5 # Maximum norm of the gradients for a weight update.
