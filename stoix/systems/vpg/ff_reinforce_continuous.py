@@ -29,7 +29,7 @@ from stoix.utils import make_env as environments
 from stoix.utils.checkpointing import Checkpointer
 from stoix.utils.jax_utils import unreplicate_batch_dim, unreplicate_n_dims
 from stoix.utils.logger import LogEvent, StoixLogger
-from stoix.utils.multistep import batch_n_step_bootstrapped_returns
+from stoix.utils.multistep import batch_discounted_returns
 from stoix.utils.total_timestep_checker import check_total_timesteps
 from stoix.utils.training import make_learning_rate
 from stoix.wrappers.episode_metrics import get_final_step_metrics
@@ -86,9 +86,7 @@ def get_learner_fn(
         v_t = jnp.concatenate([traj_batch.value, last_val[..., jnp.newaxis]], axis=-1)[:, 1:]
         d_t = 1.0 - traj_batch.done.astype(jnp.float32)
         d_t = (d_t * config.system.gamma).astype(jnp.float32)
-        monte_carlo_returns = batch_n_step_bootstrapped_returns(
-            r_t, d_t, v_t, config.system.rollout_length
-        )
+        monte_carlo_returns = batch_discounted_returns(r_t, d_t, v_t, True, False)
 
         def _actor_loss_fn(
             actor_params: FrozenDict,
