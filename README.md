@@ -17,6 +17,7 @@
 <a  href="http://mypy-lang.org/">
     <img src="https://www.mypy-lang.org/static/mypy_badge.svg" alt="MyPy" />
 </a>
+<a href="https://zenodo.org/doi/10.5281/zenodo.10916257"><img src="https://zenodo.org/badge/758685996.svg" alt="DOI"></a>
 </div>
 
 <h2 align="center">
