@@ -1,9 +1,10 @@
 cff-version: 1.2.0
-message: "If you use this library, please cite it as below."
+message: "If you use this software, please cite it as below."
 authors:
 - family-names: Toledo
   given-names: Edan
-orcid: https://orcid.org/0000-0000-0000-0000
 title:EdanToledo/Stoix: v0.0.1
 version: v0.0.1
 date-released: 2024-04-04
+doi: 10.5281/zenodo.10916258
+url: "https://github.com/EdanToledo/Stoix"
