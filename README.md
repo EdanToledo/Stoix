@@ -146,11 +146,14 @@ Please do follow along as we develop this next phase!
 If you use Stoix in your work, please cite us:
 
 ```bibtex
-@misc{toledo2024stoix,
-    title={Stoix: Distributed Single-Agent Reinforcement Learning in JAX},
-    author={Edan Toledo},
-    year={2024},
-    url={https://github.com/EdanToledo/Stoix/},
+@software{toledo2024stoix,
+author = {Toledo, Edan},
+doi = {10.5281/zenodo.10916258},
+month = apr,
+title = {{Stoix}},
+url = {https://github.com/EdanToledo/Stoix},
+version = {v0.0.1},
+year = {2024}
 }
 ```
 
