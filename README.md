@@ -151,7 +151,7 @@ If you use Stoix in your work, please cite us:
 author = {Toledo, Edan},
 doi = {10.5281/zenodo.10916258},
 month = apr,
-title = {{Stoix}},
+title = {{Stoix: Distributed Single-Agent Reinforcement Learning End-to-End in JAX}},
 url = {https://github.com/EdanToledo/Stoix},
 version = {v0.0.1},
 year = {2024}
