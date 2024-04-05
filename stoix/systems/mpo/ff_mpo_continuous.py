@@ -177,7 +177,7 @@ def get_learner_fn(
                     seed=key, sample_shape=config.system.num_samples
                 )
                 target_sampled_q_values = jax.vmap(q_apply_fn, in_axes=(None, None, 0))(
-                    target_q_params, reshaped_obs, target_sampled_actions
+                    target_q_params, reshaped_obs, target_sampled_actions.clip(config.system.action_minimum, config.system.action_maximum)
                 )
 
                 # Compute the policy and dual loss.
@@ -212,7 +212,7 @@ def get_learner_fn(
                 target_actor_policy = actor_apply_fn(
                     target_actor_params, sequences.obs
                 )  # [B, T, ...]
-                online_q_t = q_apply_fn(online_q_params, sequences.obs, sequence.action)  # [B, T]
+                online_q_t = q_apply_fn(online_q_params, sequences.obs, sequence.action.clip(config.system.action_minimum, config.system.action_maximum))  # [B, T]
 
                 # Cast and clip rewards.
                 discount = 1.0 - sequence.done.astype(jnp.float32)
@@ -240,7 +240,7 @@ def get_learner_fn(
 
                 # Compute the Q-values for the next state-action pairs; [N, B, T].
                 q_values = jax.vmap(q_apply_fn, in_axes=(None, None, 0))(
-                    target_q_params, sequences.obs, a_evaluation
+                    target_q_params, sequences.obs, a_evaluation.clip(config.system.action_minimum, config.system.action_maximum)
                 )
 
                 # When policy_eval_stochastic == True, this corresponds to expected SARSA.
@@ -253,7 +253,7 @@ def get_learner_fn(
 
                     # Compute target Q-values
                     target_q_t = q_apply_fn(
-                        target_q_params, sequences.obs, sequences.action
+                        target_q_params, sequences.obs, sequences.action.clip(config.system.action_minimum, config.system.action_maximum)
                     )  # [B, T]
 
                     # Compute retrace targets.
