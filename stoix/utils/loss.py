@@ -15,7 +15,6 @@ def ppo_loss(
     pi_log_prob_t: chex.Array, b_pi_log_prob_t: chex.Array, gae_t: chex.Array, epsilon: float
 ) -> chex.Array:
     ratio = jnp.exp(pi_log_prob_t - b_pi_log_prob_t)
-    gae_t = (gae_t - gae_t.mean()) / (gae_t.std() + 1e-8)
     loss_actor1 = ratio * gae_t
     loss_actor2 = (
         jnp.clip(
@@ -38,7 +37,6 @@ def dpo_loss(
     beta: float,
 ) -> chex.Array:
     log_diff = pi_log_prob_t - b_pi_log_prob_t
-    gae_t = (gae_t - gae_t.mean()) / (gae_t.std() + 1e-8)
     ratio = jnp.exp(log_diff)
     is_pos = (gae_t >= 0.0).astype(jnp.float32)
     r1 = ratio - 1.0

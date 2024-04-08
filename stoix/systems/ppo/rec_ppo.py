@@ -176,7 +176,12 @@ def get_learner_fn(
         d_t = 1.0 - traj_batch.done.astype(jnp.float32)
         d_t = (d_t * config.system.gamma).astype(jnp.float32)
         advantages, targets = batch_truncated_generalized_advantage_estimation(
-            r_t, d_t, config.system.gae_lambda, v_t, time_major=True
+            r_t,
+            d_t,
+            config.system.gae_lambda,
+            v_t,
+            time_major=True,
+            standardize_advantages=config.system.standardize_advantages,
         )
 
         def _update_epoch(update_state: Tuple, _: Any) -> Tuple:
