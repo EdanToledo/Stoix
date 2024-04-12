@@ -506,8 +506,7 @@ def get_learner_fn(
 def parse_search_method(config: DictConfig) -> Any:
     """Parse search method from config."""
     if config.system.search_method.lower() == "muzero":
-        # We turn off the dirichlet noise for the Sampled MuZero search method
-        search_method = functools.partial(mctx.muzero_policy, dirichlet_fraction=0.0)
+        search_method = mctx.muzero_policy
     elif config.system.search_method.lower() == "gumbel":
         search_method = mctx.gumbel_muzero_policy
     else:
