@@ -16,7 +16,7 @@ from jaxmarl.registration import registered_envs as jaxmarl_environments
 from jumanji.env import Environment
 from jumanji.registration import _REGISTRY as JUMANJI_REGISTRY
 from jumanji.specs import BoundedArray, MultiDiscreteArray
-from jumanji.wrappers import MultiToSingleWrapper
+from jumanji.wrappers import AutoResetWrapper, MultiToSingleWrapper
 from omegaconf import DictConfig
 from xminigrid.registration import _REGISTRY as XMINIGRID_REGISTRY
 
@@ -26,7 +26,6 @@ from stoix.wrappers.brax import BraxJumanjiWrapper
 from stoix.wrappers.jaxmarl import JaxMarlWrapper, MabraxWrapper, SmaxWrapper
 from stoix.wrappers.jumanji import MultiBoundedToBounded, MultiDiscreteToDiscrete
 from stoix.wrappers.pgx import PGXWrapper
-from stoix.wrappers.truncation import TruncationAutoResetWrapper
 from stoix.wrappers.xminigrid import XMiniGridWrapper
 
 
@@ -63,7 +62,7 @@ def make_jumanji_env(
         config.env.multi_agent,
     )
 
-    env = TruncationAutoResetWrapper(env)
+    env = AutoResetWrapper(env, next_obs_in_extras=True)
     env = RecordEpisodeMetrics(env)
 
     return env, eval_env
@@ -88,7 +87,7 @@ def make_gymnax_env(env_name: str, config: DictConfig) -> Tuple[Environment, Env
     env = GymnaxWrapper(env, env_params)
     eval_env = GymnaxWrapper(eval_env, eval_env_params)
 
-    env = TruncationAutoResetWrapper(env)
+    env = AutoResetWrapper(env)
     env = RecordEpisodeMetrics(env)
 
     return env, eval_env
@@ -115,7 +114,7 @@ def make_xland_minigrid_env(env_name: str, config: DictConfig) -> Tuple[Environm
     env = XMiniGridWrapper(env, env_params, config.env.flatten_observation)
     eval_env = XMiniGridWrapper(eval_env, eval_env_params, config.env.flatten_observation)
 
-    env = TruncationAutoResetWrapper(env)
+    env = AutoResetWrapper(env, next_obs_in_extras=True)
     env = RecordEpisodeMetrics(env)
 
     return env, eval_env
@@ -139,9 +138,10 @@ def make_brax_env(env_name: str, config: DictConfig) -> Tuple[Environment, Envir
 
     eval_env = brax_make(env_name, auto_reset=False, **config.env.kwargs)
 
-    env = BraxJumanjiWrapper(env, auto_reset=True)
-    eval_env = BraxJumanjiWrapper(eval_env, auto_reset=False)
+    env = BraxJumanjiWrapper(env)
+    eval_env = BraxJumanjiWrapper(eval_env)
 
+    env = AutoResetWrapper(env, next_obs_in_extras=True)
     env = RecordEpisodeMetrics(env)
 
     return env, eval_env
@@ -192,7 +192,7 @@ def make_jaxmarl_env(
     else:
         raise ValueError(f"Unsupported action spec for JAXMarl {env.action_spec()}.")
 
-    env = TruncationAutoResetWrapper(env)
+    env = AutoResetWrapper(env, next_obs_in_extras=True)
     env = RecordEpisodeMetrics(env)
 
     return env, eval_env
@@ -236,7 +236,7 @@ def make_craftax_env(env_name: str, config: DictConfig) -> Tuple[Environment, En
     env = GymnaxWrapper(env, env_params)
     eval_env = GymnaxWrapper(eval_env, eval_env_params)
 
-    env = TruncationAutoResetWrapper(env)
+    env = AutoResetWrapper(env, next_obs_in_extras=True)
     env = RecordEpisodeMetrics(env)
 
     return env, eval_env
@@ -260,7 +260,7 @@ def make_debug_env(env_name: str, config: DictConfig) -> Tuple[Environment, Envi
         env = SequenceGame(**config.env.kwargs)
         eval_env = SequenceGame(**config.env.kwargs)
 
-    env = TruncationAutoResetWrapper(env)
+    env = AutoResetWrapper(env, next_obs_in_extras=True)
     env = RecordEpisodeMetrics(env)
 
     return env, eval_env
@@ -306,7 +306,7 @@ def make_pgx_env(env_name: str, config: DictConfig) -> Tuple[Environment, Enviro
     env = PGXWrapper(env)
     eval_env = PGXWrapper(eval_env)
 
-    env = TruncationAutoResetWrapper(env)
+    env = AutoResetWrapper(env, next_obs_in_extras=True)
     env = RecordEpisodeMetrics(env)
 
     return env, eval_env
