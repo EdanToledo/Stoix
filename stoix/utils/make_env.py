@@ -87,7 +87,7 @@ def make_gymnax_env(env_name: str, config: DictConfig) -> Tuple[Environment, Env
     env = GymnaxWrapper(env, env_params)
     eval_env = GymnaxWrapper(eval_env, eval_env_params)
 
-    env = AutoResetWrapper(env)
+    env = AutoResetWrapper(env, next_obs_in_extras=True)
     env = RecordEpisodeMetrics(env)
 
     return env, eval_env
