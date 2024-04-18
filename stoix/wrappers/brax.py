@@ -97,7 +97,7 @@ class BraxJumanjiWrapper(BraxWrapper):
         discount = jnp.where(prev_truncated | prev_terminated, 0.0, discount)
 
         # If terminated or truncated step type is last, otherwise mid
-        step_type = jnp.where(terminated, StepType.LAST, StepType.MID)
+        step_type = jnp.where(terminated | truncated, StepType.LAST, StepType.MID)
 
         next_timestep = TimeStep(
             step_type=step_type,

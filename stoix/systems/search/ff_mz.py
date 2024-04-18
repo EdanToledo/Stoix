@@ -184,7 +184,7 @@ def get_warmup_fn(
 
         # Add the trajectory to the buffer.
         # Swap the batch and time axes.
-        traj_batch = jax.tree_map(lambda x: jnp.swapaxes(x, 0, 1), traj_batch)
+        traj_batch = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), traj_batch)
         buffer_states = buffer_add_fn(buffer_states, traj_batch)
 
         return env_states, timesteps, keys, buffer_states
@@ -267,7 +267,7 @@ def get_learner_fn(
 
         # Add the trajectory to the buffer.
         # Swap the batch and time axes.
-        traj_batch = jax.tree_map(lambda x: jnp.swapaxes(x, 0, 1), traj_batch)
+        traj_batch = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), traj_batch)
         buffer_state = buffer_add_fn(buffer_state, traj_batch)
 
         def _update_epoch(update_state: Tuple, _: Any) -> Tuple:
@@ -349,7 +349,9 @@ def get_learner_fn(
                         "entropy": entropy_loss,
                     }
                     # UPDATE LOSS
-                    total_loss = jax.tree_map(lambda x, y: x + y.mean(), total_loss, curr_loss)
+                    total_loss = jax.tree_util.tree_map(
+                        lambda x, y: x + y.mean(), total_loss, curr_loss
+                    )
                     # Update the mask - This is to ensure that the loss is
                     # not updated for any steps after the episode is done
                     mask = mask * (1.0 - done.astype(jnp.float32))
@@ -363,7 +365,7 @@ def get_learner_fn(
                     sequence.done[:, :-1],
                 )  # B, T
 
-                targets = jax.tree_map(lambda x: jnp.swapaxes(x, 0, 1), targets)  # T, B
+                targets = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), targets)  # T, B
                 init_total_loss = {
                     "actor": jnp.array(0.0),
                     "value": jnp.array(0.0),
@@ -376,7 +378,7 @@ def get_learner_fn(
                 )
                 # Divide by the number of unrolled steps to ensure a consistent scale
                 # across different unroll lengths
-                losses = jax.tree_map(
+                losses = jax.tree_util.tree_map(
                     lambda x: x / (config.system.sample_sequence_length - 1), losses
                 )
 
@@ -670,8 +672,8 @@ def learner_setup(
         (n_devices, config.system.update_batch_size, config.arch.num_envs) + x.shape[1:]
     )
     # (devices, update batch size, num_envs, ...)
-    env_states = jax.tree_map(reshape_states, env_states)
-    timesteps = jax.tree_map(reshape_states, timesteps)
+    env_states = jax.tree_util.tree_map(reshape_states, env_states)
+    timesteps = jax.tree_util.tree_map(reshape_states, timesteps)
 
     # Load model from checkpoint if specified.
     if config.logger.checkpointing.load_model:
@@ -696,7 +698,7 @@ def learner_setup(
 
     # Duplicate learner for update_batch_size.
     broadcast = lambda x: jnp.broadcast_to(x, (config.system.update_batch_size,) + x.shape)
-    replicate_learner = jax.tree_map(broadcast, replicate_learner)
+    replicate_learner = jax.tree_util.tree_map(broadcast, replicate_learner)
 
     # Duplicate learner across devices.
     replicate_learner = flax.jax_utils.replicate(replicate_learner, devices=jax.devices())

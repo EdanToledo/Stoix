@@ -112,12 +112,14 @@ def get_learner_fn(
             env_state, timestep = jax.vmap(env.step, in_axes=(0, 0))(env_state, action)
 
             # log episode return and length
-            done = timestep.last().reshape(-1)
+            done = (timestep.discount == 0.0).reshape(-1)
+            truncated = (timestep.last() & (timestep.discount != 0.0)).reshape(-1)
             info = timestep.extras["episode_metrics"]
 
             hstates = HiddenStates(policy_hidden_state, critic_hidden_state)
             transition = RNNPPOTransition(
                 done,
+                truncated,
                 action,
                 value,
                 timestep.reward,
@@ -182,6 +184,7 @@ def get_learner_fn(
             v_t,
             time_major=True,
             standardize_advantages=config.system.standardize_advantages,
+            truncation_flags=traj_batch.truncated,
         )
 
         def _update_epoch(update_state: Tuple, _: Any) -> Tuple:
@@ -206,7 +209,7 @@ def get_learner_fn(
                     # RERUN NETWORK
 
                     obs_and_done = (traj_batch.obs, traj_batch.done)
-                    policy_hidden_state = jax.tree_map(
+                    policy_hidden_state = jax.tree_util.tree_map(
                         lambda x: x[0], traj_batch.hstates.policy_hidden_state
                     )
                     _, actor_policy = actor_apply_fn(
@@ -230,7 +233,7 @@ def get_learner_fn(
                     """Calculate the critic loss."""
                     # RERUN NETWORK
                     obs_and_done = (traj_batch.obs, traj_batch.done)
-                    critic_hidden_state = jax.tree_map(
+                    critic_hidden_state = jax.tree_util.tree_map(
                         lambda x: x[0], traj_batch.hstates.critic_hidden_state
                     )
                     _, value = critic_apply_fn(critic_params, critic_hidden_state, obs_and_done)
@@ -540,8 +543,8 @@ def learner_setup(
         (n_devices, config.system.update_batch_size, config.arch.num_envs) + x.shape[1:]
     )
     # (devices, update batch size, num_envs, ...)
-    env_states = jax.tree_map(reshape_states, env_states)
-    timesteps = jax.tree_map(reshape_states, timesteps)
+    env_states = jax.tree_util.tree_map(reshape_states, env_states)
+    timesteps = jax.tree_util.tree_map(reshape_states, timesteps)
 
     # Define params to be replicated across devices and batches.
     dones = jnp.zeros(
@@ -557,7 +560,7 @@ def learner_setup(
 
     # Duplicate learner for update_batch_size.
     broadcast = lambda x: jnp.broadcast_to(x, (config.system.update_batch_size,) + x.shape)
-    replicate_learner = jax.tree_map(broadcast, replicate_learner)
+    replicate_learner = jax.tree_util.tree_map(broadcast, replicate_learner)
 
     # Duplicate learner across devices.
     replicate_learner = flax.jax_utils.replicate(replicate_learner, devices=jax.devices())

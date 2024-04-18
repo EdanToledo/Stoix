@@ -31,7 +31,7 @@ def get_search_evaluator_fn(
 
             # Select action.
             key, root_key, policy_key = jax.random.split(key, num=3)
-            obs, model_env_state = jax.tree_map(
+            obs, model_env_state = jax.tree_util.tree_map(
                 lambda x: x[jnp.newaxis, ...], (last_timestep.observation, env_state)
             )
             root = root_fn(params, obs, model_env_state, root_key)
