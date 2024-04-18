@@ -35,11 +35,16 @@ from stoix.systems.q_learning.dqn_types import QsAndTarget
 from stoix.systems.sac.sac_types import ContinuousQApply
 from stoix.utils import make_env as environments
 from stoix.utils.checkpointing import Checkpointer
-from stoix.utils.jax_utils import unreplicate_batch_dim, unreplicate_n_dims
+from stoix.utils.jax_utils import (
+    merge_leading_dims,
+    unreplicate_batch_dim,
+    unreplicate_n_dims,
+)
 from stoix.utils.logger import LogEvent, StoixLogger
 from stoix.utils.multistep import (
     batch_n_step_bootstrapped_returns,
     batch_retrace_continuous,
+    batch_truncated_generalized_advantage_estimation,
 )
 from stoix.utils.total_timestep_checker import check_total_timesteps
 from stoix.utils.training import make_learning_rate
@@ -72,11 +77,12 @@ def get_warmup_fn(
             env_state, timestep = jax.vmap(env.step, in_axes=(0, 0))(env_state, action)
 
             # LOG EPISODE METRICS
-            done = timestep.last().reshape(-1)
+            done = (timestep.discount == 0.0).reshape(-1)
+            truncated = (timestep.last() & (timestep.discount != 0.0)).reshape(-1)
             info = timestep.extras["episode_metrics"]
 
             sequence_step = SequenceStep(
-                last_timestep.observation, action, timestep.reward, done, log_prob, info
+                last_timestep.observation, action, timestep.reward, done, truncated, log_prob, info
             )
 
             return (env_state, timestep, key), sequence_step
@@ -131,11 +137,12 @@ def get_learner_fn(
             env_state, timestep = jax.vmap(env.step, in_axes=(0, 0))(env_state, action)
 
             # LOG EPISODE METRICS
-            done = timestep.last().reshape(-1)
+            done = (timestep.discount == 0.0).reshape(-1)
+            truncated = (timestep.last() & (timestep.discount != 0.0)).reshape(-1)
             info = timestep.extras["episode_metrics"]
 
             sequence_step = SequenceStep(
-                last_timestep.observation, action, timestep.reward, done, log_prob, info
+                last_timestep.observation, action, timestep.reward, done, truncated, log_prob, info
             )
 
             learner_state = MPOLearnerState(
@@ -168,7 +175,7 @@ def get_learner_fn(
             ) -> chex.Array:
                 # Reshape the observations to [B*T, ...].
                 reshaped_obs = jax.tree_util.tree_map(
-                    lambda x: jnp.reshape(x, (-1,) + x.shape[2:]), sequence.obs
+                    lambda x: merge_leading_dims(x, 2), sequence.obs
                 )
 
                 online_actor_policy = actor_apply_fn(online_actor_params, reshaped_obs)
@@ -288,7 +295,7 @@ def get_learner_fn(
                         config.system.retrace_lambda,
                     )
                     q_loss = rlax.l2_loss(retrace_error).mean()
-                else:
+                elif config.system.use_n_step_bootstrap:
                     n_step_value_target = batch_n_step_bootstrapped_returns(
                         r_t[:, :-1],
                         d_t[:, :-1],
@@ -296,6 +303,17 @@ def get_learner_fn(
                         config.system.n_step_for_sequence_bootstrap,
                     )
                     td_error = online_q_t[:, :-1] - n_step_value_target
+                    q_loss = rlax.l2_loss(td_error).mean()
+                else:
+                    _, gae_value_target = batch_truncated_generalized_advantage_estimation(
+                        r_t[:, :-1],
+                        d_t[:, :-1],
+                        config.system.gae_lambda,
+                        v_t,
+                        time_major=False,
+                        truncation_flags=sequence.truncated[:, :-1],
+                    )
+                    td_error = online_q_t[:, :-1] - gae_value_target
                     q_loss = rlax.l2_loss(td_error).mean()
 
                 loss_info = {
@@ -534,6 +552,7 @@ def learner_setup(
         action=jnp.zeros((action_dim), dtype=float),
         reward=jnp.zeros((), dtype=float),
         done=jnp.zeros((), dtype=bool),
+        truncated=jnp.zeros((), dtype=bool),
         log_prob=jnp.zeros((), dtype=float),
         info={"episode_return": 0.0, "episode_length": 0, "is_terminal_step": False},
     )

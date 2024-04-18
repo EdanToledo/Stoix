@@ -31,6 +31,8 @@ action_penalization: True # whether to use a KL constraint to penalize actions v
 epsilon_penalty: 0.001 # KL constraint on the probability of violating the action constraint.
 stochastic_policy_eval: True # whether to use a stochastic policy for Q function target evaluation.
 use_online_policy_to_bootstrap: False # whether to use the online policy to bootstrap the Q function targets.
-use_retrace : True # whether to use the retrace algorithm for off-policy correction.
+use_retrace : False # whether to use the retrace algorithm for off-policy correction.
 retrace_lambda : 0.95 # the retrace lambda parameter.
-n_step_for_sequence_bootstrap : 5 # the number of steps to use for the sequence bootstrap. This is only used if use_retrace is False.
+use_n_step_bootstrap : False # whether to use n-step bootstrapping for the Q function targets.
+n_step_for_sequence_bootstrap : 5 # the number of steps to use for the sequence bootstrap. This is only used if use_retrace is False and use_n_step_bootstrap is True.
+gae_lambda : 0.95 # the GAE lambda parameter. This is only used if use_retrace is False and use_n_step_bootstrap is False.
