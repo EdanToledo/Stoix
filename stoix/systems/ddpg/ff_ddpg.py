@@ -93,10 +93,10 @@ def get_warmup_fn(
             # LOG EPISODE METRICS
             done = timestep.last().reshape(-1)
             info = timestep.extras["episode_metrics"]
-            real_next_obs = timestep.extras["real_next_obs"]
+            next_obs = timestep.extras["next_obs"]
 
             transition = Transition(
-                last_timestep.observation, action, timestep.reward, done, real_next_obs, info
+                last_timestep.observation, action, timestep.reward, done, next_obs, info
             )
 
             return (env_state, timestep, key), transition
@@ -152,10 +152,10 @@ def get_learner_fn(
             # LOG EPISODE METRICS
             done = timestep.last().reshape(-1)
             info = timestep.extras["episode_metrics"]
-            real_next_obs = timestep.extras["real_next_obs"]
+            next_obs = timestep.extras["next_obs"]
 
             transition = Transition(
-                last_timestep.observation, action, timestep.reward, done, real_next_obs, info
+                last_timestep.observation, action, timestep.reward, done, next_obs, info
             )
 
             learner_state = DDPGLearnerState(
@@ -184,7 +184,11 @@ def get_learner_fn(
             ) -> jnp.ndarray:
 
                 q_tm1 = q_apply_fn(q_params, transitions.obs, transitions.action)
-                next_action = actor_apply_fn(target_actor_params, transitions.next_obs).mode()
+                next_action = (
+                    actor_apply_fn(target_actor_params, transitions.next_obs)
+                    .mode()
+                    .clip(config.system.action_minimum, config.system.action_maximum)
+                )
                 q_t = q_apply_fn(target_q_params, transitions.next_obs, next_action)
 
                 # Cast and clip rewards.
@@ -208,7 +212,11 @@ def get_learner_fn(
                 transitions: Transition,
             ) -> chex.Array:
                 o_t = transitions.obs
-                a_t = actor_apply_fn(actor_params, o_t).mode()
+                a_t = (
+                    actor_apply_fn(actor_params, o_t)
+                    .mode()
+                    .clip(config.system.action_minimum, config.system.action_maximum)
+                )
                 q_value = q_apply_fn(q_params, o_t, a_t)
 
                 actor_loss = -jnp.mean(q_value)
