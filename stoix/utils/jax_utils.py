@@ -45,7 +45,7 @@ def unreplicate_n_dims(x: chex.ArrayTree, unreplicate_depth: int = 2) -> chex.Ar
     duplication for running multiple updates across devices and in parallel with `vmap`.
     This is typically one axis for device replication, and one for the `update batch size`.
     """
-    return jax.tree_map(lambda x: x[(0,) * unreplicate_depth], x)  # type: ignore
+    return jax.tree_util.tree_map(lambda x: x[(0,) * unreplicate_depth], x)  # type: ignore
 
 
 def unreplicate_batch_dim(x: chex.ArrayTree) -> chex.ArrayTree:
@@ -55,4 +55,4 @@ def unreplicate_batch_dim(x: chex.ArrayTree) -> chex.ArrayTree:
     In stoix's case it is always the second dimension, after the device dimension.
     We simply take element 0 as the params are identical across this dimension.
     """
-    return jax.tree_map(lambda x: x[:, 0, ...], x)  # type: ignore
+    return jax.tree_util.tree_map(lambda x: x[:, 0, ...], x)  # type: ignore

@@ -5,7 +5,7 @@ from flashbax.buffers.trajectory_buffer import BufferState
 from jumanji.types import TimeStep
 from typing_extensions import NamedTuple
 
-from stoix.base_types import LogEnvState
+from stoix.base_types import Done, LogEnvState, Truncated
 from stoix.systems.ppo.ppo_types import ActorCriticOptStates, ActorCriticParams
 
 
@@ -22,5 +22,6 @@ class SequenceStep(NamedTuple):
     obs: chex.ArrayTree
     action: chex.Array
     reward: chex.Array
-    done: chex.Array
+    done: Done
+    truncated: Truncated
     info: Dict

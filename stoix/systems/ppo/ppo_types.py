@@ -6,7 +6,7 @@ from jumanji.types import TimeStep
 from optax._src.base import OptState
 from typing_extensions import NamedTuple
 
-from stoix.base_types import Action, Done, HiddenState, LogEnvState, Value
+from stoix.base_types import Action, Done, HiddenState, LogEnvState, Truncated, Value
 
 
 class ActorCriticParams(NamedTuple):
@@ -56,6 +56,7 @@ class PPOTransition(NamedTuple):
     """Transition tuple for PPO."""
 
     done: Done
+    truncated: Truncated
     action: Action
     value: Value
     reward: chex.Array
@@ -68,6 +69,7 @@ class RNNPPOTransition(NamedTuple):
     """Transition tuple for PPO."""
 
     done: Done
+    truncated: Truncated
     action: Action
     value: Value
     reward: chex.Array

@@ -54,11 +54,11 @@ class StoixLogger:
 
         if event == LogEvent.TRAIN:
             # We only want to log mean losses, max/min/std don't matter.
-            metrics = jax.tree_map(np.mean, metrics)
+            metrics = jax.tree_util.tree_map(np.mean, metrics)
         else:
             # {metric1_name: [metrics], metric2_name: ...} ->
             # {metric1_name: {mean: metric, max: metric, ...}, metric2_name: ...}
-            metrics = jax.tree_map(describe, metrics)
+            metrics = jax.tree_util.tree_map(describe, metrics)
 
         self.logger.log_dict(metrics, t, t_eval, event)
 

@@ -88,7 +88,7 @@ def get_ff_evaluator_fn(
 
             action = act_fn(
                 params,
-                jax.tree_map(lambda x: x[jnp.newaxis, ...], last_timestep.observation),
+                jax.tree_util.tree_map(lambda x: x[jnp.newaxis, ...], last_timestep.observation),
                 policy_key,
             )
 
@@ -249,7 +249,7 @@ def get_rnn_evaluator_fn(
 
         # Initialise hidden state.
         init_hstate = scanned_rnn.initialize_carry(eval_batch)
-        init_hstate = jax.tree_map(lambda x: jnp.expand_dims(x, axis=1), init_hstate)
+        init_hstate = jax.tree_util.tree_map(lambda x: jnp.expand_dims(x, axis=1), init_hstate)
 
         # Initialise dones.
         dones = jnp.zeros(

@@ -65,11 +65,12 @@ def get_warmup_fn(
             env_state, timestep = jax.vmap(env.step, in_axes=(0, 0))(env_state, action)
 
             # LOG EPISODE METRICS
-            done = timestep.last().reshape(-1)
+            done = (timestep.discount == 0.0).reshape(-1)
+            truncated = (timestep.last() & (timestep.discount != 0.0)).reshape(-1)
             info = timestep.extras["episode_metrics"]
 
             sequence_step = SequenceStep(
-                last_timestep.observation, action, timestep.reward, done, info
+                last_timestep.observation, action, timestep.reward, done, truncated, info
             )
 
             return (env_state, timestep, key), sequence_step
@@ -81,7 +82,7 @@ def get_warmup_fn(
 
         # Add the trajectory to the buffer.
         # Swap the batch and time axes.
-        traj_batch = jax.tree_map(lambda x: jnp.swapaxes(x, 0, 1), traj_batch)
+        traj_batch = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), traj_batch)
         buffer_states = buffer_add_fn(buffer_states, traj_batch)
 
         return env_states, timesteps, keys, buffer_states
@@ -123,11 +124,12 @@ def get_learner_fn(
             env_state, timestep = jax.vmap(env.step, in_axes=(0, 0))(env_state, action)
 
             # LOG EPISODE METRICS
-            done = timestep.last().reshape(-1)
+            done = (timestep.discount == 0.0).reshape(-1)
+            truncated = (timestep.last() & (timestep.discount != 0.0)).reshape(-1)
             info = timestep.extras["episode_metrics"]
 
             sequence_step = SequenceStep(
-                last_timestep.observation, action, timestep.reward, done, info
+                last_timestep.observation, action, timestep.reward, done, truncated, info
             )
 
             learner_state = AWRLearnerState(
@@ -144,7 +146,7 @@ def get_learner_fn(
 
         # Add the trajectory to the buffer.
         # Swap the batch and time axes.
-        traj_batch = jax.tree_map(lambda x: jnp.swapaxes(x, 0, 1), traj_batch)
+        traj_batch = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), traj_batch)
         buffer_state = buffer_add_fn(buffer_state, traj_batch)
 
         def _update_critic_step(update_state: Tuple, _: Any) -> Tuple:
@@ -163,7 +165,7 @@ def get_learner_fn(
 
                 return critic_loss, loss_info
 
-            params, opt_states, buffer_state, key, static_params = update_state
+            params, opt_states, buffer_state, key, static_critic_params = update_state
 
             key, sample_key = jax.random.split(key)
 
@@ -176,7 +178,12 @@ def get_learner_fn(
             r_t = sequence.reward[:, :-1]
             d_t = (1 - sequence.done.astype(jnp.float32)[:, :-1]) * config.system.gamma
             _, target_vals = batch_truncated_generalized_advantage_estimation(
-                r_t, d_t, config.system.gae_lambda, v_t, time_major=False
+                r_t,
+                d_t,
+                config.system.gae_lambda,
+                v_t,
+                time_major=False,
+                truncation_flags=sequence.truncated[:, :-1],
             )
 
             # CALCULATE CRITIC LOSS
@@ -240,7 +247,7 @@ def get_learner_fn(
             sequence_sample = buffer_sample_fn(buffer_state, sample_key)
             sequence: SequenceStep = sequence_sample.experience
 
-            # CALCULATE WEIGHTS USING LATEST STATIC CRITIC
+            # CALCULATE WEIGHTS USING LATEST CRITIC
             v_t = critic_apply_fn(params.critic_params, sequence.obs)
             r_t = sequence.reward[:, :-1]
             d_t = (1 - sequence.done.astype(jnp.float32)[:, :-1]) * config.system.gamma
@@ -251,6 +258,7 @@ def get_learner_fn(
                 v_t,
                 time_major=False,
                 standardize_advantages=config.system.standardize_advantages,
+                truncation_flags=sequence.truncated[:, :-1],
             )
             weights = jnp.exp(advantages / config.system.beta)
             weights = jnp.minimum(weights, config.system.weight_clip)
@@ -404,6 +412,7 @@ def learner_setup(
         action=jnp.zeros((), dtype=int),
         reward=jnp.zeros((), dtype=float),
         done=jnp.zeros((), dtype=bool),
+        truncated=jnp.zeros((), dtype=bool),
         info={"episode_return": 0.0, "episode_length": 0, "is_terminal_step": False},
     )
 
@@ -446,8 +455,8 @@ def learner_setup(
         (n_devices, config.system.update_batch_size, config.arch.num_envs) + x.shape[1:]
     )
     # (devices, update batch size, num_envs, ...)
-    env_states = jax.tree_map(reshape_states, env_states)
-    timesteps = jax.tree_map(reshape_states, timesteps)
+    env_states = jax.tree_util.tree_map(reshape_states, env_states)
+    timesteps = jax.tree_util.tree_map(reshape_states, timesteps)
 
     # Load model from checkpoint if specified.
     if config.logger.checkpointing.load_model:
@@ -472,7 +481,7 @@ def learner_setup(
 
     # Duplicate learner for update_batch_size.
     broadcast = lambda x: jnp.broadcast_to(x, (config.system.update_batch_size,) + x.shape)
-    replicate_learner = jax.tree_map(broadcast, replicate_learner)
+    replicate_learner = jax.tree_util.tree_map(broadcast, replicate_learner)
 
     # Duplicate learner across devices.
     replicate_learner = flax.jax_utils.replicate(replicate_learner, devices=jax.devices())
