@@ -7,15 +7,16 @@ from flax.core.frozen_dict import FrozenDict
 from jumanji.types import TimeStep
 from typing_extensions import NamedTuple
 
-from stoix.base_types import LogEnvState
+from stoix.base_types import Action, Done, LogEnvState, Truncated
 from stoix.systems.q_learning.dqn_types import QsAndTarget
 
 
 class SequenceStep(NamedTuple):
     obs: chex.ArrayTree
-    action: chex.Array
+    action: Action
     reward: chex.Array
-    done: chex.Array
+    done: Done
+    truncated: Truncated
     log_prob: chex.Array
     info: Dict
 
