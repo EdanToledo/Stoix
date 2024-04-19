@@ -243,7 +243,7 @@ def get_learner_fn(
                 }
                 return actor_loss, loss_info
 
-            params, opt_states, buffer_state, key, epoch_counter = update_state
+            params, opt_states, buffer_state, key = update_state
 
             key, sample_key = jax.random.split(key, num=2)
 
@@ -305,31 +305,24 @@ def get_learner_fn(
             q_new_params = QsAndTarget(q_new_online_params, new_target_q_params)
 
             # PACK NEW PARAMS AND OPTIMISER STATE
-            # Delayed policy updates
-            time_to_update = jnp.mod(epoch_counter, config.system.policy_frequency) == 0
-            actor_new_params = jax.lax.cond(
-                time_to_update, lambda _: actor_new_params, lambda _: params.actor_params, None
-            )
             new_params = DDPGParams(actor_new_params, q_new_params)
             new_opt_state = DDPGOptStates(actor_new_opt_state, q_new_opt_state)
 
             # PACK LOSS INFO
             loss_info = {
-                "total_loss": actor_loss_info["actor_loss"] + q_loss_info["q_loss"],
-                "value_loss": q_loss_info["q_loss"],
-                "actor_loss": actor_loss_info["actor_loss"],
+                **actor_loss_info,
+                **q_loss_info,
             }
-            return (new_params, new_opt_state, buffer_state, key, epoch_counter + 1), loss_info
+            return (new_params, new_opt_state, buffer_state, key), loss_info
 
-        epoch_counter = jnp.array(0)
-        update_state = (params, opt_states, buffer_state, key, epoch_counter)
+        update_state = (params, opt_states, buffer_state, key)
 
         # UPDATE EPOCHS
         update_state, loss_info = jax.lax.scan(
             _update_epoch, update_state, None, config.system.epochs
         )
 
-        params, opt_states, buffer_state, key, epoch_counter = update_state
+        params, opt_states, buffer_state, key = update_state
         learner_state = DDPGLearnerState(
             params, opt_states, buffer_state, key, env_state, last_timestep
         )
@@ -398,9 +391,16 @@ def learner_setup(
     actor_lr = make_learning_rate(config.system.actor_lr, config, config.system.epochs)
     q_lr = make_learning_rate(config.system.q_lr, config, config.system.epochs)
 
-    actor_optim = optax.chain(
-        optax.clip_by_global_norm(config.system.max_grad_norm),
-        optax.adam(actor_lr, eps=1e-5),
+    def delayed_policy_update(step_count: int) -> bool:
+        should_update: bool = jnp.mod(step_count, config.system.policy_frequency) == 0
+        return should_update
+
+    actor_optim = optax.maybe_update(
+        optax.chain(
+            optax.clip_by_global_norm(config.system.max_grad_norm),
+            optax.adam(actor_lr, eps=1e-5),
+        ),
+        delayed_policy_update,
     )
     q_optim = optax.chain(
         optax.clip_by_global_norm(config.system.max_grad_norm),

@@ -249,7 +249,11 @@ def get_learner_fn(
                 entropy = actor_policy.entropy().mean()
 
                 total_loss_actor = actor_loss - config.system.ent_coef * entropy
-                return total_loss_actor, (actor_loss, entropy)
+                loss_info = {
+                    "actor_loss": actor_loss,
+                    "entropy": entropy,
+                }
+                return total_loss_actor, loss_info
 
             def _critic_loss_fn(
                 critic_params: FrozenDict,
@@ -271,7 +275,10 @@ def get_learner_fn(
                 value_loss = rlax.l2_loss(value, targets).mean()
 
                 critic_total_loss = config.system.vf_coef * value_loss
-                return critic_total_loss, (value_loss)
+                loss_info = {
+                    "value_loss": value_loss,
+                }
+                return critic_total_loss, loss_info
 
             params, opt_states, buffer_state, key = update_state
 
@@ -282,12 +289,12 @@ def get_learner_fn(
             sequence: ExItTransition = sequence_sample.experience
 
             # CALCULATE ACTOR LOSS
-            actor_grad_fn = jax.value_and_grad(_actor_loss_fn, has_aux=True)
-            actor_loss_info, actor_grads = actor_grad_fn(params.actor_params, sequence)
+            actor_grad_fn = jax.grad(_actor_loss_fn, has_aux=True)
+            actor_grads, actor_loss_info = actor_grad_fn(params.actor_params, sequence)
 
             # CALCULATE CRITIC LOSS
-            critic_grad_fn = jax.value_and_grad(_critic_loss_fn, has_aux=True)
-            critic_loss_info, critic_grads = critic_grad_fn(params.critic_params, sequence)
+            critic_grad_fn = jax.grad(_critic_loss_fn, has_aux=True)
+            critic_grads, critic_loss_info = critic_grad_fn(params.critic_params, sequence)
 
             # Compute the parallel mean (pmean) over the batch.
             # This calculation is inspired by the Anakin architecture demo notebook.
@@ -326,15 +333,9 @@ def get_learner_fn(
             new_opt_state = ActorCriticOptStates(actor_new_opt_state, critic_new_opt_state)
 
             # PACK LOSS INFO
-            total_loss = actor_loss_info[0] + critic_loss_info[0]
-            value_loss = critic_loss_info[1]
-            actor_loss = actor_loss_info[1][0]
-            entropy = actor_loss_info[1][1]
             loss_info = {
-                "total_loss": total_loss,
-                "value_loss": value_loss,
-                "actor_loss": actor_loss,
-                "entropy": entropy,
+                **actor_loss_info,
+                **critic_loss_info,
             }
             return (new_params, new_opt_state, buffer_state, key), loss_info
 

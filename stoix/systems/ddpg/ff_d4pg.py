@@ -302,9 +302,8 @@ def get_learner_fn(
 
             # PACK LOSS INFO
             loss_info = {
-                "total_loss": actor_loss_info["actor_loss"] + q_loss_info["q_loss"],
-                "value_loss": q_loss_info["q_loss"],
-                "actor_loss": actor_loss_info["actor_loss"],
+                **actor_loss_info,
+                **q_loss_info,
             }
             return (new_params, new_opt_state, buffer_state, key), loss_info
 
