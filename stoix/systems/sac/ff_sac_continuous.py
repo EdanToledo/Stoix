@@ -17,19 +17,18 @@ from jumanji.types import TimeStep
 from omegaconf import DictConfig, OmegaConf
 from rich.pretty import pprint
 
-from stoix.base_types import (
-    ActorApply,
-    CriticApply,
-    ExperimentOutput,
-    LearnerFn,
-    LogEnvState,
-)
+from stoix.base_types import ActorApply, ExperimentOutput, LearnerFn, LogEnvState
 from stoix.evaluator import evaluator_setup, get_distribution_act_fn
+from stoix.networks.base import CompositeNetwork
 from stoix.networks.base import FeedForwardActor as Actor
-from stoix.networks.base import FeedForwardCritic as Critic
 from stoix.networks.base import MultiNetwork
 from stoix.systems.q_learning.dqn_types import QsAndTarget, Transition
-from stoix.systems.sac.sac_types import SACLearnerState, SACOptStates, SACParams
+from stoix.systems.sac.sac_types import (
+    ContinuousQApply,
+    SACLearnerState,
+    SACOptStates,
+    SACParams,
+)
 from stoix.utils import make_env as environments
 from stoix.utils.checkpointing import Checkpointer
 from stoix.utils.jax_utils import unreplicate_batch_dim, unreplicate_n_dims
@@ -93,7 +92,7 @@ def get_warmup_fn(
 
 def get_learner_fn(
     env: Environment,
-    apply_fns: Tuple[ActorApply, CriticApply],
+    apply_fns: Tuple[ActorApply, ContinuousQApply],
     update_fns: Tuple[optax.TransformUpdateFn, optax.TransformUpdateFn, optax.TransformUpdateFn],
     buffer_fns: Tuple[Callable, Callable],
     config: DictConfig,
@@ -150,14 +149,14 @@ def get_learner_fn(
                 log_alpha: chex.Array,
                 actor_params: FrozenDict,
                 transitions: Transition,
+                key: chex.PRNGKey,
             ) -> jnp.ndarray:
                 """Eq 18 from https://arxiv.org/pdf/1812.05905.pdf."""
                 actor_policy = actor_apply_fn(actor_params, transitions.obs)
-                action_probs = jax.lax.stop_gradient(actor_policy.probs_parameter())
-                log_probs = jax.lax.stop_gradient(jax.nn.log_softmax(actor_policy.logits))
-
+                action = actor_policy.sample(seed=key)
+                log_prob = actor_policy.log_prob(action)
                 alpha = jnp.exp(log_alpha)
-                alpha_loss = action_probs * (-alpha * (log_probs + config.system.target_entropy))
+                alpha_loss = -alpha * jax.lax.stop_gradient(log_prob + config.system.target_entropy)
 
                 loss_info = {
                     "alpha_loss": jnp.mean(alpha_loss),
@@ -171,16 +170,14 @@ def get_learner_fn(
                 target_q_params: FrozenDict,
                 alpha: jnp.ndarray,
                 transitions: Transition,
+                key: chex.PRNGKey,
             ) -> jnp.ndarray:
-                batch_indices = jnp.arange(transitions.action.shape[0])
-                a_t = transitions.action
-                q_old_action = q_apply_fn(q_params, transitions.obs)[batch_indices, a_t]
+                q_old_action = q_apply_fn(q_params, transitions.obs, transitions.action)
                 next_actor_policy = actor_apply_fn(actor_params, transitions.next_obs)
-                next_action_probs = next_actor_policy.probs_parameter()
-                next_action_log_probs = jax.nn.log_softmax(next_actor_policy.logits)
-                next_q = q_apply_fn(target_q_params, transitions.next_obs)
-                next_v = jnp.min(next_q, axis=-1) - alpha * next_action_log_probs
-                next_v = jnp.sum(next_action_probs * next_v, axis=-1)
+                next_action = next_actor_policy.sample(seed=key)
+                next_log_prob = next_actor_policy.log_prob(next_action)
+                next_q = q_apply_fn(target_q_params, transitions.next_obs, next_action)
+                next_v = jnp.min(next_q, axis=-1) - alpha * next_log_prob
                 target_q = jax.lax.stop_gradient(
                     transitions.reward + (1.0 - transitions.done) * config.system.gamma * next_v
                 )
@@ -198,23 +195,24 @@ def get_learner_fn(
                 q_params: FrozenDict,
                 alpha: chex.Array,
                 transitions: Transition,
+                key: chex.PRNGKey,
             ) -> chex.Array:
                 actor_policy = actor_apply_fn(actor_params, transitions.obs)
-                action_probs = actor_policy.probs_parameter()
-                log_probs = jax.nn.log_softmax(actor_policy.logits)
-                q_action = q_apply_fn(q_params, transitions.obs)
+                action = actor_policy.sample(seed=key)
+                log_prob = actor_policy.log_prob(action)
+                q_action = q_apply_fn(q_params, transitions.obs, action)
                 min_q = jnp.min(q_action, axis=-1)
-                actor_loss = action_probs * (alpha * log_probs - min_q)
+                actor_loss = alpha * log_prob - min_q
 
                 loss_info = {
                     "actor_loss": jnp.mean(actor_loss),
-                    "entropy": jnp.mean(actor_policy.entropy()),
+                    "entropy": jnp.mean(-log_prob),
                 }
                 return jnp.mean(actor_loss), loss_info
 
             params, opt_states, buffer_state, key = update_state
 
-            key, sample_key = jax.random.split(key)
+            key, sample_key, actor_key, q_key, alpha_key = jax.random.split(key, num=5)
 
             # SAMPLE TRANSITIONS
             transition_sample = buffer_sample_fn(buffer_state, sample_key)
@@ -224,7 +222,7 @@ def get_learner_fn(
             # CALCULATE ACTOR LOSS
             actor_grad_fn = jax.grad(_actor_loss_fn, has_aux=True)
             actor_grads, actor_loss_info = actor_grad_fn(
-                params.actor_params, params.q_params.online, alpha, transitions
+                params.actor_params, params.q_params.online, alpha, transitions, actor_key
             )
 
             # CALCULATE Q LOSS
@@ -235,6 +233,7 @@ def get_learner_fn(
                 params.q_params.target,
                 alpha,
                 transitions,
+                q_key,
             )
 
             # Compute the parallel mean (pmean) over the batch.
@@ -255,7 +254,7 @@ def get_learner_fn(
             if config.system.autotune:
                 alpha_grad_fn = jax.grad(_alpha_loss_fn, has_aux=True)
                 alpha_grads, alpha_loss_info = alpha_grad_fn(
-                    params.log_alpha, params.actor_params, transitions
+                    params.log_alpha, params.actor_params, transitions, alpha_key
                 )
                 alpha_grads, alpha_loss_info = jax.lax.pmean(
                     (alpha_grads, alpha_loss_info), axis_name="batch"
@@ -293,9 +292,14 @@ def get_learner_fn(
 
             # PACK LOSS INFO
             loss_info = {
-                **actor_loss_info,
-                **q_loss_info,
-                **alpha_loss_info,
+                "total_loss": actor_loss_info["actor_loss"]
+                + q_loss_info["q_loss"]
+                + alpha_loss_info["alpha_loss"],
+                "value_loss": q_loss_info["q_loss"],
+                "actor_loss": actor_loss_info["actor_loss"],
+                "entropy": actor_loss_info["entropy"],
+                "alpha_loss": alpha_loss_info["alpha_loss"],
+                "alpha": alpha_loss_info["alpha"],
             }
             return (new_params, new_opt_state, buffer_state, key), loss_info
 
@@ -343,8 +347,10 @@ def learner_setup(
     n_devices = len(jax.devices())
 
     # Get number of actions or action dimension from the environment.
-    action_dim = int(env.action_spec().num_values)
+    action_dim = int(env.action_spec().shape[-1])
     config.system.action_dim = action_dim
+    config.system.action_minimum = float(env.action_spec().minimum)
+    config.system.action_maximum = float(env.action_spec().maximum)
 
     # PRNG keys.
     key, actor_net_key, q_net_key = keys
@@ -354,13 +360,14 @@ def learner_setup(
     actor_action_head = hydra.utils.instantiate(
         config.network.actor_network.action_head,
         action_dim=action_dim,
+        minimum=env.action_spec().minimum,
+        maximum=env.action_spec().maximum,
     )
     actor_network = Actor(torso=actor_torso, action_head=actor_action_head)
+    q_network_input = hydra.utils.instantiate(config.network.q_network.input_layer)
     q_network_torso = hydra.utils.instantiate(config.network.q_network.pre_torso)
-    q_network_head = hydra.utils.instantiate(
-        config.network.q_network.critic_head, output_dim=action_dim
-    )
-    single_q_network = Critic(torso=q_network_torso, critic_head=q_network_head)
+    q_network_head = hydra.utils.instantiate(config.network.q_network.critic_head)
+    single_q_network = CompositeNetwork([q_network_input, q_network_torso, q_network_head])
     double_q_network = MultiNetwork([single_q_network, single_q_network])
 
     actor_lr = make_learning_rate(config.system.actor_lr, config, config.system.epochs)
@@ -378,13 +385,14 @@ def learner_setup(
     # Initialise observation
     init_x = env.observation_spec().generate_value()
     init_x = jax.tree_util.tree_map(lambda x: x[None, ...], init_x)
+    init_a = jnp.zeros((1, action_dim))
 
     # Initialise actor params and optimiser state.
     actor_params = actor_network.init(actor_net_key, init_x)
     actor_opt_state = actor_optim.init(actor_params)
 
     # Initialise q params and optimiser state.
-    online_q_params = double_q_network.init(q_net_key, init_x)
+    online_q_params = double_q_network.init(q_net_key, init_x, init_a)
     target_q_params = online_q_params
     q_opt_state = q_optim.init(online_q_params)
 
@@ -417,7 +425,7 @@ def learner_setup(
     # Create replay buffer
     dummy_transition = Transition(
         obs=jax.tree_util.tree_map(lambda x: x.squeeze(0), init_x),
-        action=jnp.zeros((), dtype=int),
+        action=jnp.zeros((action_dim), dtype=float),
         reward=jnp.zeros((), dtype=float),
         done=jnp.zeros((), dtype=bool),
         next_obs=jax.tree_util.tree_map(lambda x: x.squeeze(0), init_x),
@@ -647,7 +655,9 @@ def run_experiment(_config: DictConfig) -> float:
     return eval_performance
 
 
-@hydra.main(config_path="../../configs", config_name="default_ff_sac.yaml", version_base="1.2")
+@hydra.main(
+    config_path="../../configs", config_name="default_ff_sac_continuous.yaml", version_base="1.2"
+)
 def hydra_entry_point(cfg: DictConfig) -> float:
     """Experiment entry point."""
     # Allow dynamic attributes.
