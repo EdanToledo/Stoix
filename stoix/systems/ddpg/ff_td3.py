@@ -395,12 +395,12 @@ def learner_setup(
         should_update: bool = jnp.mod(step_count, config.system.policy_frequency) == 0
         return should_update
 
-    actor_optim = optax.maybe_update(
+    actor_optim = optax.conditionally_mask(
         optax.chain(
             optax.clip_by_global_norm(config.system.max_grad_norm),
             optax.adam(actor_lr, eps=1e-5),
         ),
-        delayed_policy_update,
+        should_transform_fn=delayed_policy_update,
     )
     q_optim = optax.chain(
         optax.clip_by_global_norm(config.system.max_grad_norm),
