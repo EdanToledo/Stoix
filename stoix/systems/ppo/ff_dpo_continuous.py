@@ -324,8 +324,8 @@ def learner_setup(
     actor_action_head = hydra.utils.instantiate(
         config.network.actor_network.action_head,
         action_dim=num_actions,
-        minimum=env.action_spec().minimum,
-        maximum=env.action_spec().maximum,
+        minimum=config.system.action_minimum,
+        maximum=config.system.action_maximum,
     )
     critic_torso = hydra.utils.instantiate(config.network.critic_network.pre_torso)
     critic_head = hydra.utils.instantiate(config.network.critic_network.critic_head)

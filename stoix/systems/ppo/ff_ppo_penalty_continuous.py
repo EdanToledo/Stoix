@@ -146,19 +146,26 @@ def get_learner_fn(
                     actor_policy = actor_apply_fn(actor_params, traj_batch.obs)
                     log_prob = actor_policy.log_prob(traj_batch.action)
                     behaviour_policy = actor_apply_fn(behaviour_actor_params, traj_batch.obs)
+
                     # CALCULATE ACTOR LOSS
-                    loss_actor = ppo_penalty_loss(
+                    loss_actor, kl_div = ppo_penalty_loss(
                         log_prob,
                         traj_batch.log_prob,
                         gae,
-                        config.system.kl_penalty,
+                        config.system.kl_penalty_coef,
                         actor_policy,
                         behaviour_policy,
                     )
                     entropy = actor_policy.entropy(seed=rng_key).mean()
 
                     total_loss_actor = loss_actor - config.system.ent_coef * entropy
-                    return total_loss_actor, (loss_actor, entropy)
+                    loss_info = {
+                        "actor_loss": loss_actor,
+                        "entropy": entropy,
+                        "kl_divergence": kl_div,
+                    }
+
+                    return total_loss_actor, loss_info
 
                 def _critic_loss_fn(
                     critic_params: FrozenDict,
@@ -175,12 +182,15 @@ def get_learner_fn(
                     )
 
                     critic_total_loss = config.system.vf_coef * value_loss
-                    return critic_total_loss, (value_loss)
+                    loss_info = {
+                        "value_loss": value_loss,
+                    }
+                    return critic_total_loss, loss_info
 
                 # CALCULATE ACTOR LOSS
                 key, actor_loss_key = jax.random.split(key)
-                actor_grad_fn = jax.value_and_grad(_actor_loss_fn, has_aux=True)
-                actor_loss_info, actor_grads = actor_grad_fn(
+                actor_grad_fn = jax.grad(_actor_loss_fn, has_aux=True)
+                actor_grads, actor_loss_info = actor_grad_fn(
                     params.actor_params,
                     traj_batch,
                     advantages,
@@ -188,8 +198,8 @@ def get_learner_fn(
                 )
 
                 # CALCULATE CRITIC LOSS
-                critic_grad_fn = jax.value_and_grad(_critic_loss_fn, has_aux=True)
-                critic_loss_info, critic_grads = critic_grad_fn(
+                critic_grad_fn = jax.grad(_critic_loss_fn, has_aux=True)
+                critic_grads, critic_loss_info = critic_grad_fn(
                     params.critic_params, traj_batch, targets
                 )
 
@@ -230,15 +240,9 @@ def get_learner_fn(
                 new_opt_state = ActorCriticOptStates(actor_new_opt_state, critic_new_opt_state)
 
                 # PACK LOSS INFO
-                total_loss = actor_loss_info[0] + critic_loss_info[0]
-                value_loss = critic_loss_info[1]
-                actor_loss = actor_loss_info[1][0]
-                entropy = actor_loss_info[1][1]
                 loss_info = {
-                    "total_loss": total_loss,
-                    "value_loss": value_loss,
-                    "actor_loss": actor_loss,
-                    "entropy": entropy,
+                    **actor_loss_info,
+                    **critic_loss_info,
                 }
                 return (new_params, new_opt_state, key), loss_info
 
@@ -315,7 +319,7 @@ def learner_setup(
     # Get available TPU cores.
     n_devices = len(jax.devices())
 
-    # Get number of actions.
+    # Get number/dimension of actions.
     num_actions = int(env.action_spec().shape[-1])
     config.system.action_dim = num_actions
     config.system.action_minimum = float(env.action_spec().minimum)
@@ -329,8 +333,8 @@ def learner_setup(
     actor_action_head = hydra.utils.instantiate(
         config.network.actor_network.action_head,
         action_dim=num_actions,
-        minimum=env.action_spec().minimum,
-        maximum=env.action_spec().maximum,
+        minimum=config.system.action_minimum,
+        maximum=config.system.action_maximum,
     )
     critic_torso = hydra.utils.instantiate(config.network.critic_network.pre_torso)
     critic_head = hydra.utils.instantiate(config.network.critic_network.critic_head)

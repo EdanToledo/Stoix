@@ -1,3 +1,5 @@
+from typing import Tuple
+
 import chex
 import jax
 import jax.numpy as jnp
@@ -34,15 +36,15 @@ def ppo_penalty_loss(
     pi_log_prob_t: chex.Array,
     b_pi_log_prob_t: chex.Array,
     gae_t: chex.Array,
-    kl_coefficient: float,
+    beta: float,
     pi: Distribution,
     b_pi: Distribution,
-) -> chex.Array:
+) -> Tuple[chex.Array, chex.Array]:
     ratio = jnp.exp(pi_log_prob_t - b_pi_log_prob_t)
-    loss_actor = -ratio * gae_t
-    kl_penalty = b_pi.kl_divergence(pi)
-    loss_actor = loss_actor.mean() + kl_coefficient * kl_penalty.mean()
-    return loss_actor
+    kl_div = b_pi.kl_divergence(pi).mean()
+    objective = ratio * gae_t - beta * kl_div
+    loss_actor = -objective.mean()
+    return loss_actor, kl_div
 
 
 def dpo_loss(
