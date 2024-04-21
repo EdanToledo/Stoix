@@ -45,7 +45,7 @@ class AffineTanhTransformedDistribution(TransformedDistribution):
         shift = (minimum + maximum) / 2.0
 
         # Chain the bijectors
-        joint_bijector = tfb.Chain([tfb.Chain([tfb.Shift(shift), tfb.Scale(scale)]), tfb.Tanh()])
+        joint_bijector = tfb.Chain([tfb.Shift(shift), tfb.Scale(scale), tfb.Tanh()])
 
         super().__init__(
             distribution=distribution, bijector=joint_bijector, validate_args=validate_args

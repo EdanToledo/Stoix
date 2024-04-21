@@ -3,6 +3,7 @@ import jax
 import jax.numpy as jnp
 import rlax
 import tensorflow_probability.substrates.jax as tfp
+from tensorflow_probability.substrates.jax.distributions import Distribution
 
 tfd = tfp.distributions
 
@@ -11,7 +12,7 @@ tfd = tfp.distributions
 # which is much slower.
 
 
-def ppo_loss(
+def ppo_clip_loss(
     pi_log_prob_t: chex.Array, b_pi_log_prob_t: chex.Array, gae_t: chex.Array, epsilon: float
 ) -> chex.Array:
     ratio = jnp.exp(pi_log_prob_t - b_pi_log_prob_t)
@@ -26,6 +27,21 @@ def ppo_loss(
     )
     loss_actor = -jnp.minimum(loss_actor1, loss_actor2)
     loss_actor = loss_actor.mean()
+    return loss_actor
+
+
+def ppo_penalty_loss(
+    pi_log_prob_t: chex.Array,
+    b_pi_log_prob_t: chex.Array,
+    gae_t: chex.Array,
+    kl_coefficient: float,
+    pi: Distribution,
+    b_pi: Distribution,
+) -> chex.Array:
+    ratio = jnp.exp(pi_log_prob_t - b_pi_log_prob_t)
+    loss_actor = -ratio * gae_t
+    kl_penalty = b_pi.kl_divergence(pi)
+    loss_actor = loss_actor.mean() + kl_coefficient * kl_penalty.mean()
     return loss_actor
 
 
