@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 import chex
 import jax
@@ -6,6 +6,7 @@ import jax.numpy as jnp
 import numpy as np
 import tensorflow_probability.substrates.jax as tfp
 from tensorflow_probability.substrates.jax.distributions import (
+    Beta,
     Categorical,
     Distribution,
     TransformedDistribution,
@@ -90,6 +91,25 @@ class AffineTanhTransformedDistribution(TransformedDistribution):
         td_properties = super()._parameter_properties(dtype, num_classes=num_classes)
         del td_properties["bijector"]
         return td_properties
+
+
+class ClippedBeta(Beta):
+    """Beta distribution with clipped samples."""
+
+    def sample(
+        self,
+        sample_shape: Sequence[int] = (),
+        seed: Optional[chex.PRNGKey] = None,
+        name: str = "sample",
+        **kwargs: Any
+    ) -> chex.Array:
+        _epsilon = 1e-7
+        # Call the original sample method
+        sample = super().sample(sample_shape, seed, name, **kwargs)
+        # Clip the sample to avoid being too close to 0 and 1
+        # This is important for numerical stability
+        clipped_sample = jnp.clip(sample, _epsilon, 1 - _epsilon)
+        return clipped_sample
 
 
 class DiscreteValuedTfpDistribution(Categorical):
