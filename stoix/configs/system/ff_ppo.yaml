@@ -17,3 +17,4 @@ vf_coef: 1.0 # Critic weight in
 max_grad_norm: 0.5 # Maximum norm of the gradients for a weight update.
 decay_learning_rates: False # Whether learning rates should be linearly decayed during training.
 standardize_advantages: True # Whether to standardize the advantages.
+kl_penalty_coef: 3.0 # KL penalty coefficient for PPO updates if using PPO Penalty.

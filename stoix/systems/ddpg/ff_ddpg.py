@@ -356,8 +356,8 @@ def learner_setup(
     )
     action_head_post_processor = hydra.utils.instantiate(
         config.network.actor_network.post_processor,
-        minimum=env.action_spec().minimum,
-        maximum=env.action_spec().maximum,
+        minimum=config.system.action_minimum,
+        maximum=config.system.action_maximum,
         scale_fn=tanh_to_spec,
     )
     actor_action_head = CompositeNetwork([actor_action_head, action_head_post_processor])

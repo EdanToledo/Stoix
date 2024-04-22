@@ -1,8 +1,11 @@
+from typing import Tuple
+
 import chex
 import jax
 import jax.numpy as jnp
 import rlax
 import tensorflow_probability.substrates.jax as tfp
+from tensorflow_probability.substrates.jax.distributions import Distribution
 
 tfd = tfp.distributions
 
@@ -11,7 +14,7 @@ tfd = tfp.distributions
 # which is much slower.
 
 
-def ppo_loss(
+def ppo_clip_loss(
     pi_log_prob_t: chex.Array, b_pi_log_prob_t: chex.Array, gae_t: chex.Array, epsilon: float
 ) -> chex.Array:
     ratio = jnp.exp(pi_log_prob_t - b_pi_log_prob_t)
@@ -27,6 +30,21 @@ def ppo_loss(
     loss_actor = -jnp.minimum(loss_actor1, loss_actor2)
     loss_actor = loss_actor.mean()
     return loss_actor
+
+
+def ppo_penalty_loss(
+    pi_log_prob_t: chex.Array,
+    b_pi_log_prob_t: chex.Array,
+    gae_t: chex.Array,
+    beta: float,
+    pi: Distribution,
+    b_pi: Distribution,
+) -> Tuple[chex.Array, chex.Array]:
+    ratio = jnp.exp(pi_log_prob_t - b_pi_log_prob_t)
+    kl_div = b_pi.kl_divergence(pi).mean()
+    objective = ratio * gae_t - beta * kl_div
+    loss_actor = -objective.mean()
+    return loss_actor, kl_div
 
 
 def dpo_loss(

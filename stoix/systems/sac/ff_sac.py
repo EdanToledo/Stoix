@@ -355,8 +355,8 @@ def learner_setup(
     actor_action_head = hydra.utils.instantiate(
         config.network.actor_network.action_head,
         action_dim=action_dim,
-        minimum=env.action_spec().minimum,
-        maximum=env.action_spec().maximum,
+        minimum=config.system.action_minimum,
+        maximum=config.system.action_maximum,
     )
     actor_network = Actor(torso=actor_torso, action_head=actor_action_head)
     q_network_input = hydra.utils.instantiate(config.network.q_network.input_layer)

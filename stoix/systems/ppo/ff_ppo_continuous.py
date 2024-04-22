@@ -32,7 +32,7 @@ from stoix.utils.jax_utils import (
     unreplicate_n_dims,
 )
 from stoix.utils.logger import LogEvent, StoixLogger
-from stoix.utils.loss import clipped_value_loss, ppo_loss
+from stoix.utils.loss import clipped_value_loss, ppo_clip_loss
 from stoix.utils.multistep import batch_truncated_generalized_advantage_estimation
 from stoix.utils.total_timestep_checker import check_total_timesteps
 from stoix.utils.training import make_learning_rate
@@ -146,7 +146,7 @@ def get_learner_fn(
                     log_prob = actor_policy.log_prob(traj_batch.action)
 
                     # CALCULATE ACTOR LOSS
-                    loss_actor = ppo_loss(
+                    loss_actor = ppo_clip_loss(
                         log_prob, traj_batch.log_prob, gae, config.system.clip_eps
                     )
                     entropy = actor_policy.entropy(seed=rng_key).mean()
@@ -325,8 +325,8 @@ def learner_setup(
     actor_action_head = hydra.utils.instantiate(
         config.network.actor_network.action_head,
         action_dim=num_actions,
-        minimum=env.action_spec().minimum,
-        maximum=env.action_spec().maximum,
+        minimum=config.system.action_minimum,
+        maximum=config.system.action_maximum,
     )
     critic_torso = hydra.utils.instantiate(config.network.critic_network.pre_torso)
     critic_head = hydra.utils.instantiate(config.network.critic_network.critic_head)
