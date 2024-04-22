@@ -386,7 +386,7 @@ def get_learner_fn(
                     losses["actor"] + losses["value"] + losses["reward"] - losses["entropy"]
                 )
 
-                return total_loss, (losses)
+                return total_loss, losses
 
             params, opt_state, buffer_state, key = update_state
 
@@ -397,8 +397,8 @@ def get_learner_fn(
             sequence: ExItTransition = sequence_sample.experience
 
             # CALCULATE LOSS
-            grad_fn = jax.value_and_grad(_loss_fn, has_aux=True)
-            loss_info, grads = grad_fn(
+            grad_fn = jax.grad(_loss_fn, has_aux=True)
+            grads, loss_info = grad_fn(
                 params,
                 sequence,
             )
@@ -415,19 +415,6 @@ def get_learner_fn(
             updates, new_opt_state = update_fn(grads, opt_state)
             new_params = optax.apply_updates(params, updates)
 
-            # PACK LOSS INFO
-            total_loss = loss_info[0]
-            actor_loss = loss_info[1]["actor"]
-            value_loss = loss_info[1]["value"]
-            entropy = loss_info[1]["entropy"]
-            reward_loss = loss_info[1]["reward"]
-            loss_info = {
-                "total_loss": total_loss,
-                "value_loss": value_loss,
-                "actor_loss": actor_loss,
-                "entropy": entropy,
-                "reward_loss": reward_loss,
-            }
             return (new_params, new_opt_state, buffer_state, key), loss_info
 
         update_state = (params, opt_state, buffer_state, key)

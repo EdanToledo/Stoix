@@ -398,10 +398,10 @@ def get_learner_fn(
             new_opt_state = MPOOptStates(actor_new_opt_state, q_new_opt_state, dual_new_opt_state)
 
             # PACK LOSS INFO
-            loss_info = actor_loss_info._asdict()
+            actor_loss_info = actor_loss_info._asdict()
             loss_info = {
-                **loss_info,
-                "value_loss": q_loss_info["q_loss"],
+                **actor_loss_info,
+                **q_loss_info,
             }
             return (new_params, new_opt_state, buffer_state, key), loss_info
 
