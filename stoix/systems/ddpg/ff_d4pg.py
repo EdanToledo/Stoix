@@ -53,9 +53,9 @@ def get_default_behavior_policy(config: DictConfig, actor_apply_fn: ActorApply) 
     ) -> chex.Array:
         action = actor_apply_fn(params, observation).mode()
         action_scale = (config.system.action_maximum - config.system.action_minimum) / 2
-        if config.system.exploration_sigma != 0:
+        if config.system.exploration_noise != 0:
             action = rlax.add_gaussian_noise(
-                key, action, config.system.exploration_sigma * action_scale
+                key, action, config.system.exploration_noise * action_scale
             ).clip(config.system.action_minimum, config.system.action_maximum)
         return action
 

@@ -6,7 +6,7 @@ actor_network:
     kernel_sizes: [3, 3]
     strides: [1, 1]
     use_layer_norm: False
-    activation: relu
+    activation: silu
   action_head:
     _target_: stoix.networks.heads.CategoricalHead
 
@@ -17,6 +17,6 @@ critic_network:
     kernel_sizes: [3, 3]
     strides: [1, 1]
     use_layer_norm: False
-    activation: relu
+    activation: silu
   critic_head:
     _target_: stoix.networks.heads.ScalarCriticHead
