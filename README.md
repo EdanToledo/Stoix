@@ -160,7 +160,7 @@ year = {2024}
 
 ## Acknowledgements 🙏
 
-We would like to thank the authors and developers of [Mava](mava) as this was essentially a port of their repo at the time of creation. This helped set up alot of the infracstructure of logging, evaluation and other utilities.
+We would like to thank the authors and developers of [Mava](mava) as this was essentially a port of their repo at the time of creation. This helped set up a lot of the infracstructure of logging, evaluation and other utilities.
 
 ## See Also 🔎
 
