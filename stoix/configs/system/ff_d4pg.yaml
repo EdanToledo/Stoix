@@ -19,4 +19,4 @@ max_abs_reward : 20_000  # maximum absolute reward value
 num_atoms: 301  # number of atoms in the distributional Q network
 v_min: -9_000.0  # minimum value of the support
 v_max: 9_000.0  # maximum value of the support
-exploration_sigma : 0.1  # standard deviation of the exploration noise
+exploration_noise : 0.15  # standard deviation of the exploration noise

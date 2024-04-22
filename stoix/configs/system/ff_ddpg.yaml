@@ -16,5 +16,5 @@ gamma: 0.99  # discount factor
 max_grad_norm: 0.5 # Maximum norm of the gradients for a weight update.
 decay_learning_rates: False # Whether learning rates should be linearly decayed during training.
 max_abs_reward : 20_000  # maximum absolute reward value
-exploration_sigma : 0.1  # standard deviation of the exploration noise
+exploration_noise : 0.15  # standard deviation of the exploration noise
 huber_loss_parameter: 0.0  # parameter for the huber loss. If 0, it uses MSE loss.

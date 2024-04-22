@@ -4,6 +4,6 @@ actor_network:
     _target_: stoix.networks.dueling.DuelingQNetwork
     layer_sizes: [128, 128]
     use_layer_norm: False
-    activation: relu
+    activation: silu
   # We dont use an action head here, because we are using a dueling network
   # which has a value and advantage head.
