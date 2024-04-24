@@ -1,4 +1,4 @@
-black==23.3.0
+black==24.3.0
 coverage
 flake8==6.1.0
 importlib-metadata<5.0
