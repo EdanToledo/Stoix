@@ -100,7 +100,7 @@ def init_state(nest: chex.ArrayTree) -> RunningStatisticsState:
     dtype = jnp.float64 if jax.config.jax_enable_x64 else jnp.float32
 
     return RunningStatisticsState(  # pytype: disable=wrong-arg-types  # jax-ndarray
-        count=0.0,
+        count=jnp.float32(0.0),
         mean=_zeros_like(nest, dtype=dtype),
         summed_variance=_zeros_like(nest, dtype=dtype),
         # Initialize with ones to make sure normalization works correctly
