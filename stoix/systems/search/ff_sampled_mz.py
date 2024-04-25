@@ -800,7 +800,7 @@ def learner_setup(
             **config.logger.checkpointing.load_args,  # Other checkpoint args
         )
         # Restore the learner state from the checkpoint
-        restored_params, _ = loaded_checkpoint.restore_params()
+        restored_params, _ = loaded_checkpoint.restore_params(TParams=MZParams)
         # Update the params
         params = restored_params
 
