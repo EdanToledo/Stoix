@@ -465,7 +465,8 @@ def learner_setup(
     # Initialise observation
     init_x = env.observation_spec().generate_value()
     init_x = jax.tree_util.tree_map(lambda x: x[None, ...], init_x)
-    init_a = jnp.zeros((1, action_dim))
+    init_a = env.action_spec().generate_value()
+    init_a = jax.tree_util.tree_map(lambda x: x[None, ...], init_a)
 
     # Initialise actor params and optimiser state.
     actor_params = actor_network.init(actor_net_key, init_x)
