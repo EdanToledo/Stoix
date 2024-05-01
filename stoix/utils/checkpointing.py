@@ -55,7 +55,7 @@ def instantiate_namedtuple_from_dict(namedtuple_cls: Type[NamedTuple], data: Dic
             raise KeyError(f"Missing '{field}' in data to instantiate {namedtuple_cls.__name__}")
 
     # Create the named tuple instance with the populated keyword arguments
-    return namedtuple_cls(**kwargs)
+    return namedtuple_cls(**kwargs)  # type: ignore
 
 
 class Checkpointer:
