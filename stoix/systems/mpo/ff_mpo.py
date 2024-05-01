@@ -466,6 +466,7 @@ def learner_setup(
     init_x = env.observation_spec().generate_value()
     init_x = jax.tree_util.tree_map(lambda x: x[None, ...], init_x)
     init_a = env.action_spec().generate_value()
+    init_a = jax.nn.one_hot(init_a, action_dim)
     init_a = jax.tree_util.tree_map(lambda x: x[None, ...], init_a)
 
     # Initialise actor params and optimiser state.
