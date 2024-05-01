@@ -3,13 +3,12 @@
 system_name: ff_awr # Name of the system.
 
 # --- RL hyperparameters ---
-update_batch_size: 1 # Number of vectorised gradient updates per device.
 rollout_length: 2 # Number of environment steps per vectorised environment.
 num_actor_steps: 100 # Number of sgd steps for the actor per rollout.
 num_critic_steps: 20 # Number of sgd steps for the critic per rollout.
 warmup_steps: 16  # Number of steps to collect before training.
-total_buffer_size: 50_000 # Total effective size of the replay buffer across all devices. This means each device has a buffer of size buffer_size/num_devices. This must be divisible by num_devices.
-total_batch_size: 32 # Total effective number of samples to train on. This means each device has a batch size of batch_size/num_devices. This must be divisible by num_devices.
+total_buffer_size: 50_000 # Total effective size of the replay buffer across all devices and vectorised update steps. This means each device has a buffer of size buffer_size//num_devices which is further divided by the update_batch_size. This value must be divisible by num_devices*update_batch_size.
+total_batch_size: 32 # Total effective number of samples to train on. This means each device has a batch size of batch_size/num_devices which is further divided by the update_batch_size. This value must be divisible by num_devices*update_batch_size.
 sample_sequence_length: 16 # Number of steps to consider for each element of the batch.
 period : 1 # Period of the sampled sequences.
 actor_lr: 5e-5  # the learning rate of the policy network optimizer
