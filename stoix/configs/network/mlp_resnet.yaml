@@ -5,7 +5,7 @@ actor_network:
     hidden_units_per_group: [256, 256]
     blocks_per_group: [2, 2]
     use_layer_norm: False
-    activation: relu
+    activation: silu
   action_head:
     _target_: stoix.networks.heads.CategoricalHead
 
@@ -15,6 +15,6 @@ critic_network:
     hidden_units_per_group: [256, 256]
     blocks_per_group: [2, 2]
     use_layer_norm: False
-    activation: relu
+    activation: silu
   critic_head:
     _target_: stoix.networks.heads.ScalarCriticHead

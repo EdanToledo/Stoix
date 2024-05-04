@@ -3,7 +3,6 @@
 system_name: ff_sac # Name of the system.
 
 # --- RL hyperparameters ---
-update_batch_size: 1 # Number of vectorised gradient updates per device.
 rollout_length: 1 # Number of environment steps per vectorised environment.
 epochs: 1 # Number of sgd steps per rollout.
 warmup_steps: 64  # Number of steps to collect before training.

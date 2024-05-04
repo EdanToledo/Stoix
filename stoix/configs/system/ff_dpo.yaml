@@ -5,7 +5,6 @@ system_name: ff_dpo # Name of the system.
 # --- RL hyperparameters ---
 actor_lr: 3e-4 # Learning rate for actor network
 critic_lr: 3e-4 # Learning rate for critic network
-update_batch_size: 1 # Number of vectorised gradient updates per device.
 rollout_length: 16 # Number of environment steps per vectorised environment.
 epochs: 4 # Number of ppo epochs per training data batch.
 num_minibatches: 16 # Number of minibatches per ppo epoch.

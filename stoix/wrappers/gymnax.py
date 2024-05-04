@@ -84,7 +84,7 @@ class GymnaxWrapper(Wrapper):
         timestep = TimeStep(
             observation=Observation(obs, self._legal_action_mask, state.step_count),
             reward=reward,
-            discount=jnp.array(1.0 - done),
+            discount=jax.lax.select(done, 0.0, 1.0),
             step_type=jax.lax.select(done, StepType.LAST, StepType.MID),
             extras={},
         )

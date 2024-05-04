@@ -53,9 +53,9 @@ def get_default_behavior_policy(config: DictConfig, actor_apply_fn: ActorApply) 
     ) -> chex.Array:
         action = actor_apply_fn(params, observation).mode()
         action_scale = (config.system.action_maximum - config.system.action_minimum) / 2
-        if config.system.exploration_sigma != 0:
+        if config.system.exploration_noise != 0:
             action = rlax.add_gaussian_noise(
-                key, action, config.system.exploration_sigma * action_scale
+                key, action, config.system.exploration_noise * action_scale
             ).clip(config.system.action_minimum, config.system.action_maximum)
         return action
 
@@ -186,15 +186,12 @@ def get_learner_fn(
 
                 q_tm1 = q_apply_fn(q_params, transitions.obs, transitions.action)
                 action_scale = (config.system.action_maximum - config.system.action_minimum) / 2
+                noise = (
+                    jax.random.normal(rng_key, transitions.action.shape)
+                    * config.system.policy_noise
+                )
                 clipped_noise = (
-                    jnp.clip(
-                        (
-                            jax.random.normal(rng_key, transitions.action.shape)
-                            * config.system.policy_noise
-                        ),
-                        -config.system.noise_clip,
-                        config.system.noise_clip,
-                    )
+                    jnp.clip(noise, -config.system.noise_clip, config.system.noise_clip)
                     * action_scale
                 )
                 next_action = (
@@ -219,6 +216,8 @@ def get_learner_fn(
 
                 loss_info = {
                     "q_loss": q_loss,
+                    "q1_pred": jnp.mean(q_t[..., 0]),
+                    "q2_pred": jnp.mean(q_t[..., 1]),
                 }
 
                 return q_loss, loss_info
@@ -375,18 +374,20 @@ def learner_setup(
     )
     action_head_post_processor = hydra.utils.instantiate(
         config.network.actor_network.post_processor,
-        minimum=env.action_spec().minimum,
-        maximum=env.action_spec().maximum,
+        minimum=config.system.action_minimum,
+        maximum=config.system.action_maximum,
         scale_fn=tanh_to_spec,
     )
     actor_action_head = CompositeNetwork([actor_action_head, action_head_post_processor])
     actor_network = Actor(torso=actor_torso, action_head=actor_action_head)
 
-    q_network_input = hydra.utils.instantiate(config.network.q_network.input_layer)
-    q_network_torso = hydra.utils.instantiate(config.network.q_network.pre_torso)
-    q_network_head = hydra.utils.instantiate(config.network.q_network.critic_head)
-    single_q_network = CompositeNetwork([q_network_input, q_network_torso, q_network_head])
-    double_q_network = MultiNetwork([single_q_network, single_q_network])
+    def create_q_network(cfg: DictConfig) -> CompositeNetwork:
+        q_network_input = hydra.utils.instantiate(cfg.network.q_network.input_layer)
+        q_network_torso = hydra.utils.instantiate(cfg.network.q_network.pre_torso)
+        q_network_head = hydra.utils.instantiate(cfg.network.q_network.critic_head)
+        return CompositeNetwork([q_network_input, q_network_torso, q_network_head])
+
+    double_q_network = MultiNetwork([create_q_network(config), create_q_network(config)])
 
     actor_lr = make_learning_rate(config.system.actor_lr, config, config.system.epochs)
     q_lr = make_learning_rate(config.system.q_lr, config, config.system.epochs)
@@ -455,8 +456,12 @@ def learner_setup(
         f"{Fore.RED}{Style.BRIGHT}The total batch size should be divisible "
         + "by the number of devices!{Style.RESET_ALL}"
     )
-    config.system.buffer_size = config.system.total_buffer_size // n_devices
-    config.system.batch_size = config.system.total_batch_size // n_devices
+    config.system.buffer_size = config.system.total_buffer_size // (
+        n_devices * config.arch.update_batch_size
+    )
+    config.system.batch_size = config.system.total_batch_size // (
+        n_devices * config.arch.update_batch_size
+    )
     buffer_fn = fbx.make_item_buffer(
         max_length=config.system.buffer_size,
         min_length=config.system.batch_size,
@@ -476,13 +481,13 @@ def learner_setup(
 
     # Initialise environment states and timesteps: across devices and batches.
     key, *env_keys = jax.random.split(
-        key, n_devices * config.system.update_batch_size * config.arch.num_envs + 1
+        key, n_devices * config.arch.update_batch_size * config.arch.num_envs + 1
     )
     env_states, timesteps = jax.vmap(env.reset, in_axes=(0))(
         jnp.stack(env_keys),
     )
     reshape_states = lambda x: x.reshape(
-        (n_devices, config.system.update_batch_size, config.arch.num_envs) + x.shape[1:]
+        (n_devices, config.arch.update_batch_size, config.arch.num_envs) + x.shape[1:]
     )
     # (devices, update batch size, num_envs, ...)
     env_states = jax.tree_util.tree_map(reshape_states, env_states)
@@ -501,16 +506,16 @@ def learner_setup(
 
     # Define params to be replicated across devices and batches.
     key, step_key, warmup_key = jax.random.split(key, num=3)
-    step_keys = jax.random.split(step_key, n_devices * config.system.update_batch_size)
-    warmup_keys = jax.random.split(warmup_key, n_devices * config.system.update_batch_size)
-    reshape_keys = lambda x: x.reshape((n_devices, config.system.update_batch_size) + x.shape[1:])
+    step_keys = jax.random.split(step_key, n_devices * config.arch.update_batch_size)
+    warmup_keys = jax.random.split(warmup_key, n_devices * config.arch.update_batch_size)
+    reshape_keys = lambda x: x.reshape((n_devices, config.arch.update_batch_size) + x.shape[1:])
     step_keys = reshape_keys(jnp.stack(step_keys))
     warmup_keys = reshape_keys(jnp.stack(warmup_keys))
 
     replicate_learner = (params, opt_states, buffer_states)
 
     # Duplicate learner for update_batch_size.
-    broadcast = lambda x: jnp.broadcast_to(x, (config.system.update_batch_size,) + x.shape)
+    broadcast = lambda x: jnp.broadcast_to(x, (config.arch.update_batch_size,) + x.shape)
     replicate_learner = jax.tree_util.tree_map(broadcast, replicate_learner)
 
     # Duplicate learner across devices.
@@ -569,7 +574,7 @@ def run_experiment(_config: DictConfig) -> float:
         n_devices
         * config.arch.num_updates_per_eval
         * config.system.rollout_length
-        * config.system.update_batch_size
+        * config.arch.update_batch_size
         * config.arch.num_envs
     )
 

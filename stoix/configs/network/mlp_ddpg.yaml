@@ -2,9 +2,9 @@
 actor_network:
   pre_torso:
     _target_: stoix.networks.torso.MLPTorso
-    layer_sizes: [256, 256]
+    layer_sizes: [256, 256, 256, 256]
     use_layer_norm: False
-    activation: relu
+    activation: silu
   action_head:
     _target_: stoix.networks.heads.DeterministicHead
   post_processor:
@@ -15,8 +15,8 @@ q_network:
     _target_: stoix.networks.inputs.ObservationActionInput
   pre_torso:
     _target_: stoix.networks.torso.MLPTorso
-    layer_sizes: [256, 256]
+    layer_sizes: [256, 256, 256, 256]
     use_layer_norm: False
-    activation: relu
+    activation: silu
   critic_head:
     _target_: stoix.networks.heads.ScalarCriticHead

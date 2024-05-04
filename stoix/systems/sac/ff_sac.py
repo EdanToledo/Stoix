@@ -120,7 +120,7 @@ def get_learner_fn(
             env_state, timestep = jax.vmap(env.step, in_axes=(0, 0))(env_state, action)
 
             # LOG EPISODE METRICS
-            done = (timestep.discount == 0.0).reshape(-1)
+            done = timestep.last()
             info = timestep.extras["episode_metrics"]
             next_obs = timestep.extras["next_obs"]
 
@@ -176,20 +176,23 @@ def get_learner_fn(
                 a_t = transitions.action
                 q_old_action = q_apply_fn(q_params, transitions.obs)[batch_indices, a_t]
                 next_actor_policy = actor_apply_fn(actor_params, transitions.next_obs)
-                next_action_probs = next_actor_policy.probs_parameter()
-                next_action_log_probs = jax.nn.log_softmax(next_actor_policy.logits)
+                next_action_logits = next_actor_policy.logits
+                next_action_probs = jax.nn.softmax(next_action_logits)
+                next_action_log_probs = jnp.log(next_action_probs)
                 next_q = q_apply_fn(target_q_params, transitions.next_obs)
                 next_v = jnp.min(next_q, axis=-1) - alpha * next_action_log_probs
                 next_v = jnp.sum(next_action_probs * next_v, axis=-1)
-                target_q = jax.lax.stop_gradient(
-                    transitions.reward + (1.0 - transitions.done) * config.system.gamma * next_v
-                )
+                discount = (1.0 - transitions.done) * config.system.gamma
+                target_q = jax.lax.stop_gradient(transitions.reward + discount * next_v)
                 q_error = q_old_action - jnp.expand_dims(target_q, -1)
-                q_loss = 0.5 * jnp.mean(jnp.square(q_error).sum(axis=-1))
+                q_loss = optax.l2_loss(q_error).mean()
 
                 loss_info = {
                     "q_loss": jnp.mean(q_loss),
                     "q_error": jnp.mean(jnp.abs(q_error)),
+                    "q1_pred": jnp.mean(next_q[..., 0]),
+                    "q2_pred": jnp.mean(next_q[..., 1]),
+                    "target_q": jnp.mean(target_q),
                 }
                 return q_loss, loss_info
 
@@ -356,12 +359,15 @@ def learner_setup(
         action_dim=action_dim,
     )
     actor_network = Actor(torso=actor_torso, action_head=actor_action_head)
-    q_network_torso = hydra.utils.instantiate(config.network.q_network.pre_torso)
-    q_network_head = hydra.utils.instantiate(
-        config.network.q_network.critic_head, output_dim=action_dim
-    )
-    single_q_network = Critic(torso=q_network_torso, critic_head=q_network_head)
-    double_q_network = MultiNetwork([single_q_network, single_q_network])
+
+    def create_q_network(cfg: DictConfig) -> Critic:
+        q_network_torso = hydra.utils.instantiate(cfg.network.q_network.pre_torso)
+        q_network_head = hydra.utils.instantiate(
+            config.network.q_network.critic_head, output_dim=action_dim
+        )
+        return Critic(torso=q_network_torso, critic_head=q_network_head)
+
+    double_q_network = MultiNetwork([create_q_network(config), create_q_network(config)])
 
     actor_lr = make_learning_rate(config.system.actor_lr, config, config.system.epochs)
     q_lr = make_learning_rate(config.system.q_lr, config, config.system.epochs)
@@ -389,7 +395,7 @@ def learner_setup(
     q_opt_state = q_optim.init(online_q_params)
 
     # Automatic entropy tuning
-    target_entropy = -config.system.target_entropy_scale * action_dim
+    target_entropy = -config.system.target_entropy_scale * jnp.log(1 / action_dim).item()
     if config.system.autotune:
         log_alpha = jnp.zeros_like(target_entropy)
     else:
@@ -432,8 +438,12 @@ def learner_setup(
         f"{Fore.RED}{Style.BRIGHT}The total batch size should be divisible "
         + "by the number of devices!{Style.RESET_ALL}"
     )
-    config.system.buffer_size = config.system.total_buffer_size // n_devices
-    config.system.batch_size = config.system.total_batch_size // n_devices
+    config.system.buffer_size = config.system.total_buffer_size // (
+        n_devices * config.arch.update_batch_size
+    )
+    config.system.batch_size = config.system.total_batch_size // (
+        n_devices * config.arch.update_batch_size
+    )
     buffer_fn = fbx.make_item_buffer(
         max_length=config.system.buffer_size,
         min_length=config.system.batch_size,
@@ -453,13 +463,13 @@ def learner_setup(
 
     # Initialise environment states and timesteps: across devices and batches.
     key, *env_keys = jax.random.split(
-        key, n_devices * config.system.update_batch_size * config.arch.num_envs + 1
+        key, n_devices * config.arch.update_batch_size * config.arch.num_envs + 1
     )
     env_states, timesteps = jax.vmap(env.reset, in_axes=(0))(
         jnp.stack(env_keys),
     )
     reshape_states = lambda x: x.reshape(
-        (n_devices, config.system.update_batch_size, config.arch.num_envs) + x.shape[1:]
+        (n_devices, config.arch.update_batch_size, config.arch.num_envs) + x.shape[1:]
     )
     # (devices, update batch size, num_envs, ...)
     env_states = jax.tree_util.tree_map(reshape_states, env_states)
@@ -478,16 +488,16 @@ def learner_setup(
 
     # Define params to be replicated across devices and batches.
     key, step_key, warmup_key = jax.random.split(key, num=3)
-    step_keys = jax.random.split(step_key, n_devices * config.system.update_batch_size)
-    warmup_keys = jax.random.split(warmup_key, n_devices * config.system.update_batch_size)
-    reshape_keys = lambda x: x.reshape((n_devices, config.system.update_batch_size) + x.shape[1:])
+    step_keys = jax.random.split(step_key, n_devices * config.arch.update_batch_size)
+    warmup_keys = jax.random.split(warmup_key, n_devices * config.arch.update_batch_size)
+    reshape_keys = lambda x: x.reshape((n_devices, config.arch.update_batch_size) + x.shape[1:])
     step_keys = reshape_keys(jnp.stack(step_keys))
     warmup_keys = reshape_keys(jnp.stack(warmup_keys))
 
     replicate_learner = (params, opt_states, buffer_states)
 
     # Duplicate learner for update_batch_size.
-    broadcast = lambda x: jnp.broadcast_to(x, (config.system.update_batch_size,) + x.shape)
+    broadcast = lambda x: jnp.broadcast_to(x, (config.arch.update_batch_size,) + x.shape)
     replicate_learner = jax.tree_util.tree_map(broadcast, replicate_learner)
 
     # Duplicate learner across devices.
@@ -546,7 +556,7 @@ def run_experiment(_config: DictConfig) -> float:
         n_devices
         * config.arch.num_updates_per_eval
         * config.system.rollout_length
-        * config.system.update_batch_size
+        * config.arch.update_batch_size
         * config.arch.num_envs
     )
 

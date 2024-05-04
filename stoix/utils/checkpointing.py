@@ -1,7 +1,7 @@
 import os
 import warnings
 from datetime import datetime
-from typing import Any, Dict, Optional, Tuple, Type, Union
+from typing import Any, Dict, NamedTuple, Optional, Tuple, Type, Union
 
 import absl.logging as absl_logging
 import orbax.checkpoint
@@ -17,6 +17,45 @@ from stoix.systems.ppo.ppo_types import ActorCriticParams, HiddenStates
 # Any breaking API changes should be reflected in the major version (e.g. v0.1 -> v1.0)
 # whereas minor versions (e.g. v0.1 -> v0.2) indicate backwards compatibility
 CHECKPOINTER_VERSION = 1.0
+
+
+def instantiate_namedtuple_from_dict(namedtuple_cls: Type[NamedTuple], data: Dict[str, Any]) -> Any:
+    """
+    Recursively constructs a named tuple from a dictionary.
+
+    Args:
+        namedtuple_cls (Type[NamedTuple]): The class of the named tuple to be instantiated.
+        data (Dict[str, Any]): The dictionary containing the data for the named tuple and
+            its nested structures.
+
+    Returns:
+        NamedTuple: An instance of the specified named tuple class, filled with data from
+            the dictionary.
+
+    Raises:
+        KeyError: If a required key is missing in the dictionary to instantiate the named
+            tuple properly.
+    """
+    # Base case: the data is already an instance of the required named tuple
+    if isinstance(data, namedtuple_cls):
+        return data
+
+    # Iterate over the fields in the named tuple
+    kwargs = {}
+    for field, field_type in namedtuple_cls.__annotations__.items():
+        if field in data:
+            # Check if the field type is itself a NamedTuple
+            if hasattr(field_type, "_fields"):
+                # Recursively convert nested dicts to their corresponding named tuple
+                kwargs[field] = instantiate_namedtuple_from_dict(field_type, data[field])
+            else:
+                # Directly assign if it's a basic type or a FrozenDict
+                kwargs[field] = data[field]
+        else:
+            raise KeyError(f"Missing '{field}' in data to instantiate {namedtuple_cls.__name__}")
+
+    # Create the named tuple instance with the populated keyword arguments
+    return namedtuple_cls(**kwargs)  # type: ignore
 
 
 class Checkpointer:
@@ -167,7 +206,9 @@ class Checkpointer:
         # Dictionary of the restored learner state
         restored_learner_state_raw = restored_checkpoint["learner_state"]
 
-        restored_params = TParams(**restored_learner_state_raw["params"])
+        restored_params = instantiate_namedtuple_from_dict(
+            TParams, restored_learner_state_raw["params"]
+        )
 
         # Restore hidden states if required
         restored_hstates = None

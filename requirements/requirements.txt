@@ -17,9 +17,9 @@ mctx
 neptune
 numpy
 omegaconf
-optax
+optax @ git+https://github.com/google-deepmind/optax.git
 pgx
-protobuf==3.20.1
+protobuf==3.20.2
 rlax
 tdqm
 tensorboard_logger
