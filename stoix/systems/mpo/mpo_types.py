@@ -39,7 +39,7 @@ class CategoricalDualParams(NamedTuple):
 
 
 class MPOParams(NamedTuple):
-    actor_params: FrozenDict
+    actor_params: ActorAndTarget
     q_params: QsAndTarget
     dual_params: Union[DualParams, CategoricalDualParams]
 
@@ -102,3 +102,14 @@ class CategoricalMPOStats(NamedTuple):
 
     entropy_online: float
     entropy_target: float
+
+
+class VMPOParams(NamedTuple):
+    actor_params: ActorAndTarget
+    critic_params: QsAndTarget
+    dual_params: Union[DualParams, CategoricalDualParams]
+
+class VMPOOptStates(NamedTuple):
+    actor_opt_state: optax.OptState
+    critic_opt_state: optax.OptState
+    dual_opt_state: optax.OptState
