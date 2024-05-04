@@ -187,6 +187,8 @@ def get_learner_fn(
                 loss_info = {
                     "q_loss": jnp.mean(q_loss),
                     "q_error": jnp.mean(jnp.abs(q_error)),
+                    "q1_pred": jnp.mean(next_q[..., 0]),
+                    "q2_pred": jnp.mean(next_q[..., 1]),
                 }
                 return q_loss, loss_info
 
@@ -359,11 +361,14 @@ def learner_setup(
         maximum=config.system.action_maximum,
     )
     actor_network = Actor(torso=actor_torso, action_head=actor_action_head)
-    q_network_input = hydra.utils.instantiate(config.network.q_network.input_layer)
-    q_network_torso = hydra.utils.instantiate(config.network.q_network.pre_torso)
-    q_network_head = hydra.utils.instantiate(config.network.q_network.critic_head)
-    single_q_network = CompositeNetwork([q_network_input, q_network_torso, q_network_head])
-    double_q_network = MultiNetwork([single_q_network, single_q_network])
+
+    def create_q_network(cfg: DictConfig) -> CompositeNetwork:
+        q_network_input = hydra.utils.instantiate(cfg.network.q_network.input_layer)
+        q_network_torso = hydra.utils.instantiate(cfg.network.q_network.pre_torso)
+        q_network_head = hydra.utils.instantiate(cfg.network.q_network.critic_head)
+        return CompositeNetwork([q_network_input, q_network_torso, q_network_head])
+
+    double_q_network = MultiNetwork([create_q_network(config), create_q_network(config)])
 
     actor_lr = make_learning_rate(config.system.actor_lr, config, config.system.epochs)
     q_lr = make_learning_rate(config.system.q_lr, config, config.system.epochs)
