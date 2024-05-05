@@ -14,16 +14,18 @@ from jumanji.env import Environment
 from omegaconf import DictConfig, OmegaConf
 from rich.pretty import pprint
 
-from stoix.base_types import ExperimentOutput, LearnerFn, RecActorApply, RecCriticApply
-from stoix.evaluator import evaluator_setup, get_rec_distribution_act_fn
-from stoix.networks.base import RecurrentActor, RecurrentCritic, ScannedRNN
-from stoix.systems.ppo.ppo_types import (
+from stoix.base_types import (
     ActorCriticOptStates,
     ActorCriticParams,
-    HiddenStates,
+    ExperimentOutput,
+    LearnerFn,
+    RecActorApply,
+    RecCriticApply,
     RNNLearnerState,
-    RNNPPOTransition,
 )
+from stoix.evaluator import evaluator_setup, get_rec_distribution_act_fn
+from stoix.networks.base import RecurrentActor, RecurrentCritic, ScannedRNN
+from stoix.systems.ppo.ppo_types import HiddenStates, RNNPPOTransition
 from stoix.utils import make_env as environments
 from stoix.utils.checkpointing import Checkpointer
 from stoix.utils.jax_utils import unreplicate_batch_dim, unreplicate_n_dims

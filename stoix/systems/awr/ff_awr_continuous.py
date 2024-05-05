@@ -20,6 +20,8 @@ from rich.pretty import pprint
 
 from stoix.base_types import (
     ActorApply,
+    ActorCriticOptStates,
+    ActorCriticParams,
     CriticApply,
     ExperimentOutput,
     LearnerFn,
@@ -29,7 +31,6 @@ from stoix.evaluator import evaluator_setup, get_distribution_act_fn
 from stoix.networks.base import FeedForwardActor as Actor
 from stoix.networks.base import FeedForwardCritic as Critic
 from stoix.systems.awr.awr_types import AWRLearnerState, SequenceStep
-from stoix.systems.ppo.ppo_types import ActorCriticOptStates, ActorCriticParams
 from stoix.utils import make_env as environments
 from stoix.utils.checkpointing import Checkpointer
 from stoix.utils.jax_utils import unreplicate_batch_dim, unreplicate_n_dims
