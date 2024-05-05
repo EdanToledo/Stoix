@@ -8,6 +8,7 @@ from jumanji.types import TimeStep
 from typing_extensions import NamedTuple
 
 from stoix.base_types import Action, Done, LogEnvState, Truncated
+from stoix.systems.ppo.ppo_types import ActorCriticOptStates, ActorCriticParams
 from stoix.systems.q_learning.dqn_types import QsAndTarget
 
 
@@ -109,7 +110,18 @@ class VMPOParams(NamedTuple):
     critic_params: QsAndTarget
     dual_params: Union[DualParams, CategoricalDualParams]
 
+
 class VMPOOptStates(NamedTuple):
     actor_opt_state: optax.OptState
     critic_opt_state: optax.OptState
     dual_opt_state: optax.OptState
+
+
+class VMPOLearnerState(NamedTuple):
+
+    params: ActorCriticParams
+    opt_states: ActorCriticOptStates
+    key: chex.PRNGKey
+    env_state: LogEnvState
+    timestep: TimeStep
+    learner_step_count: int
