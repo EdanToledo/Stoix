@@ -23,6 +23,8 @@ from rich.pretty import pprint
 
 from stoix.base_types import (
     ActorApply,
+    ActorCriticOptStates,
+    ActorCriticParams,
     CriticApply,
     ExperimentOutput,
     LearnerFn,
@@ -30,7 +32,6 @@ from stoix.base_types import (
 )
 from stoix.networks.base import FeedForwardActor as Actor
 from stoix.networks.base import FeedForwardCritic as Critic
-from stoix.systems.ppo.ppo_types import ActorCriticOptStates, ActorCriticParams
 from stoix.systems.search.evaluator import search_evaluator_setup
 from stoix.systems.search.search_types import (
     EnvironmentStep,

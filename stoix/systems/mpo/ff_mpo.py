@@ -18,7 +18,14 @@ from jumanji.types import TimeStep
 from omegaconf import DictConfig, OmegaConf
 from rich.pretty import pprint
 
-from stoix.base_types import ActorApply, ExperimentOutput, LearnerFn, LogEnvState
+from stoix.base_types import (
+    ActorApply,
+    ContinuousQApply,
+    ExperimentOutput,
+    LearnerFn,
+    LogEnvState,
+    OnlineAndTarget,
+)
 from stoix.evaluator import evaluator_setup, get_distribution_act_fn
 from stoix.networks.base import CompositeNetwork
 from stoix.networks.base import FeedForwardActor as Actor
@@ -27,15 +34,12 @@ from stoix.systems.mpo.discrete_loss import (
     clip_categorical_mpo_params,
 )
 from stoix.systems.mpo.mpo_types import (
-    ActorAndTarget,
     CategoricalDualParams,
     MPOLearnerState,
     MPOOptStates,
     MPOParams,
     SequenceStep,
 )
-from stoix.systems.q_learning.dqn_types import QsAndTarget
-from stoix.systems.sac.sac_types import ContinuousQApply
 from stoix.utils import make_env as environments
 from stoix.utils.checkpointing import Checkpointer
 from stoix.utils.jax_utils import (
@@ -374,8 +378,8 @@ def get_learner_fn(
                 config.system.tau,
             )
 
-            actor_new_params = ActorAndTarget(actor_new_online_params, new_target_actor_params)
-            q_new_params = QsAndTarget(q_new_online_params, new_target_q_params)
+            actor_new_params = OnlineAndTarget(actor_new_online_params, new_target_actor_params)
+            q_new_params = OnlineAndTarget(q_new_online_params, new_target_q_params)
 
             # PACK NEW PARAMS AND OPTIMISER STATE
             new_params = MPOParams(actor_new_params, q_new_params, dual_new_params)
@@ -497,8 +501,8 @@ def learner_setup(
     dual_opt_state = dual_optim.init(dual_params)
 
     params = MPOParams(
-        ActorAndTarget(actor_params, target_actor_params),
-        QsAndTarget(online_q_params, target_q_params),
+        OnlineAndTarget(actor_params, target_actor_params),
+        OnlineAndTarget(online_q_params, target_q_params),
         dual_params,
     )
     opt_states = MPOOptStates(actor_opt_state, q_opt_state, dual_opt_state)

@@ -15,7 +15,13 @@ from jumanji.env import Environment
 from omegaconf import DictConfig, OmegaConf
 from rich.pretty import pprint
 
-from stoix.base_types import ActorApply, CriticApply, ExperimentOutput, LearnerFn
+from stoix.base_types import (
+    ActorApply,
+    CriticApply,
+    ExperimentOutput,
+    LearnerFn,
+    OnlineAndTarget,
+)
 from stoix.evaluator import evaluator_setup, get_distribution_act_fn
 from stoix.networks.base import FeedForwardActor as Actor
 from stoix.networks.base import FeedForwardCritic as Critic
@@ -25,7 +31,6 @@ from stoix.systems.mpo.discrete_loss import (
     get_temperature_from_params,
 )
 from stoix.systems.mpo.mpo_types import (
-    ActorAndTarget,
     CategoricalDualParams,
     SequenceStep,
     VMPOLearnerState,
@@ -70,6 +75,7 @@ def get_learner_fn(
 
             # SELECT ACTION
             key, policy_key = jax.random.split(key)
+            # We act with target params in VMPO
             actor_policy = actor_apply_fn(params.actor_params.target, last_timestep.observation)
             action = actor_policy.sample(seed=policy_key)
             log_prob = actor_policy.log_prob(action)
@@ -98,7 +104,7 @@ def get_learner_fn(
 
         params, opt_states, key, env_state, last_timestep, learner_step_count = learner_state
 
-        # Swap the batch and time axes.
+        # Swap the batch and time axes for easier processing.
         traj_batch = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), traj_batch)
         chex.assert_tree_shape_prefix(
             traj_batch, (config.arch.num_envs, config.system.rollout_length)
@@ -136,23 +142,21 @@ def get_learner_fn(
                 kl = target_actor_policy.kl_divergence(online_actor_policy)
                 alpha_constraint = rlax.LagrangePenalty(alpha, config.system.epsilon_policy, False)
                 kl_constraints = [(kl, alpha_constraint)]
-                restarting_weights = 1 - sequence.done.astype(jnp.float32)
 
                 loss, loss_info = rlax.vmpo_loss(
                     sample_log_probs=sample_log_probs,
                     advantages=advantages,
                     temperature_constraint=temperature_constraint,
                     kl_constraints=kl_constraints,
-                    restarting_weights=restarting_weights,
                 )
 
                 return jnp.mean(loss), loss_info
 
-            def _v_loss_fn(
+            def _critic_loss_fn(
                 online_critic_params: FrozenDict,
                 value_target: chex.Array,
                 sequence: SequenceStep,
-            ) -> jnp.ndarray:
+            ) -> chex.Array:
 
                 # Remove the last timestep from the sequence.
                 sequence = jax.tree_util.tree_map(lambda x: x[:, :-1], sequence)
@@ -179,13 +183,13 @@ def get_learner_fn(
             ).astype(jnp.float32)
 
             online_v_t = critic_apply_fn(params.critic_params, sequence_batch.obs)  # [B, T]
-            target_v_t = online_v_t
 
+            # We recompute the targets using the latest critic every time
             if config.system.use_n_step_bootstrap:
                 value_target = batch_n_step_bootstrapped_returns(
                     r_t[:, :-1],
                     d_t[:, :-1],
-                    target_v_t[:, 1:],
+                    online_v_t[:, 1:],
                     config.system.n_step_for_sequence_bootstrap,
                 )
                 advantages = value_target - online_v_t[:, :-1]
@@ -194,7 +198,7 @@ def get_learner_fn(
                     r_t[:, :-1],
                     d_t[:, :-1],
                     config.system.gae_lambda,
-                    target_v_t,
+                    online_v_t,
                     time_major=False,
                     truncation_flags=sequence_batch.truncated[:, :-1],
                 )
@@ -210,8 +214,8 @@ def get_learner_fn(
             )
 
             # CALCULATE CRITIC LOSS
-            v_grad_fn = jax.grad(_v_loss_fn, has_aux=True)
-            v_grads, v_loss_info = v_grad_fn(
+            critic_grad_fn = jax.grad(_critic_loss_fn, has_aux=True)
+            critic_grads, critic_loss_info = critic_grad_fn(
                 params.critic_params,
                 value_target,
                 sequence_batch,
@@ -229,8 +233,12 @@ def get_learner_fn(
                 (actor_dual_grads, actor_loss_info), axis_name="device"
             )
 
-            v_grads, v_loss_info = jax.lax.pmean((v_grads, v_loss_info), axis_name="batch")
-            v_grads, v_loss_info = jax.lax.pmean((v_grads, v_loss_info), axis_name="device")
+            critic_grads, critic_loss_info = jax.lax.pmean(
+                (critic_grads, critic_loss_info), axis_name="batch"
+            )
+            critic_grads, critic_loss_info = jax.lax.pmean(
+                (critic_grads, critic_loss_info), axis_name="device"
+            )
 
             actor_grads, dual_grads = actor_dual_grads
 
@@ -246,8 +254,10 @@ def get_learner_fn(
             dual_new_params = clip_categorical_mpo_params(dual_new_params)
 
             # UPDATE CRITIC PARAMS AND OPTIMISER STATE
-            v_updates, critic_new_opt_state = critic_update_fn(v_grads, opt_states.critic_opt_state)
-            v_new_online_params = optax.apply_updates(params.critic_params, v_updates)
+            critic_updates, critic_new_opt_state = critic_update_fn(
+                critic_grads, opt_states.critic_opt_state
+            )
+            critic_new_online_params = optax.apply_updates(params.critic_params, critic_updates)
 
             learner_step_count += 1
 
@@ -259,11 +269,10 @@ def get_learner_fn(
                 config.system.actor_target_period,
             )
 
-            actor_new_params = ActorAndTarget(actor_new_online_params, new_target_actor_params)
-            v_new_params = v_new_online_params
-
             # PACK NEW PARAMS AND OPTIMISER STATE
-            new_params = VMPOParams(actor_new_params, v_new_params, dual_new_params)
+            actor_new_params = OnlineAndTarget(actor_new_online_params, new_target_actor_params)
+
+            new_params = VMPOParams(actor_new_params, critic_new_online_params, dual_new_params)
             new_opt_state = VMPOOptStates(
                 actor_new_opt_state, critic_new_opt_state, dual_new_opt_state
             )
@@ -272,7 +281,7 @@ def get_learner_fn(
             actor_loss_info = actor_loss_info._asdict()
             loss_info = {
                 **actor_loss_info,
-                **v_loss_info,
+                **critic_loss_info,
             }
             return (new_params, new_opt_state, key, sequence_batch, learner_step_count), loss_info
 
@@ -378,7 +387,7 @@ def learner_setup(
     dual_opt_state = dual_optim.init(dual_params)
 
     params = VMPOParams(
-        ActorAndTarget(actor_params, target_actor_params),
+        OnlineAndTarget(actor_params, target_actor_params),
         online_critic_params,
         dual_params,
     )
@@ -462,13 +471,13 @@ def run_experiment(_config: DictConfig) -> float:
     env, eval_env = environments.make(config=config)
 
     # PRNG keys.
-    key, key_e, actor_net_key, q_net_key = jax.random.split(
+    key, key_e, actor_net_key, critic_net_key = jax.random.split(
         jax.random.PRNGKey(config.arch.seed), num=4
     )
 
     # Setup learner.
     learn, actor_network, learner_state = learner_setup(
-        env, (key, actor_net_key, q_net_key), config
+        env, (key, actor_net_key, critic_net_key), config
     )
 
     # Setup evaluator.
