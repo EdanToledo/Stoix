@@ -10,7 +10,7 @@ from flax.core.frozen_dict import FrozenDict
 from jax.tree_util import tree_map
 from omegaconf import DictConfig, OmegaConf
 
-from stoix.base_types import ActorCriticParams, HiddenStates, StoixState
+from stoix.base_types import ActorCriticHiddenStates, ActorCriticParams, StoixState
 
 # Keep track of the version of the checkpointer
 # Any breaking API changes should be reflected in the major version (e.g. v0.1 -> v1.0)
@@ -171,8 +171,8 @@ class Checkpointer:
         timestep: Optional[int] = None,
         restore_hstates: bool = False,
         TParams: Type[FrozenDict] = ActorCriticParams,  # noqa: N803
-        THiddenState: Type[HiddenStates] = HiddenStates,  # noqa: N803
-    ) -> Tuple[FrozenDict, Union[HiddenStates, None]]:
+        THiddenState: Type[ActorCriticHiddenStates] = ActorCriticHiddenStates,  # noqa: N803
+    ) -> Tuple[FrozenDict, Union[ActorCriticHiddenStates, None]]:
         """Restore the params and the hidden state (in case of RNNs)
 
         Args:
@@ -183,8 +183,8 @@ class Checkpointer:
                 Defaults to False.
             TParams (Type[FrozenDict], optional): Type of the params.
                 Defaults to ActorCriticParams.
-            THiddenState (Type[HiddenStates], optional): Type of the hidden states.
-                Defaults to HiddenStates.
+            THiddenState (Type[ActorCriticHiddenStates], optional): Type of the hidden states.
+                Defaults to ActorCriticHiddenStates.
 
         Returns:
             Tuple[ActorCriticParams,Union[HiddenState, None]]: the restored params and

@@ -23,6 +23,8 @@ HiddenState: TypeAlias = chex.Array
 # Can't know the exact type of State.
 State: TypeAlias = Any
 Parameters: TypeAlias = Any
+OptStates: TypeAlias = Any
+HiddenStates: TypeAlias = Any
 
 
 class Observation(NamedTuple):
@@ -77,7 +79,7 @@ class RNNEvalState(NamedTuple):
     key: chex.PRNGKey
     env_state: State
     timestep: TimeStep
-    dones: chex.Array
+    dones: Done
     hstate: HiddenState
     step_count: chex.Array
     episode_return: chex.Array
@@ -97,7 +99,7 @@ class ActorCriticOptStates(NamedTuple):
     critic_opt_state: OptState
 
 
-class HiddenStates(NamedTuple):
+class ActorCriticHiddenStates(NamedTuple):
     """Hidden states for an actor critic learner."""
 
     policy_hidden_state: HiddenState
@@ -108,7 +110,7 @@ class LearnerState(NamedTuple):
     """State of the learner."""
 
     params: Parameters
-    opt_states: ActorCriticOptStates
+    opt_states: OptStates
     key: chex.PRNGKey
     env_state: LogEnvState
     timestep: TimeStep
@@ -118,7 +120,7 @@ class RNNLearnerState(NamedTuple):
     """State of the `Learner` for recurrent architectures."""
 
     params: Parameters
-    opt_states: ActorCriticOptStates
+    opt_states: OptStates
     key: chex.PRNGKey
     env_state: LogEnvState
     timestep: TimeStep

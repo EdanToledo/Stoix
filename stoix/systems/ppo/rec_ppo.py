@@ -25,7 +25,7 @@ from stoix.base_types import (
 )
 from stoix.evaluator import evaluator_setup, get_rec_distribution_act_fn
 from stoix.networks.base import RecurrentActor, RecurrentCritic, ScannedRNN
-from stoix.systems.ppo.ppo_types import HiddenStates, RNNPPOTransition
+from stoix.systems.ppo.ppo_types import ActorCriticHiddenStates, RNNPPOTransition
 from stoix.utils import make_env as environments
 from stoix.utils.checkpointing import Checkpointer
 from stoix.utils.jax_utils import unreplicate_batch_dim, unreplicate_n_dims
@@ -64,7 +64,7 @@ def get_learner_fn(
                 - env_state (State): The environment state.
                 - last_timestep (TimeStep): The last timestep in the current trajectory.
                 - dones (bool): Whether the last timestep was a terminal state.
-                - hstates (HiddenStates): The current hidden states of the RNN.
+                - hstates (ActorCriticHiddenStates): The current hidden states of the RNN.
             _ (Any): The current metrics info.
         """
 
@@ -118,7 +118,7 @@ def get_learner_fn(
             truncated = (timestep.last() & (timestep.discount != 0.0)).reshape(-1)
             info = timestep.extras["episode_metrics"]
 
-            hstates = HiddenStates(policy_hidden_state, critic_hidden_state)
+            hstates = ActorCriticHiddenStates(policy_hidden_state, critic_hidden_state)
             transition = RNNPPOTransition(
                 done,
                 truncated,
@@ -408,7 +408,7 @@ def get_learner_fn(
                 - env_state (LogEnvState): The environment state.
                 - timesteps (TimeStep): The initial timestep in the initial trajectory.
                 - dones (bool): Whether the initial timestep was a terminal state.
-                - hstateS (HiddenStates): The initial hidden states of the RNN.
+                - hstateS (ActorCriticHiddenStates): The initial hidden states of the RNN.
         """
 
         batched_update_step = jax.vmap(_update_step, in_axes=(0, None), axis_name="batch")
@@ -521,7 +521,7 @@ def learner_setup(
 
     # Pack params and initial states.
     params = ActorCriticParams(actor_params, critic_params)
-    hstates = HiddenStates(init_policy_hstate, init_critic_hstate)
+    hstates = ActorCriticHiddenStates(init_policy_hstate, init_critic_hstate)
 
     # Load model from checkpoint if specified.
     if config.logger.checkpointing.load_model:

@@ -3,7 +3,7 @@ from typing import Dict
 import chex
 from typing_extensions import NamedTuple
 
-from stoix.base_types import Action, Done, HiddenStates, Truncated, Value
+from stoix.base_types import Action, ActorCriticHiddenStates, Done, Truncated, Value
 
 
 class PPOTransition(NamedTuple):
@@ -29,5 +29,5 @@ class RNNPPOTransition(NamedTuple):
     reward: chex.Array
     log_prob: chex.Array
     obs: chex.Array
-    hstates: HiddenStates
+    hstates: ActorCriticHiddenStates
     info: Dict
