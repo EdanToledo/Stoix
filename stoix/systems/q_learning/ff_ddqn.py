@@ -17,10 +17,17 @@ from jumanji.types import TimeStep
 from omegaconf import DictConfig, OmegaConf
 from rich.pretty import pprint
 
-from stoix.base_types import ActorApply, ExperimentOutput, LearnerFn, LogEnvState
+from stoix.base_types import (
+    ActorApply,
+    ExperimentOutput,
+    LearnerFn,
+    LogEnvState,
+    OffPolicyLearnerState,
+    OnlineAndTarget,
+)
 from stoix.evaluator import evaluator_setup, get_distribution_act_fn
 from stoix.networks.base import FeedForwardActor as Actor
-from stoix.systems.q_learning.dqn_types import DQNLearnerState, QsAndTarget, Transition
+from stoix.systems.q_learning.dqn_types import Transition
 from stoix.utils import make_env as environments
 from stoix.utils.checkpointing import Checkpointer
 from stoix.utils.jax_utils import unreplicate_batch_dim, unreplicate_n_dims
@@ -89,13 +96,17 @@ def get_learner_fn(
     q_update_fn: optax.TransformUpdateFn,
     buffer_fns: Tuple[Callable, Callable],
     config: DictConfig,
-) -> LearnerFn[DQNLearnerState]:
+) -> LearnerFn[OffPolicyLearnerState]:
     """Get the learner function."""
 
     buffer_add_fn, buffer_sample_fn = buffer_fns
 
-    def _update_step(learner_state: DQNLearnerState, _: Any) -> Tuple[DQNLearnerState, Tuple]:
-        def _env_step(learner_state: DQNLearnerState, _: Any) -> Tuple[DQNLearnerState, Transition]:
+    def _update_step(
+        learner_state: OffPolicyLearnerState, _: Any
+    ) -> Tuple[OffPolicyLearnerState, Tuple]:
+        def _env_step(
+            learner_state: OffPolicyLearnerState, _: Any
+        ) -> Tuple[OffPolicyLearnerState, Transition]:
             """Step the environment."""
             q_params, opt_states, buffer_state, key, env_state, last_timestep = learner_state
 
@@ -116,7 +127,7 @@ def get_learner_fn(
                 last_timestep.observation, action, timestep.reward, done, next_obs, info
             )
 
-            learner_state = DQNLearnerState(
+            learner_state = OffPolicyLearnerState(
                 q_params, opt_states, buffer_state, key, env_state, timestep
             )
             return learner_state, transition
@@ -198,7 +209,7 @@ def get_learner_fn(
             new_target_q_params = optax.incremental_update(
                 q_new_online_params, params.target, config.system.tau
             )
-            q_new_params = QsAndTarget(q_new_online_params, new_target_q_params)
+            q_new_params = OnlineAndTarget(q_new_online_params, new_target_q_params)
 
             # PACK NEW PARAMS AND OPTIMISER STATE
             new_params = q_new_params
@@ -218,13 +229,13 @@ def get_learner_fn(
         )
 
         params, opt_states, buffer_state, key = update_state
-        learner_state = DQNLearnerState(
+        learner_state = OffPolicyLearnerState(
             params, opt_states, buffer_state, key, env_state, last_timestep
         )
         metric = traj_batch.info
         return learner_state, (metric, loss_info)
 
-    def learner_fn(learner_state: DQNLearnerState) -> ExperimentOutput[DQNLearnerState]:
+    def learner_fn(learner_state: OffPolicyLearnerState) -> ExperimentOutput[OffPolicyLearnerState]:
         """Learner function.
 
         This function represents the learner, it updates the network parameters
@@ -249,7 +260,7 @@ def get_learner_fn(
 
 def learner_setup(
     env: Environment, keys: chex.Array, config: DictConfig
-) -> Tuple[LearnerFn[DQNLearnerState], Actor, DQNLearnerState]:
+) -> Tuple[LearnerFn[OffPolicyLearnerState], Actor, OffPolicyLearnerState]:
     """Initialise learner_fn, network, optimiser, environment and states."""
     # Get available TPU cores.
     n_devices = len(jax.devices())
@@ -293,7 +304,7 @@ def learner_setup(
     q_target_params = q_online_params
     q_opt_state = q_optim.init(q_online_params)
 
-    params = QsAndTarget(q_online_params, q_target_params)
+    params = OnlineAndTarget(q_online_params, q_target_params)
     opt_states = q_opt_state
 
     q_network_apply_fn = q_network.apply
@@ -364,7 +375,7 @@ def learner_setup(
             **config.logger.checkpointing.load_args,  # Other checkpoint args
         )
         # Restore the learner state from the checkpoint
-        restored_params, _ = loaded_checkpoint.restore_params(TParams=QsAndTarget)
+        restored_params, _ = loaded_checkpoint.restore_params(TParams=OnlineAndTarget)
         # Update the params
         params = restored_params
 
@@ -391,7 +402,7 @@ def learner_setup(
     env_states, timesteps, keys, buffer_states = warmup(
         env_states, timesteps, buffer_states, warmup_keys
     )
-    init_learner_state = DQNLearnerState(
+    init_learner_state = OffPolicyLearnerState(
         params, opt_states, buffer_states, step_keys, env_states, timesteps
     )
 

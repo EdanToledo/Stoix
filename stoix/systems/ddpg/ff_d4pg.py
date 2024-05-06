@@ -20,23 +20,20 @@ from rich.pretty import pprint
 
 from stoix.base_types import (
     ActorApply,
+    ContinuousQApply,
     ExperimentOutput,
     LearnerFn,
     LogEnvState,
     Observation,
+    OffPolicyLearnerState,
+    OnlineAndTarget,
 )
 from stoix.evaluator import evaluator_setup, get_distribution_act_fn
 from stoix.networks.base import CompositeNetwork
 from stoix.networks.base import FeedForwardActor as Actor
 from stoix.networks.postprocessors import tanh_to_spec
-from stoix.systems.ddpg.ddpg_types import (
-    ActorAndTarget,
-    DDPGLearnerState,
-    DDPGOptStates,
-    DDPGParams,
-)
-from stoix.systems.q_learning.dqn_types import QsAndTarget, Transition
-from stoix.systems.sac.sac_types import ContinuousQApply
+from stoix.systems.ddpg.ddpg_types import DDPGOptStates, DDPGParams
+from stoix.systems.q_learning.dqn_types import Transition
 from stoix.utils import make_env as environments
 from stoix.utils.checkpointing import Checkpointer
 from stoix.utils.jax_utils import unreplicate_batch_dim, unreplicate_n_dims
@@ -124,7 +121,7 @@ def get_learner_fn(
     update_fns: Tuple[optax.TransformUpdateFn, optax.TransformUpdateFn],
     buffer_fns: Tuple[Callable, Callable],
     config: DictConfig,
-) -> LearnerFn[DDPGLearnerState]:
+) -> LearnerFn[OffPolicyLearnerState]:
     """Get the learner function."""
 
     # Get apply and update functions for actor and q networks.
@@ -133,10 +130,12 @@ def get_learner_fn(
     buffer_add_fn, buffer_sample_fn = buffer_fns
     exploratory_actor_apply = get_default_behavior_policy(config, actor_apply_fn)
 
-    def _update_step(learner_state: DDPGLearnerState, _: Any) -> Tuple[DDPGLearnerState, Tuple]:
+    def _update_step(
+        learner_state: OffPolicyLearnerState, _: Any
+    ) -> Tuple[OffPolicyLearnerState, Tuple]:
         def _env_step(
-            learner_state: DDPGLearnerState, _: Any
-        ) -> Tuple[DDPGLearnerState, Transition]:
+            learner_state: OffPolicyLearnerState, _: Any
+        ) -> Tuple[OffPolicyLearnerState, Transition]:
             """Step the environment."""
             params, opt_states, buffer_state, key, env_state, last_timestep = learner_state
 
@@ -158,7 +157,7 @@ def get_learner_fn(
                 last_timestep.observation, action, timestep.reward, done, next_obs, info
             )
 
-            learner_state = DDPGLearnerState(
+            learner_state = OffPolicyLearnerState(
                 params, opt_states, buffer_state, key, env_state, timestep
             )
             return learner_state, transition
@@ -293,8 +292,8 @@ def get_learner_fn(
                 config.system.tau,
             )
 
-            actor_new_params = ActorAndTarget(actor_new_online_params, new_target_actor_params)
-            q_new_params = QsAndTarget(q_new_online_params, new_target_q_params)
+            actor_new_params = OnlineAndTarget(actor_new_online_params, new_target_actor_params)
+            q_new_params = OnlineAndTarget(q_new_online_params, new_target_q_params)
 
             # PACK NEW PARAMS AND OPTIMISER STATE
             new_params = DDPGParams(actor_new_params, q_new_params)
@@ -315,13 +314,13 @@ def get_learner_fn(
         )
 
         params, opt_states, buffer_state, key = update_state
-        learner_state = DDPGLearnerState(
+        learner_state = OffPolicyLearnerState(
             params, opt_states, buffer_state, key, env_state, last_timestep
         )
         metric = traj_batch.info
         return learner_state, (metric, loss_info)
 
-    def learner_fn(learner_state: DDPGLearnerState) -> ExperimentOutput[DDPGLearnerState]:
+    def learner_fn(learner_state: OffPolicyLearnerState) -> ExperimentOutput[OffPolicyLearnerState]:
         """Learner function.
 
         This function represents the learner, it updates the network parameters
@@ -346,7 +345,7 @@ def get_learner_fn(
 
 def learner_setup(
     env: Environment, keys: chex.Array, config: DictConfig
-) -> Tuple[LearnerFn[DDPGLearnerState], Actor, DDPGLearnerState]:
+) -> Tuple[LearnerFn[OffPolicyLearnerState], Actor, OffPolicyLearnerState]:
     """Initialise learner_fn, network, optimiser, environment and states."""
     # Get available TPU cores.
     n_devices = len(jax.devices())
@@ -406,13 +405,13 @@ def learner_setup(
     actor_target_params = actor_online_params
     actor_opt_state = actor_optim.init(actor_online_params)
 
-    actor_params = ActorAndTarget(actor_online_params, actor_target_params)
+    actor_params = OnlineAndTarget(actor_online_params, actor_target_params)
 
     # Initialise q params and optimiser state.
     q_online_params = q_network.init(q_net_key, init_x, init_a)
     q_target_params = q_online_params
 
-    q_params = QsAndTarget(q_online_params, q_target_params)
+    q_params = OnlineAndTarget(q_online_params, q_target_params)
 
     q_opt_state = q_optim.init(q_online_params)
 
@@ -515,7 +514,7 @@ def learner_setup(
     env_states, timesteps, keys, buffer_states = warmup(
         env_states, timesteps, buffer_states, warmup_keys
     )
-    init_learner_state = DDPGLearnerState(
+    init_learner_state = OffPolicyLearnerState(
         params, opt_states, buffer_states, step_keys, env_states, timesteps
     )
 

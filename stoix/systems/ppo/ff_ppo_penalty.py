@@ -14,16 +14,19 @@ from jumanji.env import Environment
 from omegaconf import DictConfig, OmegaConf
 from rich.pretty import pprint
 
-from stoix.base_types import ActorApply, CriticApply, ExperimentOutput, LearnerFn
+from stoix.base_types import (
+    ActorApply,
+    ActorCriticOptStates,
+    ActorCriticParams,
+    CriticApply,
+    ExperimentOutput,
+    LearnerFn,
+    LearnerState,
+)
 from stoix.evaluator import evaluator_setup, get_distribution_act_fn
 from stoix.networks.base import FeedForwardActor as Actor
 from stoix.networks.base import FeedForwardCritic as Critic
-from stoix.systems.ppo.ppo_types import (
-    ActorCriticOptStates,
-    ActorCriticParams,
-    LearnerState,
-    PPOTransition,
-)
+from stoix.systems.ppo.ppo_types import PPOTransition
 from stoix.utils import make_env as environments
 from stoix.utils.checkpointing import Checkpointer
 from stoix.utils.jax_utils import (
