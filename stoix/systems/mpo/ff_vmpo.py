@@ -142,13 +142,20 @@ def get_learner_fn(
                 kl = target_actor_policy.kl_divergence(online_actor_policy)
                 alpha_constraint = rlax.LagrangePenalty(alpha, config.system.epsilon_policy, False)
                 kl_constraints = [(kl, alpha_constraint)]
+                # restarting_weights = 1-sequence.done.astype(jnp.float32)
 
                 loss, loss_info = rlax.vmpo_loss(
                     sample_log_probs=sample_log_probs,
                     advantages=advantages,
                     temperature_constraint=temperature_constraint,
                     kl_constraints=kl_constraints,
+                    # restarting_weights=restarting_weights
                 )
+
+                loss_info = loss_info._asdict()
+                loss_info["temperature"] = temperature
+                loss_info["alpha"] = alpha
+                loss_info["advantages"] = advantages
 
                 return jnp.mean(loss), loss_info
 
@@ -278,7 +285,6 @@ def get_learner_fn(
             )
 
             # PACK LOSS INFO
-            actor_loss_info = actor_loss_info._asdict()
             loss_info = {
                 **actor_loss_info,
                 **critic_loss_info,

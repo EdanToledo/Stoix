@@ -207,6 +207,12 @@ def get_learner_fn(
                     kl_constraints=kl_constraints,
                 )
 
+                loss_info = loss_info._asdict()
+                loss_info["temperature"] = temperature
+                loss_info["alpha_mean"] = alpha_mean
+                loss_info["alpha_stddev"] = alpha_stddev
+                loss_info["advantages"] = advantages
+
                 return jnp.mean(loss), loss_info
 
             def _critic_loss_fn(
@@ -335,7 +341,6 @@ def get_learner_fn(
             )
 
             # PACK LOSS INFO
-            actor_loss_info = actor_loss_info._asdict()
             loss_info = {
                 **actor_loss_info,
                 **critic_loss_info,
