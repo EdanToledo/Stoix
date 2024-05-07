@@ -66,7 +66,7 @@ def get_warmup_fn(
             env_state, timestep = jax.vmap(env.step, in_axes=(0, 0))(env_state, action)
 
             # LOG EPISODE METRICS
-            done = (timestep.discount == 0.0).reshape(-1)
+            done = timestep.last().reshape(-1)
             info = timestep.extras["episode_metrics"]
             next_obs = timestep.extras["next_obs"]
 
@@ -126,7 +126,7 @@ def get_learner_fn(
             env_state, timestep = jax.vmap(env.step, in_axes=(0, 0))(env_state, action)
 
             # LOG EPISODE METRICS
-            done = timestep.last()
+            done = timestep.last().reshape(-1)
             info = timestep.extras["episode_metrics"]
             next_obs = timestep.extras["next_obs"]
 
@@ -159,7 +159,7 @@ def get_learner_fn(
             ) -> jnp.ndarray:
                 """Eq 18 from https://arxiv.org/pdf/1812.05905.pdf."""
                 actor_policy = actor_apply_fn(actor_params, transitions.obs)
-                action_probs = jax.lax.stop_gradient(actor_policy.probs_parameter())
+                action_probs = jax.lax.stop_gradient(jax.nn.softmax(actor_policy.logits))
                 log_probs = jax.lax.stop_gradient(jax.nn.log_softmax(actor_policy.logits))
 
                 alpha = jnp.exp(log_alpha)
@@ -182,12 +182,11 @@ def get_learner_fn(
                 a_t = transitions.action
                 q_old_action = q_apply_fn(q_params, transitions.obs)[batch_indices, a_t]
                 next_actor_policy = actor_apply_fn(actor_params, transitions.next_obs)
-                next_action_logits = next_actor_policy.logits
-                next_action_probs = jax.nn.softmax(next_action_logits)
-                next_action_log_probs = jnp.log(next_action_probs)
+                next_action_probs = jax.nn.softmax(next_actor_policy.logits)
+                next_action_log_probs = jax.nn.log_softmax(next_actor_policy.logits)
                 next_q = q_apply_fn(target_q_params, transitions.next_obs)
                 next_v = jnp.min(next_q, axis=-1) - alpha * next_action_log_probs
-                next_v = jnp.sum(next_action_probs * next_v, axis=-1)
+                next_v = jnp.sum(next_action_probs * next_v, axis=1)
                 discount = (1.0 - transitions.done) * config.system.gamma
                 target_q = jax.lax.stop_gradient(transitions.reward + discount * next_v)
                 q_error = q_old_action - jnp.expand_dims(target_q, -1)
@@ -212,7 +211,7 @@ def get_learner_fn(
                 action_probs = actor_policy.probs_parameter()
                 log_probs = jax.nn.log_softmax(actor_policy.logits)
                 q_action = q_apply_fn(q_params, transitions.obs)
-                min_q = jnp.min(q_action, axis=-1)
+                min_q = jax.lax.stop_gradient(jnp.min(q_action, axis=-1))
                 actor_loss = action_probs * (alpha * log_probs - min_q)
 
                 loss_info = {
@@ -380,11 +379,11 @@ def learner_setup(
 
     actor_optim = optax.chain(
         optax.clip_by_global_norm(config.system.max_grad_norm),
-        optax.adam(actor_lr, eps=1e-5),
+        optax.adam(actor_lr, eps=1e-4),
     )
     q_optim = optax.chain(
         optax.clip_by_global_norm(config.system.max_grad_norm),
-        optax.adam(q_lr, eps=1e-5),
+        optax.adam(q_lr, eps=1e-4),
     )
 
     # Initialise observation
@@ -412,7 +411,7 @@ def learner_setup(
     alpha_lr = make_learning_rate(config.system.alpha_lr, config, config.system.epochs)
     alpha_optim = optax.chain(
         optax.clip_by_global_norm(config.system.max_grad_norm),
-        optax.adam(alpha_lr, eps=1e-5),
+        optax.adam(alpha_lr, eps=1e-4),
     )
     alpha_opt_state = alpha_optim.init(log_alpha)
 
