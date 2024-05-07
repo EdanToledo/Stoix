@@ -5,8 +5,13 @@ from flashbax.buffers.trajectory_buffer import BufferState
 from jumanji.types import TimeStep
 from typing_extensions import NamedTuple
 
-from stoix.base_types import Done, LogEnvState, Truncated
-from stoix.systems.ppo.ppo_types import ActorCriticOptStates, ActorCriticParams
+from stoix.base_types import (
+    ActorCriticOptStates,
+    ActorCriticParams,
+    Done,
+    LogEnvState,
+    Truncated,
+)
 
 
 class AWRLearnerState(NamedTuple):

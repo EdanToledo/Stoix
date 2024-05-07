@@ -1,9 +1,8 @@
 import copy
 import time
-from typing import Any, Callable, Dict, Tuple
+from typing import Any, Dict, Tuple
 
 import chex
-import flashbax as fbx
 import flax
 import hydra
 import jax
@@ -11,115 +10,75 @@ import jax.numpy as jnp
 import optax
 import rlax
 from colorama import Fore, Style
-from flashbax.buffers.trajectory_buffer import BufferState
 from flax.core.frozen_dict import FrozenDict
 from jumanji.env import Environment
-from jumanji.types import TimeStep
 from omegaconf import DictConfig, OmegaConf
 from rich.pretty import pprint
 
 from stoix.base_types import (
     ActorApply,
-    ActorCriticOptStates,
-    ActorCriticParams,
     CriticApply,
     ExperimentOutput,
     LearnerFn,
-    LogEnvState,
+    OnlineAndTarget,
 )
 from stoix.evaluator import evaluator_setup, get_distribution_act_fn
 from stoix.networks.base import FeedForwardActor as Actor
 from stoix.networks.base import FeedForwardCritic as Critic
-from stoix.systems.awr.awr_types import AWRLearnerState, SequenceStep
+from stoix.systems.mpo.continuous_loss import _MPO_FLOAT_EPSILON
+from stoix.systems.mpo.discrete_loss import (
+    clip_categorical_mpo_params,
+    get_temperature_from_params,
+)
+from stoix.systems.mpo.mpo_types import (
+    CategoricalDualParams,
+    SequenceStep,
+    VMPOLearnerState,
+    VMPOOptStates,
+    VMPOParams,
+)
 from stoix.utils import make_env as environments
 from stoix.utils.checkpointing import Checkpointer
-from stoix.utils.jax_utils import unreplicate_batch_dim, unreplicate_n_dims
+from stoix.utils.jax_utils import (
+    merge_leading_dims,
+    unreplicate_batch_dim,
+    unreplicate_n_dims,
+)
 from stoix.utils.logger import LogEvent, StoixLogger
-from stoix.utils.multistep import batch_truncated_generalized_advantage_estimation
+from stoix.utils.multistep import (
+    batch_n_step_bootstrapped_returns,
+    batch_truncated_generalized_advantage_estimation,
+)
 from stoix.utils.total_timestep_checker import check_total_timesteps
 from stoix.utils.training import make_learning_rate
 from stoix.wrappers.episode_metrics import get_final_step_metrics
 
 
-def get_warmup_fn(
-    env: Environment,
-    params: ActorCriticParams,
-    actor_apply_fn: ActorApply,
-    buffer_add_fn: Callable,
-    config: DictConfig,
-) -> Callable:
-    def warmup(
-        env_states: LogEnvState, timesteps: TimeStep, buffer_states: BufferState, keys: chex.PRNGKey
-    ) -> Tuple[LogEnvState, TimeStep, BufferState, chex.PRNGKey]:
-        def _env_step(
-            carry: Tuple[LogEnvState, TimeStep, chex.PRNGKey], _: Any
-        ) -> Tuple[Tuple[LogEnvState, TimeStep, chex.PRNGKey], SequenceStep]:
-            """Step the environment."""
-
-            env_state, last_timestep, key = carry
-            # SELECT ACTION
-            key, policy_key = jax.random.split(key)
-            actor_policy = actor_apply_fn(params.actor_params, last_timestep.observation)
-            action = actor_policy.sample(seed=policy_key)
-
-            # STEP ENVIRONMENT
-            env_state, timestep = jax.vmap(env.step, in_axes=(0, 0))(env_state, action)
-
-            # LOG EPISODE METRICS
-            done = (timestep.discount == 0.0).reshape(-1)
-            truncated = (timestep.last() & (timestep.discount != 0.0)).reshape(-1)
-            info = timestep.extras["episode_metrics"]
-
-            sequence_step = SequenceStep(
-                last_timestep.observation, action, timestep.reward, done, truncated, info
-            )
-
-            return (env_state, timestep, key), sequence_step
-
-        # STEP ENVIRONMENT FOR ROLLOUT LENGTH
-        (env_states, timesteps, keys), traj_batch = jax.lax.scan(
-            _env_step, (env_states, timesteps, keys), None, config.system.warmup_steps
-        )
-
-        # Add the trajectory to the buffer.
-        # Swap the batch and time axes.
-        traj_batch = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), traj_batch)
-        buffer_states = buffer_add_fn(buffer_states, traj_batch)
-
-        return env_states, timesteps, keys, buffer_states
-
-    batched_warmup_step: Callable = jax.vmap(
-        warmup, in_axes=(0, 0, 0, 0), out_axes=(0, 0, 0, 0), axis_name="batch"
-    )
-
-    return batched_warmup_step
-
-
 def get_learner_fn(
     env: Environment,
     apply_fns: Tuple[ActorApply, CriticApply],
-    update_fns: Tuple[optax.TransformUpdateFn, optax.TransformUpdateFn],
-    buffer_fns: Tuple[Callable, Callable],
+    update_fns: Tuple[optax.TransformUpdateFn, optax.TransformUpdateFn, optax.TransformUpdateFn],
     config: DictConfig,
-) -> LearnerFn[AWRLearnerState]:
+) -> LearnerFn[VMPOLearnerState]:
     """Get the learner function."""
 
     # Get apply and update functions for actor and critic networks.
     actor_apply_fn, critic_apply_fn = apply_fns
-    actor_update_fn, critic_update_fn = update_fns
-    buffer_add_fn, buffer_sample_fn = buffer_fns
+    actor_update_fn, critic_update_fn, dual_update_fn = update_fns
 
-    def _update_step(learner_state: AWRLearnerState, _: Any) -> Tuple[AWRLearnerState, Tuple]:
+    def _update_step(learner_state: VMPOLearnerState, _: Any) -> Tuple[VMPOLearnerState, Tuple]:
         def _env_step(
-            learner_state: AWRLearnerState, _: Any
-        ) -> Tuple[AWRLearnerState, SequenceStep]:
+            learner_state: VMPOLearnerState, _: Any
+        ) -> Tuple[VMPOLearnerState, SequenceStep]:
             """Step the environment."""
-            params, opt_states, buffer_state, key, env_state, last_timestep = learner_state
+            params, opt_states, key, env_state, last_timestep, learner_step_count = learner_state
 
             # SELECT ACTION
             key, policy_key = jax.random.split(key)
-            actor_policy = actor_apply_fn(params.actor_params, last_timestep.observation)
+            # We act with target params in VMPO
+            actor_policy = actor_apply_fn(params.actor_params.target, last_timestep.observation)
             action = actor_policy.sample(seed=policy_key)
+            log_prob = actor_policy.log_prob(action)
 
             # STEP ENVIRONMENT
             env_state, timestep = jax.vmap(env.step, in_axes=(0, 0))(env_state, action)
@@ -130,11 +89,11 @@ def get_learner_fn(
             info = timestep.extras["episode_metrics"]
 
             sequence_step = SequenceStep(
-                last_timestep.observation, action, timestep.reward, done, truncated, info
+                last_timestep.observation, action, timestep.reward, done, truncated, log_prob, info
             )
 
-            learner_state = AWRLearnerState(
-                params, opt_states, buffer_state, key, env_state, timestep
+            learner_state = VMPOLearnerState(
+                params, opt_states, key, env_state, timestep, learner_step_count
             )
             return learner_state, sequence_step
 
@@ -143,60 +102,143 @@ def get_learner_fn(
             _env_step, learner_state, None, config.system.rollout_length
         )
 
-        params, opt_states, buffer_state, key, env_state, last_timestep = learner_state
+        params, opt_states, key, env_state, last_timestep, learner_step_count = learner_state
 
-        # Add the trajectory to the buffer.
-        # Swap the batch and time axes.
+        # Swap the batch and time axes for easier processing.
         traj_batch = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), traj_batch)
-        buffer_state = buffer_add_fn(buffer_state, traj_batch)
+        chex.assert_tree_shape_prefix(
+            traj_batch, (config.arch.num_envs, config.system.rollout_length)
+        )
 
-        def _update_critic_step(update_state: Tuple, _: Any) -> Tuple:
+        def _update_epoch(update_state: Tuple, _: Any) -> Tuple:
+            """Update the network for a single epoch."""
+
+            def _actor_loss_fn(
+                online_actor_params: FrozenDict,
+                dual_params: CategoricalDualParams,
+                target_actor_params: FrozenDict,
+                advantages: chex.Array,
+                sequence: SequenceStep,
+            ) -> chex.Array:
+
+                # Remove the last timestep from the sequence.
+                sequence = jax.tree_util.tree_map(lambda x: x[:, :-1], sequence)
+
+                # Reshape the sequence to [B*T, ...].
+                (sequence, advantages) = jax.tree_util.tree_map(
+                    lambda x: merge_leading_dims(x, 2), (sequence, advantages)
+                )
+
+                temperature = get_temperature_from_params(dual_params).squeeze()
+                alpha = jax.nn.softplus(dual_params.log_alpha).squeeze() + _MPO_FLOAT_EPSILON
+
+                online_actor_policy = actor_apply_fn(online_actor_params, sequence.obs)
+                target_actor_policy = actor_apply_fn(target_actor_params, sequence.obs)
+
+                sample_log_probs = online_actor_policy.log_prob(sequence.action)
+                temperature_constraint = rlax.LagrangePenalty(
+                    temperature, config.system.epsilon, False
+                )
+                kl = target_actor_policy.kl_divergence(online_actor_policy)
+                alpha_constraint = rlax.LagrangePenalty(alpha, config.system.epsilon_policy, False)
+                kl_constraints = [(kl, alpha_constraint)]
+                # restarting_weights = 1-sequence.done.astype(jnp.float32)
+
+                loss, loss_info = rlax.vmpo_loss(
+                    sample_log_probs=sample_log_probs,
+                    advantages=advantages,
+                    temperature_constraint=temperature_constraint,
+                    kl_constraints=kl_constraints,
+                    # restarting_weights=restarting_weights
+                )
+
+                loss_info = loss_info._asdict()
+                loss_info["temperature"] = temperature
+                loss_info["alpha"] = alpha
+                loss_info["advantages"] = advantages
+
+                return jnp.mean(loss), loss_info
+
             def _critic_loss_fn(
-                critic_params: FrozenDict,
-                observations: chex.Array,
-                target_vals: jnp.ndarray,
-            ) -> jnp.ndarray:
+                online_critic_params: FrozenDict,
+                value_target: chex.Array,
+                sequence: SequenceStep,
+            ) -> chex.Array:
 
-                pred_v = critic_apply_fn(critic_params, observations)[:, :-1]
-                critic_loss = rlax.l2_loss(pred_v, target_vals).mean()
+                # Remove the last timestep from the sequence.
+                sequence = jax.tree_util.tree_map(lambda x: x[:, :-1], sequence)
+
+                online_v_t = critic_apply_fn(online_critic_params, sequence.obs)  # [B, T]
+
+                td_error = value_target - online_v_t
+
+                v_loss = rlax.l2_loss(td_error).mean()
 
                 loss_info = {
-                    "critic_loss": critic_loss,
+                    "v_loss": v_loss,
                 }
 
-                return critic_loss, loss_info
+                return v_loss, loss_info
 
-            params, opt_states, buffer_state, key, static_critic_params = update_state
+            params, opt_states, key, sequence_batch, learner_step_count = update_state
 
-            key, sample_key = jax.random.split(key)
+            # Calculate Advantages and Value Target of pi_target
+            discount = 1.0 - sequence_batch.done.astype(jnp.float32)
+            d_t = (discount * config.system.gamma).astype(jnp.float32)
+            r_t = jnp.clip(
+                sequence_batch.reward, -config.system.max_abs_reward, config.system.max_abs_reward
+            ).astype(jnp.float32)
 
-            # SAMPLE SEQUENCES
-            sequence_sample = buffer_sample_fn(buffer_state, sample_key)
-            sequence: SequenceStep = sequence_sample.experience
+            online_v_t = critic_apply_fn(params.critic_params, sequence_batch.obs)  # [B, T]
 
-            # CALCULATE TARGETS USING LAST ITERATION CRITIC
-            v_t = critic_apply_fn(static_critic_params, sequence.obs)
-            r_t = sequence.reward[:, :-1]
-            d_t = (1 - sequence.done.astype(jnp.float32)[:, :-1]) * config.system.gamma
-            _, target_vals = batch_truncated_generalized_advantage_estimation(
-                r_t,
-                d_t,
-                config.system.gae_lambda,
-                v_t,
-                time_major=False,
-                truncation_flags=sequence.truncated[:, :-1],
+            # We recompute the targets using the latest critic every time
+            if config.system.use_n_step_bootstrap:
+                value_target = batch_n_step_bootstrapped_returns(
+                    r_t[:, :-1],
+                    d_t[:, :-1],
+                    online_v_t[:, 1:],
+                    config.system.n_step_for_sequence_bootstrap,
+                )
+                advantages = value_target - online_v_t[:, :-1]
+            else:
+                advantages, value_target = batch_truncated_generalized_advantage_estimation(
+                    r_t[:, :-1],
+                    d_t[:, :-1],
+                    config.system.gae_lambda,
+                    online_v_t,
+                    time_major=False,
+                    truncation_flags=sequence_batch.truncated[:, :-1],
+                )
+
+            # CALCULATE ACTOR AND DUAL LOSS
+            actor_dual_grad_fn = jax.grad(_actor_loss_fn, argnums=(0, 1), has_aux=True)
+            actor_dual_grads, actor_loss_info = actor_dual_grad_fn(
+                params.actor_params.online,
+                params.dual_params,
+                params.actor_params.target,
+                advantages,
+                sequence_batch,
             )
 
             # CALCULATE CRITIC LOSS
             critic_grad_fn = jax.grad(_critic_loss_fn, has_aux=True)
             critic_grads, critic_loss_info = critic_grad_fn(
-                params.critic_params, sequence.obs, target_vals
+                params.critic_params,
+                value_target,
+                sequence_batch,
             )
 
             # Compute the parallel mean (pmean) over the batch.
             # This calculation is inspired by the Anakin architecture demo notebook.
             # available at https://tinyurl.com/26tdzs5x
             # This pmean could be a regular mean as the batch axis is on the same device.
+            actor_dual_grads, actor_loss_info = jax.lax.pmean(
+                (actor_dual_grads, actor_loss_info), axis_name="batch"
+            )
+            # pmean over devices.
+            actor_dual_grads, actor_loss_info = jax.lax.pmean(
+                (actor_dual_grads, actor_loss_info), axis_name="device"
+            )
 
             critic_grads, critic_loss_info = jax.lax.pmean(
                 (critic_grads, critic_loss_info), axis_name="batch"
@@ -205,125 +247,65 @@ def get_learner_fn(
                 (critic_grads, critic_loss_info), axis_name="device"
             )
 
-            # UPDATE CRITIC PARAMS AND OPTIMISER STATE
-            critic_updates, critic_new_opt_state = critic_update_fn(
-                critic_grads, opt_states.critic_opt_state
-            )
-            critic_new_params = optax.apply_updates(params.critic_params, critic_updates)
-
-            # PACK NEW PARAMS AND OPTIMISER STATE
-            new_params = ActorCriticParams(params.actor_params, critic_new_params)
-            new_opt_state = ActorCriticOptStates(opt_states.actor_opt_state, critic_new_opt_state)
-
-            return (
-                new_params,
-                new_opt_state,
-                buffer_state,
-                key,
-                static_critic_params,
-            ), critic_loss_info
-
-        def _update_actor_step(update_state: Tuple, _: Any) -> Tuple:
-            def _actor_loss_fn(
-                actor_params: FrozenDict,
-                sequence: SequenceStep,
-                weights: chex.Array,
-            ) -> chex.Array:
-
-                actor_policy = actor_apply_fn(actor_params, sequence.obs)
-                log_probs = actor_policy.log_prob(sequence.action)[:, :-1]
-                actor_loss = -jnp.mean(log_probs * weights)
-
-                loss_info = {
-                    "actor_loss": actor_loss,
-                }
-
-                return actor_loss, loss_info
-
-            params, opt_states, buffer_state, key = update_state
-
-            key, sample_key = jax.random.split(key)
-
-            # SAMPLE SEQUENCES
-            sequence_sample = buffer_sample_fn(buffer_state, sample_key)
-            sequence: SequenceStep = sequence_sample.experience
-
-            # CALCULATE WEIGHTS USING LATEST CRITIC
-            v_t = critic_apply_fn(params.critic_params, sequence.obs)
-            r_t = sequence.reward[:, :-1]
-            d_t = (1 - sequence.done.astype(jnp.float32)[:, :-1]) * config.system.gamma
-            advantages, _ = batch_truncated_generalized_advantage_estimation(
-                r_t,
-                d_t,
-                config.system.gae_lambda,
-                v_t,
-                time_major=False,
-                standardize_advantages=config.system.standardize_advantages,
-                truncation_flags=sequence.truncated[:, :-1],
-            )
-            weights = jnp.exp(advantages / config.system.beta)
-            weights = jnp.minimum(weights, config.system.weight_clip)
-
-            # CALCULATE ACTOR AND DUAL LOSS
-            actor_grad_fn = jax.grad(_actor_loss_fn, argnums=(0), has_aux=True)
-            actor_grads, actor_loss_info = actor_grad_fn(params.actor_params, sequence, weights)
-
-            # Compute the parallel mean (pmean) over the batch.
-            # This calculation is inspired by the Anakin architecture demo notebook.
-            # available at https://tinyurl.com/26tdzs5x
-            # This pmean could be a regular mean as the batch axis is on the same device.
-            actor_grads, actor_loss_info = jax.lax.pmean(
-                (actor_grads, actor_loss_info), axis_name="batch"
-            )
-            # pmean over devices.
-            actor_grads, actor_loss_info = jax.lax.pmean(
-                (actor_grads, actor_loss_info), axis_name="device"
-            )
+            actor_grads, dual_grads = actor_dual_grads
 
             # UPDATE ACTOR PARAMS AND OPTIMISER STATE
             actor_updates, actor_new_opt_state = actor_update_fn(
                 actor_grads, opt_states.actor_opt_state
             )
-            actor_new_params = optax.apply_updates(params.actor_params, actor_updates)
+            actor_new_online_params = optax.apply_updates(params.actor_params.online, actor_updates)
+
+            # UPDATE DUAL PARAMS AND OPTIMISER STATE
+            dual_updates, dual_new_opt_state = dual_update_fn(dual_grads, opt_states.dual_opt_state)
+            dual_new_params = optax.apply_updates(params.dual_params, dual_updates)
+            dual_new_params = clip_categorical_mpo_params(dual_new_params)
+
+            # UPDATE CRITIC PARAMS AND OPTIMISER STATE
+            critic_updates, critic_new_opt_state = critic_update_fn(
+                critic_grads, opt_states.critic_opt_state
+            )
+            critic_new_online_params = optax.apply_updates(params.critic_params, critic_updates)
+
+            learner_step_count += 1
+
+            # POLYAK UPDATE FOR ACTOR
+            new_target_actor_params = optax.periodic_update(
+                actor_new_online_params,
+                params.actor_params.target,
+                learner_step_count,
+                config.system.actor_target_period,
+            )
 
             # PACK NEW PARAMS AND OPTIMISER STATE
-            new_params = ActorCriticParams(actor_new_params, params.critic_params)
-            new_opt_state = ActorCriticOptStates(actor_new_opt_state, opt_states.critic_opt_state)
+            actor_new_params = OnlineAndTarget(actor_new_online_params, new_target_actor_params)
 
-            return (new_params, new_opt_state, buffer_state, key), actor_loss_info
+            new_params = VMPOParams(actor_new_params, critic_new_online_params, dual_new_params)
+            new_opt_state = VMPOOptStates(
+                actor_new_opt_state, critic_new_opt_state, dual_new_opt_state
+            )
 
-        # We copy the params here to allow us to use the same critic for creating the target values.
-        static_critic_params = params.critic_params
-        update_state = (params, opt_states, buffer_state, key, static_critic_params)
+            # PACK LOSS INFO
+            loss_info = {
+                **actor_loss_info,
+                **critic_loss_info,
+            }
+            return (new_params, new_opt_state, key, sequence_batch, learner_step_count), loss_info
 
-        # UPDATE CRITIC STEPS
-        update_state, critic_loss_info = jax.lax.scan(
-            _update_critic_step, update_state, None, config.system.num_critic_steps
+        update_state = (params, opt_states, key, traj_batch, learner_step_count)
+
+        # UPDATE EPOCHS
+        update_state, loss_info = jax.lax.scan(
+            _update_epoch, update_state, None, config.system.epochs
         )
 
-        # We then remove static critic params from the update state.
-        # Since we will be using the latest critic params for the actor update.
-        params, opt_states, buffer_state, key, _ = update_state
-        update_state = (params, opt_states, buffer_state, key)
-
-        # UPDATE ACTOR STEPS
-        update_state, actor_loss_info = jax.lax.scan(
-            _update_actor_step, update_state, None, config.system.num_actor_steps
-        )
-
-        loss_info = {
-            **actor_loss_info,
-            **critic_loss_info,
-        }
-
-        params, opt_states, buffer_state, key = update_state
-        learner_state = AWRLearnerState(
-            params, opt_states, buffer_state, key, env_state, last_timestep
+        params, opt_states, key, traj_batch, learner_step_count = update_state
+        learner_state = VMPOLearnerState(
+            params, opt_states, key, env_state, last_timestep, learner_step_count
         )
         metric = traj_batch.info
         return learner_state, (metric, loss_info)
 
-    def learner_fn(learner_state: AWRLearnerState) -> ExperimentOutput[AWRLearnerState]:
+    def learner_fn(learner_state: VMPOLearnerState) -> ExperimentOutput[VMPOLearnerState]:
         """Learner function.
 
         This function represents the learner, it updates the network parameters
@@ -347,7 +329,7 @@ def get_learner_fn(
 
 def learner_setup(
     env: Environment, keys: chex.Array, config: DictConfig
-) -> Tuple[LearnerFn[AWRLearnerState], Actor, AWRLearnerState]:
+) -> Tuple[LearnerFn[VMPOLearnerState], Actor, VMPOLearnerState]:
     """Initialise learner_fn, network, optimiser, environment and states."""
     # Get available TPU cores.
     n_devices = len(jax.devices())
@@ -359,19 +341,18 @@ def learner_setup(
     # PRNG keys.
     key, actor_net_key, critic_net_key = keys
 
-    # Define actor_network, q_network and optimiser.
+    # Define actor_network, critic_network and optimiser.
     actor_torso = hydra.utils.instantiate(config.network.actor_network.pre_torso)
     actor_action_head = hydra.utils.instantiate(
         config.network.actor_network.action_head, action_dim=action_dim
     )
     actor_network = Actor(torso=actor_torso, action_head=actor_action_head)
-
     critic_network_torso = hydra.utils.instantiate(config.network.critic_network.pre_torso)
     critic_network_head = hydra.utils.instantiate(config.network.critic_network.critic_head)
     critic_network = Critic(torso=critic_network_torso, critic_head=critic_network_head)
 
-    actor_lr = make_learning_rate(config.system.actor_lr, config, config.system.num_actor_steps)
-    critic_lr = make_learning_rate(config.system.critic_lr, config, config.system.num_critic_steps)
+    actor_lr = make_learning_rate(config.system.actor_lr, config, config.system.epochs)
+    critic_lr = make_learning_rate(config.system.critic_lr, config, config.system.epochs)
 
     actor_optim = optax.chain(
         optax.clip_by_global_norm(config.system.max_grad_norm),
@@ -389,65 +370,45 @@ def learner_setup(
     # Initialise actor params and optimiser state.
     actor_params = actor_network.init(actor_net_key, init_x)
     actor_opt_state = actor_optim.init(actor_params)
+    target_actor_params = copy.deepcopy(actor_params)
 
-    # Initialise q params and optimiser state.
-    critic_params = critic_network.init(critic_net_key, init_x)
-    critic_opt_state = critic_optim.init(critic_params)
+    # Initialise critic params and optimiser state.
+    online_critic_params = critic_network.init(critic_net_key, init_x)
+    critic_opt_state = critic_optim.init(online_critic_params)
 
-    params = ActorCriticParams(
-        actor_params,
-        critic_params,
+    # Initialise VMPO Dual params and optimiser state.
+    log_temperature = jnp.full([1], config.system.init_log_temperature, dtype=jnp.float32)
+    log_alpha = jnp.full([1], config.system.init_log_alpha, dtype=jnp.float32)
+
+    dual_params = CategoricalDualParams(
+        log_temperature=log_temperature,
+        log_alpha=log_alpha,
     )
-    opt_states = ActorCriticOptStates(actor_opt_state, critic_opt_state)
+
+    dual_lr = make_learning_rate(config.system.dual_lr, config, config.system.epochs)
+    dual_optim = optax.chain(
+        optax.clip_by_global_norm(config.system.max_grad_norm),
+        optax.adam(dual_lr, eps=1e-5),
+    )
+    dual_opt_state = dual_optim.init(dual_params)
+
+    params = VMPOParams(
+        OnlineAndTarget(actor_params, target_actor_params),
+        online_critic_params,
+        dual_params,
+    )
+    opt_states = VMPOOptStates(actor_opt_state, critic_opt_state, dual_opt_state)
 
     actor_network_apply_fn = actor_network.apply
     critic_network_apply_fn = critic_network.apply
 
     # Pack apply and update functions.
     apply_fns = (actor_network_apply_fn, critic_network_apply_fn)
-    update_fns = (actor_optim.update, critic_optim.update)
-
-    # Create replay buffer
-    dummy_sequence_step = SequenceStep(
-        obs=jax.tree_util.tree_map(lambda x: x.squeeze(0), init_x),
-        action=jnp.zeros((), dtype=int),
-        reward=jnp.zeros((), dtype=float),
-        done=jnp.zeros((), dtype=bool),
-        truncated=jnp.zeros((), dtype=bool),
-        info={"episode_return": 0.0, "episode_length": 0, "is_terminal_step": False},
-    )
-
-    assert config.system.total_buffer_size % n_devices == 0, (
-        f"{Fore.RED}{Style.BRIGHT}The total buffer size should be divisible "
-        + "by the number of devices!{Style.RESET_ALL}"
-    )
-    assert config.system.total_batch_size % n_devices == 0, (
-        f"{Fore.RED}{Style.BRIGHT}The total batch size should be divisible "
-        + "by the number of devices!{Style.RESET_ALL}"
-    )
-    config.system.buffer_size = config.system.total_buffer_size // (
-        n_devices * config.arch.update_batch_size
-    )
-    config.system.batch_size = config.system.total_batch_size // (
-        n_devices * config.arch.update_batch_size
-    )
-    buffer_fn = fbx.make_trajectory_buffer(
-        max_size=config.system.buffer_size,
-        min_length_time_axis=config.system.sample_sequence_length,
-        sample_batch_size=config.system.batch_size,
-        sample_sequence_length=config.system.sample_sequence_length,
-        period=config.system.period,
-        add_batch_size=config.arch.num_envs,
-    )
-    buffer_fns = (buffer_fn.add, buffer_fn.sample)
-    buffer_states = buffer_fn.init(dummy_sequence_step)
+    update_fns = (actor_optim.update, critic_optim.update, dual_optim.update)
 
     # Get batched iterated update and replicate it to pmap it over cores.
-    learn = get_learner_fn(env, apply_fns, update_fns, buffer_fns, config)
+    learn = get_learner_fn(env, apply_fns, update_fns, config)
     learn = jax.pmap(learn, axis_name="device")
-
-    warmup = get_warmup_fn(env, params, actor_network_apply_fn, buffer_fn.add, config)
-    warmup = jax.pmap(warmup, axis_name="device")
 
     # Initialise environment states and timesteps: across devices and batches.
     key, *env_keys = jax.random.split(
@@ -470,19 +431,18 @@ def learner_setup(
             **config.logger.checkpointing.load_args,  # Other checkpoint args
         )
         # Restore the learner state from the checkpoint
-        restored_params, _ = loaded_checkpoint.restore_params(TParams=ActorCriticParams)
+        restored_params, _ = loaded_checkpoint.restore_params(TParams=VMPOParams)
         # Update the params
         params = restored_params
 
     # Define params to be replicated across devices and batches.
-    key, step_key, warmup_key = jax.random.split(key, num=3)
+    key, step_key = jax.random.split(key, num=2)
     step_keys = jax.random.split(step_key, n_devices * config.arch.update_batch_size)
-    warmup_keys = jax.random.split(warmup_key, n_devices * config.arch.update_batch_size)
     reshape_keys = lambda x: x.reshape((n_devices, config.arch.update_batch_size) + x.shape[1:])
     step_keys = reshape_keys(jnp.stack(step_keys))
-    warmup_keys = reshape_keys(jnp.stack(warmup_keys))
+    learner_step_count = jnp.int32(0)
 
-    replicate_learner = (params, opt_states, buffer_states)
+    replicate_learner = (params, opt_states, learner_step_count)
 
     # Duplicate learner for update_batch_size.
     broadcast = lambda x: jnp.broadcast_to(x, (config.arch.update_batch_size,) + x.shape)
@@ -492,13 +452,10 @@ def learner_setup(
     replicate_learner = flax.jax_utils.replicate(replicate_learner, devices=jax.devices())
 
     # Initialise learner state.
-    params, opt_states, buffer_states = replicate_learner
-    # Warmup the buffer.
-    env_states, timesteps, keys, buffer_states = warmup(
-        env_states, timesteps, buffer_states, warmup_keys
-    )
-    init_learner_state = AWRLearnerState(
-        params, opt_states, buffer_states, step_keys, env_states, timesteps
+    params, opt_states, learner_step_count = replicate_learner
+
+    init_learner_state = VMPOLearnerState(
+        params, opt_states, step_keys, env_states, timesteps, learner_step_count
     )
 
     return learn, actor_network, init_learner_state
@@ -534,7 +491,7 @@ def run_experiment(_config: DictConfig) -> float:
         eval_env=eval_env,
         key_e=key_e,
         eval_act_fn=get_distribution_act_fn(config, actor_network.apply),
-        params=learner_state.params.actor_params,
+        params=learner_state.params.actor_params.online,
         config=config,
     )
 
@@ -565,7 +522,7 @@ def run_experiment(_config: DictConfig) -> float:
 
     # Run experiment for a total number of evaluations.
     max_episode_return = jnp.float32(-1e6)
-    best_params = unreplicate_batch_dim(learner_state.params.actor_params)
+    best_params = unreplicate_batch_dim(learner_state.params.actor_params.online)
     for eval_step in range(config.arch.num_evaluation):
         # Train.
         start_time = time.time()
@@ -588,7 +545,7 @@ def run_experiment(_config: DictConfig) -> float:
         # Prepare for evaluation.
         start_time = time.time()
         trained_params = unreplicate_batch_dim(
-            learner_output.learner_state.params.actor_params
+            learner_output.learner_state.params.actor_params.online
         )  # Select only actor params
         key_e, *eval_keys = jax.random.split(key_e, n_devices + 1)
         eval_keys = jnp.stack(eval_keys)
@@ -645,7 +602,7 @@ def run_experiment(_config: DictConfig) -> float:
     return eval_performance
 
 
-@hydra.main(config_path="../../configs", config_name="default_ff_awr.yaml", version_base="1.2")
+@hydra.main(config_path="../../configs", config_name="default_ff_vmpo.yaml", version_base="1.2")
 def hydra_entry_point(cfg: DictConfig) -> float:
     """Experiment entry point."""
     # Allow dynamic attributes.
@@ -654,7 +611,7 @@ def hydra_entry_point(cfg: DictConfig) -> float:
     # Run experiment.
     eval_performance = run_experiment(cfg)
 
-    print(f"{Fore.CYAN}{Style.BRIGHT}AWR experiment completed{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}{Style.BRIGHT}V-MPO experiment completed{Style.RESET_ALL}")
     return eval_performance
 
 

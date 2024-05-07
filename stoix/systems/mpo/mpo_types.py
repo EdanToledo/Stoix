@@ -7,8 +7,7 @@ from flax.core.frozen_dict import FrozenDict
 from jumanji.types import TimeStep
 from typing_extensions import NamedTuple
 
-from stoix.base_types import Action, Done, LogEnvState, Truncated
-from stoix.systems.q_learning.dqn_types import QsAndTarget
+from stoix.base_types import Action, Done, LogEnvState, OnlineAndTarget, Truncated
 
 
 class SequenceStep(NamedTuple):
@@ -19,11 +18,6 @@ class SequenceStep(NamedTuple):
     truncated: Truncated
     log_prob: chex.Array
     info: Dict
-
-
-class ActorAndTarget(NamedTuple):
-    online: FrozenDict
-    target: FrozenDict
 
 
 class DualParams(NamedTuple):
@@ -39,8 +33,8 @@ class CategoricalDualParams(NamedTuple):
 
 
 class MPOParams(NamedTuple):
-    actor_params: FrozenDict
-    q_params: QsAndTarget
+    actor_params: OnlineAndTarget
+    q_params: OnlineAndTarget
     dual_params: Union[DualParams, CategoricalDualParams]
 
 
@@ -102,3 +96,24 @@ class CategoricalMPOStats(NamedTuple):
 
     entropy_online: float
     entropy_target: float
+
+
+class VMPOParams(NamedTuple):
+    actor_params: OnlineAndTarget
+    critic_params: FrozenDict
+    dual_params: Union[DualParams, CategoricalDualParams]
+
+
+class VMPOOptStates(NamedTuple):
+    actor_opt_state: optax.OptState
+    critic_opt_state: optax.OptState
+    dual_opt_state: optax.OptState
+
+
+class VMPOLearnerState(NamedTuple):
+    params: VMPOParams
+    opt_states: VMPOOptStates
+    key: chex.PRNGKey
+    env_state: LogEnvState
+    timestep: TimeStep
+    learner_step_count: int

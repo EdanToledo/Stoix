@@ -22,6 +22,7 @@ from rich.pretty import pprint
 
 from stoix.base_types import (
     ActorApply,
+    ActorCriticParams,
     CriticApply,
     DistributionCriticApply,
     ExperimentOutput,
@@ -32,7 +33,6 @@ from stoix.networks.base import FeedForwardActor as Actor
 from stoix.networks.base import FeedForwardCritic as Critic
 from stoix.networks.inputs import EmbeddingInput
 from stoix.networks.model_based import Dynamics, Representation
-from stoix.systems.ppo.ppo_types import ActorCriticParams
 from stoix.systems.search.evaluator import search_evaluator_setup
 from stoix.systems.search.search_types import (
     DynamicsApply,
