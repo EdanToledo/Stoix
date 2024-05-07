@@ -3,6 +3,7 @@ from typing import Dict, Optional, Union
 import chex
 import optax
 from flashbax.buffers.trajectory_buffer import BufferState
+from flax.core.frozen_dict import FrozenDict
 from jumanji.types import TimeStep
 from typing_extensions import NamedTuple
 
@@ -95,3 +96,24 @@ class CategoricalMPOStats(NamedTuple):
 
     entropy_online: float
     entropy_target: float
+
+
+class VMPOParams(NamedTuple):
+    actor_params: OnlineAndTarget
+    critic_params: FrozenDict
+    dual_params: Union[DualParams, CategoricalDualParams]
+
+
+class VMPOOptStates(NamedTuple):
+    actor_opt_state: optax.OptState
+    critic_opt_state: optax.OptState
+    dual_opt_state: optax.OptState
+
+
+class VMPOLearnerState(NamedTuple):
+    params: VMPOParams
+    opt_states: VMPOOptStates
+    key: chex.PRNGKey
+    env_state: LogEnvState
+    timestep: TimeStep
+    learner_step_count: int

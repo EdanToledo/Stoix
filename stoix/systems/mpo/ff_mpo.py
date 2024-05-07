@@ -214,18 +214,18 @@ def get_learner_fn(
                 target_q_params: FrozenDict,
                 online_actor_params: FrozenDict,
                 target_actor_params: FrozenDict,
-                sequences: SequenceStep,
+                sequence: SequenceStep,
                 rng_key: chex.PRNGKey,
             ) -> jnp.ndarray:
 
                 online_actor_policy = actor_apply_fn(
-                    online_actor_params, sequences.obs
+                    online_actor_params, sequence.obs
                 )  # [B, T, ...]
                 target_actor_policy = actor_apply_fn(
-                    target_actor_params, sequences.obs
+                    target_actor_params, sequence.obs
                 )  # [B, T, ...]
-                a_t = jax.nn.one_hot(sequences.action, config.system.action_dim)  # [B, T, ...]
-                online_q_t = q_apply_fn(online_q_params, sequences.obs, a_t)  # [B, T]
+                a_t = jax.nn.one_hot(sequence.action, config.system.action_dim)  # [B, T, ...]
+                online_q_t = q_apply_fn(online_q_params, sequence.obs, a_t)  # [B, T]
 
                 # Cast and clip rewards.
                 discount = 1.0 - sequence.done.astype(jnp.float32)
@@ -254,7 +254,7 @@ def get_learner_fn(
 
                 # Compute the Q-values for the next state-action pairs; [N, B, T].
                 q_values = jax.vmap(q_apply_fn, in_axes=(None, None, 0))(
-                    target_q_params, sequences.obs, a_evaluation
+                    target_q_params, sequence.obs, a_evaluation
                 )
 
                 # When policy_eval_stochastic == True, this corresponds to expected SARSA.
@@ -263,10 +263,10 @@ def get_learner_fn(
 
                 if config.system.use_retrace:
                     # Compute the log-rhos for the retrace targets.
-                    log_rhos = target_actor_policy.log_prob(sequences.action) - sequences.log_prob
+                    log_rhos = target_actor_policy.log_prob(sequence.action) - sequence.log_prob
 
                     # Compute target Q-values
-                    target_q_t = q_apply_fn(target_q_params, sequences.obs, a_t)  # [B, T]
+                    target_q_t = q_apply_fn(target_q_params, sequence.obs, a_t)  # [B, T]
 
                     # Compute retrace targets.
                     # These targets use the rewards and discounts as in normal TD-learning but

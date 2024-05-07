@@ -1,0 +1,7 @@
+defaults:
+  - logger: base_logger
+  - arch: anakin
+  - system: ff_vmpo
+  - network: mlp
+  - env: gymnax/cartpole
+  - _self_
