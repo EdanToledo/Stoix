@@ -79,6 +79,7 @@ def get_learner_fn(
                 env_state,
                 last_timestep,
                 last_done,
+                last_truncated,
                 hstates,
             ) = learner_state
 
@@ -120,8 +121,8 @@ def get_learner_fn(
 
             hstates = ActorCriticHiddenStates(policy_hidden_state, critic_hidden_state)
             transition = RNNPPOTransition(
-                done,
-                truncated,
+                last_done,
+                last_truncated,
                 action,
                 value,
                 timestep.reward,
@@ -137,6 +138,7 @@ def get_learner_fn(
                 env_state,
                 timestep,
                 done,
+                truncated,
                 hstates,
             )
             return learner_state, transition
@@ -157,6 +159,7 @@ def get_learner_fn(
             env_state,
             last_timestep,
             last_done,
+            last_truncated,
             hstates,
         ) = learner_state
 
@@ -388,6 +391,7 @@ def get_learner_fn(
             env_state,
             last_timestep,
             last_done,
+            last_truncated,
             hstates,
         )
         metric = traj_batch.info
@@ -554,12 +558,16 @@ def learner_setup(
         (config.arch.num_envs,),
         dtype=bool,
     )
+    truncated = jnp.zeros(
+        (config.arch.num_envs,),
+        dtype=bool,
+    )
     key, step_key = jax.random.split(key)
     step_keys = jax.random.split(step_key, n_devices * config.arch.update_batch_size)
     reshape_keys = lambda x: x.reshape((n_devices, config.arch.update_batch_size) + x.shape[1:])
     step_keys = reshape_keys(jnp.stack(step_keys))
     opt_states = ActorCriticOptStates(actor_opt_state, critic_opt_state)
-    replicate_learner = (params, opt_states, hstates, dones)
+    replicate_learner = (params, opt_states, hstates, dones, truncated)
 
     # Duplicate learner for update_batch_size.
     broadcast = lambda x: jnp.broadcast_to(x, (config.arch.update_batch_size,) + x.shape)
@@ -569,14 +577,15 @@ def learner_setup(
     replicate_learner = flax.jax_utils.replicate(replicate_learner, devices=jax.devices())
 
     # Initialise learner state.
-    params, opt_states, hstates, dones = replicate_learner
+    params, opt_states, hstates, dones, truncated = replicate_learner
     init_learner_state = RNNLearnerState(
         params=params,
         opt_states=opt_states,
         key=step_keys,
         env_state=env_states,
         timestep=timesteps,
-        dones=dones,
+        done=dones,
+        truncated=truncated,
         hstates=hstates,
     )
     return learn, actor_network, actor_rnn, init_learner_state
