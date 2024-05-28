@@ -206,8 +206,8 @@ def get_learner_fn(
                     epsilon_mean=config.system.epsilon_mean,
                     epsilon_stddev=config.system.epsilon_stddev,
                     per_dim_constraining=config.system.per_dim_constraining,
-                    action_penalization=config.system.action_penalization,
-                    epsilon_penalty=config.system.epsilon_penalty,
+                    action_minimum=config.system.action_minimum,
+                    action_maximum=config.system.action_maximum,
                 )
 
                 return jnp.mean(loss), loss_info
@@ -336,7 +336,7 @@ def get_learner_fn(
 
             # CALCULATE ACTOR AND DUAL LOSS
             actor_dual_grad_fn = jax.grad(_actor_loss_fn, argnums=(0, 1), has_aux=True)
-            actor_dual_grads, actor_loss_info = actor_dual_grad_fn(
+            actor_dual_grads, actor_dual_loss_info = actor_dual_grad_fn(
                 params.actor_params.online,
                 params.dual_params,
                 params.actor_params.target,
@@ -360,12 +360,12 @@ def get_learner_fn(
             # This calculation is inspired by the Anakin architecture demo notebook.
             # available at https://tinyurl.com/26tdzs5x
             # This pmean could be a regular mean as the batch axis is on the same device.
-            actor_dual_grads, actor_loss_info = jax.lax.pmean(
-                (actor_dual_grads, actor_loss_info), axis_name="batch"
+            actor_dual_grads, actor_dual_loss_info = jax.lax.pmean(
+                (actor_dual_grads, actor_dual_loss_info), axis_name="batch"
             )
             # pmean over devices.
-            actor_dual_grads, actor_loss_info = jax.lax.pmean(
-                (actor_dual_grads, actor_loss_info), axis_name="device"
+            actor_dual_grads, actor_dual_loss_info = jax.lax.pmean(
+                (actor_dual_grads, actor_dual_loss_info), axis_name="device"
             )
 
             q_grads, q_loss_info = jax.lax.pmean((q_grads, q_loss_info), axis_name="batch")
@@ -382,7 +382,7 @@ def get_learner_fn(
             # UPDATE DUAL PARAMS AND OPTIMISER STATE
             dual_updates, dual_new_opt_state = dual_update_fn(dual_grads, opt_states.dual_opt_state)
             dual_new_params = optax.apply_updates(params.dual_params, dual_updates)
-            dual_new_params = clip_dual_params(dual_new_params, config.system.per_dim_constraining)
+            dual_new_params = clip_dual_params(dual_new_params)
 
             # UPDATE Q PARAMS AND OPTIMISER STATE
             q_updates, q_new_opt_state = q_update_fn(q_grads, opt_states.q_opt_state)
@@ -402,9 +402,8 @@ def get_learner_fn(
             new_opt_state = MPOOptStates(actor_new_opt_state, q_new_opt_state, dual_new_opt_state)
 
             # PACK LOSS INFO
-            actor_loss_info = actor_loss_info._asdict()
             loss_info = {
-                **actor_loss_info,
+                **actor_dual_loss_info,
                 **q_loss_info,
             }
             return (new_params, new_opt_state, buffer_state, key), loss_info
@@ -464,7 +463,10 @@ def learner_setup(
     # Define actor_network, q_network and optimiser.
     actor_torso = hydra.utils.instantiate(config.network.actor_network.pre_torso)
     actor_action_head = hydra.utils.instantiate(
-        config.network.actor_network.action_head, action_dim=action_dim
+        config.network.actor_network.action_head,
+        action_dim=action_dim,
+        minimum=config.system.action_minimum,
+        maximum=config.system.action_maximum,
     )
     actor_network = Actor(torso=actor_torso, action_head=actor_action_head)
     q_network_input = hydra.utils.instantiate(config.network.q_network.input_layer)
@@ -515,18 +517,10 @@ def learner_setup(
         dual_variable_shape, config.system.init_log_alpha_stddev, dtype=jnp.float32
     )
 
-    if config.system.action_penalization:
-        log_penalty_temperature = jnp.full(
-            [1], config.system.init_log_temperature, dtype=jnp.float32
-        )
-    else:
-        log_penalty_temperature = None
-
     dual_params = DualParams(
         log_temperature=log_temperature,
         log_alpha_mean=log_alpha_mean,
         log_alpha_stddev=log_alpha_stddev,
-        log_penalty_temperature=log_penalty_temperature,
     )
 
     dual_lr = make_learning_rate(config.system.dual_lr, config, config.system.epochs)

@@ -26,8 +26,6 @@ init_log_temperature: 10. # initial value for the temperature in log-space, note
 init_log_alpha_mean: 10. # initial value for the alpha_mean in log-space, note a softplus (rather than an exp) will be used to transform this.
 init_log_alpha_stddev: 1000. # initial value for the alpha_stddev in log-space, note a softplus (rather than an exp) will be used to transform this.
 per_dim_constraining: True # whether to enforce the KL constraint on each dimension independently; this is the default. Otherwise the overall KL is constrained, which allows some dimensions to change more at the expense of others staying put.
-action_penalization: True # whether to use a KL constraint to penalize actions via the MO-MPO algorithm.
-epsilon_penalty: 0.001 # KL constraint on the probability of violating the action constraint.
 stochastic_policy_eval: True # whether to use a stochastic policy for Q function target evaluation.
 use_online_policy_to_bootstrap: False # whether to use the online policy to bootstrap the Q function targets.
 use_retrace : False # whether to use the retrace algorithm for off-policy correction.

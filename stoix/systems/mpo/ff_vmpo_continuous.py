@@ -269,7 +269,7 @@ def get_learner_fn(
 
             # CALCULATE ACTOR AND DUAL LOSS
             actor_dual_grad_fn = jax.grad(_actor_loss_fn, argnums=(0, 1), has_aux=True)
-            actor_dual_grads, actor_loss_info = actor_dual_grad_fn(
+            actor_dual_grads, actor_dual_loss_info = actor_dual_grad_fn(
                 params.actor_params.online,
                 params.dual_params,
                 params.actor_params.target,
@@ -289,12 +289,12 @@ def get_learner_fn(
             # This calculation is inspired by the Anakin architecture demo notebook.
             # available at https://tinyurl.com/26tdzs5x
             # This pmean could be a regular mean as the batch axis is on the same device.
-            actor_dual_grads, actor_loss_info = jax.lax.pmean(
-                (actor_dual_grads, actor_loss_info), axis_name="batch"
+            actor_dual_grads, actor_dual_loss_info = jax.lax.pmean(
+                (actor_dual_grads, actor_dual_loss_info), axis_name="batch"
             )
             # pmean over devices.
-            actor_dual_grads, actor_loss_info = jax.lax.pmean(
-                (actor_dual_grads, actor_loss_info), axis_name="device"
+            actor_dual_grads, actor_dual_loss_info = jax.lax.pmean(
+                (actor_dual_grads, actor_dual_loss_info), axis_name="device"
             )
 
             critic_grads, critic_loss_info = jax.lax.pmean(
@@ -315,7 +315,7 @@ def get_learner_fn(
             # UPDATE DUAL PARAMS AND OPTIMISER STATE
             dual_updates, dual_new_opt_state = dual_update_fn(dual_grads, opt_states.dual_opt_state)
             dual_new_params = optax.apply_updates(params.dual_params, dual_updates)
-            dual_new_params = clip_dual_params(dual_new_params, config.system.per_dim_constraining)
+            dual_new_params = clip_dual_params(dual_new_params)
 
             # UPDATE CRITIC PARAMS AND OPTIMISER STATE
             critic_updates, critic_new_opt_state = critic_update_fn(
@@ -343,7 +343,7 @@ def get_learner_fn(
 
             # PACK LOSS INFO
             loss_info = {
-                **actor_loss_info,
+                **actor_dual_loss_info,
                 **critic_loss_info,
             }
             return (new_params, new_opt_state, key, sequence_batch, learner_step_count), loss_info
@@ -454,14 +454,10 @@ def learner_setup(
         dual_variable_shape, config.system.init_log_alpha_stddev, dtype=jnp.float32
     )
 
-    # No penalty temperature
-    log_penalty_temperature = jnp.float32(0.0)
-
     dual_params = DualParams(
         log_temperature=log_temperature,
         log_alpha_mean=log_alpha_mean,
         log_alpha_stddev=log_alpha_stddev,
-        log_penalty_temperature=log_penalty_temperature,
     )
 
     dual_lr = make_learning_rate(config.system.dual_lr, config, config.system.epochs)

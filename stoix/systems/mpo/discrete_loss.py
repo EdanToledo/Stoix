@@ -5,7 +5,7 @@ import jax
 import jax.numpy as jnp
 from tensorflow_probability.substrates.jax.distributions import Categorical
 
-from stoix.systems.mpo.mpo_types import CategoricalDualParams, CategoricalMPOStats
+from stoix.systems.mpo.mpo_types import CategoricalDualParams
 
 # These functions are largely taken from Acme's MPO implementation:
 
@@ -24,7 +24,7 @@ def categorical_mpo_loss(
     q_values: chex.Array,  # Shape [D, B].
     epsilon: float,
     epsilon_policy: float,
-) -> Tuple[chex.Array, CategoricalMPOStats]:
+) -> Tuple[chex.Array, chex.ArrayTree]:
     """Computes the MPO loss for a categorical policy.
 
     Args:
@@ -50,8 +50,8 @@ def categorical_mpo_loss(
 
     # Transform dual variables from log-space.
     # Note: using softplus instead of exponential for numerical stability.
-    temperature = get_temperature_from_params(dual_params)
-    alpha = jax.nn.softplus(dual_params.log_alpha) + _MPO_FLOAT_EPSILON
+    temperature = get_temperature_from_params(dual_params).squeeze()
+    alpha = jax.nn.softplus(dual_params.log_alpha).squeeze() + _MPO_FLOAT_EPSILON
 
     # Compute the E-step logits and the temperature loss, used to adapt the
     # tempering of Q-values.
@@ -87,28 +87,23 @@ def categorical_mpo_loss(
     loss = loss_policy + loss_kl + loss_dual
 
     # Create statistics.
-    stats = CategoricalMPOStats(  # pytype: disable=wrong-arg-types  # jnp-type
-        # Dual Variables.
-        dual_alpha=jnp.mean(alpha),
-        dual_temperature=jnp.mean(temperature),
-        # Losses.
-        loss_e_step=loss_policy,
-        loss_m_step=loss_kl,
-        loss_dual=loss_dual,
-        loss_policy=jnp.mean(loss),
-        loss_alpha=jnp.mean(loss_alpha),
-        loss_temperature=jnp.mean(loss_temperature),
-        # KL measurements.
-        kl_q_rel=jnp.mean(kl_nonparametric) / epsilon,
-        kl_mean_rel=mean_kl / epsilon_policy,
-        # Q measurements.
-        q_min=jnp.mean(jnp.min(q_values, axis=0)),
-        q_max=jnp.mean(jnp.max(q_values, axis=0)),
-        entropy_online=jnp.mean(online_action_distribution.entropy()),
-        entropy_target=jnp.mean(target_action_distribution.entropy()),
-    )
+    loss_info = {
+        "temperature": temperature,
+        "alpha": alpha,
+        "loss_temperature": loss_temperature.mean(),
+        "loss_alpha": loss_alpha.mean(),
+        "loss_policy": loss_policy.mean(),
+        "loss_kl": loss_kl.mean(),
+        "kl_nonparametric": kl_nonparametric.mean(),
+        "entropy_online": online_action_distribution.entropy().mean(),
+        "entropy_target": target_action_distribution.entropy().mean(),
+        "kl_mean_rel": mean_kl / epsilon_policy,
+        "kl_q_rel": jnp.mean(kl_nonparametric) / epsilon,
+        "q_min": jnp.mean(jnp.min(q_values, axis=0)),
+        "q_max": jnp.mean(jnp.max(q_values, axis=0)),
+    }
 
-    return loss, stats
+    return loss, loss_info
 
 
 def compute_weights_and_temperature_loss(
