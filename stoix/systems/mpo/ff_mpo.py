@@ -321,7 +321,7 @@ def get_learner_fn(
 
             # CALCULATE ACTOR AND DUAL LOSS
             actor_dual_grad_fn = jax.grad(_actor_loss_fn, argnums=(0, 1), has_aux=True)
-            actor_dual_grads, actor_loss_info = actor_dual_grad_fn(
+            actor_dual_grads, actor_dual_loss_info = actor_dual_grad_fn(
                 params.actor_params.online,
                 params.dual_params,
                 params.actor_params.target,
@@ -344,12 +344,12 @@ def get_learner_fn(
             # This calculation is inspired by the Anakin architecture demo notebook.
             # available at https://tinyurl.com/26tdzs5x
             # This pmean could be a regular mean as the batch axis is on the same device.
-            actor_dual_grads, actor_loss_info = jax.lax.pmean(
-                (actor_dual_grads, actor_loss_info), axis_name="batch"
+            actor_dual_grads, actor_dual_loss_info = jax.lax.pmean(
+                (actor_dual_grads, actor_dual_loss_info), axis_name="batch"
             )
             # pmean over devices.
-            actor_dual_grads, actor_loss_info = jax.lax.pmean(
-                (actor_dual_grads, actor_loss_info), axis_name="device"
+            actor_dual_grads, actor_dual_loss_info = jax.lax.pmean(
+                (actor_dual_grads, actor_dual_loss_info), axis_name="device"
             )
 
             q_grads, q_loss_info = jax.lax.pmean((q_grads, q_loss_info), axis_name="batch")
@@ -386,9 +386,8 @@ def get_learner_fn(
             new_opt_state = MPOOptStates(actor_new_opt_state, q_new_opt_state, dual_new_opt_state)
 
             # PACK LOSS INFO
-            actor_loss_info = actor_loss_info._asdict()
             loss_info = {
-                **actor_loss_info,
+                **actor_dual_loss_info,
                 **q_loss_info,
             }
             return (new_params, new_opt_state, buffer_state, key), loss_info

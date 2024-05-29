@@ -10,9 +10,10 @@ from tensorflow_probability.substrates.jax.distributions import (
     Normal,
 )
 
-from stoix.systems.mpo.mpo_types import DualParams, MPOStats
+from stoix.networks.distributions import AffineTanhTransformedDistribution
+from stoix.systems.mpo.mpo_types import DualParams
 
-# These functions are largely taken from Acme's MPO implementation:
+# These functions were initially taken and modified from Acme's MPO implementation:
 
 _MPO_FLOAT_EPSILON = 1e-8
 _MIN_LOG_TEMPERATURE = -18.0
@@ -138,20 +139,14 @@ def compute_parametric_kl_penalty_and_dual_loss(
     return loss_kl, loss_alpha
 
 
-def clip_dual_params(params: DualParams, per_dim_constraining: bool) -> DualParams:
+def clip_dual_params(params: DualParams) -> DualParams:
     clipped_params = DualParams(
         log_temperature=jnp.maximum(_MIN_LOG_TEMPERATURE, params.log_temperature),
         log_alpha_mean=jnp.maximum(_MIN_LOG_ALPHA, params.log_alpha_mean),
         log_alpha_stddev=jnp.maximum(_MIN_LOG_ALPHA, params.log_alpha_stddev),
     )
-    if not per_dim_constraining:
-        return clipped_params
-    else:
-        return clipped_params._replace(
-            log_penalty_temperature=jnp.maximum(
-                _MIN_LOG_TEMPERATURE, params.log_penalty_temperature
-            )
-        )
+
+    return clipped_params
 
 
 def mpo_loss(
@@ -164,9 +159,9 @@ def mpo_loss(
     epsilon_mean: float,
     epsilon_stddev: float,
     per_dim_constraining: bool,
-    action_penalization: bool,
-    epsilon_penalty: float,
-) -> Tuple[chex.Array, MPOStats]:
+    action_minimum: float,
+    action_maximum: float,
+) -> Tuple[chex.Array, chex.ArrayTree]:
     """Computes the decoupled MPO loss.
 
     Args:
@@ -186,9 +181,8 @@ def mpo_loss(
         per_dim_constraining: whether to enforce the KL constraint on each dimension independently;
             this is the default. Otherwise the overall KL is constrained, which allows some
             dimensions to change more at the expense of others staying put.
-        action_penalization: whether to use a KL constraint to penalize actions via the MO-MPO
-            algorithm.
-        epsilon_penalty: KL constraint on the probability of violating the action constraint.
+        action_minimum: minimum action value.
+        action_maximum: maximum action value.
 
     Returns:
         Loss, combining the policy loss, KL penalty, and dual losses required to
@@ -196,27 +190,32 @@ def mpo_loss(
         Stats, for diagnostics and tracking performance.
     """
 
-    # Cast `MultivariateNormalDiag`s to Independent Normals.
-    # The latter allows us to satisfy KL constraints per-dimension.
-    if isinstance(target_action_distribution, MultivariateNormalDiag):
-        target_action_distribution = Independent(
-            Normal(target_action_distribution.mean(), target_action_distribution.stddev())
-        )
-        online_action_distribution = Independent(
-            Normal(online_action_distribution.mean(), online_action_distribution.stddev())
-        )
+    if not isinstance(target_action_distribution, Independent):
+        raise ValueError("Target action distribution must be a Independent distribution.")
+    if not isinstance(online_action_distribution, Independent):
+        raise ValueError("Online action distribution must be Independent distribution.")
+
+    if not isinstance(target_action_distribution.distribution, AffineTanhTransformedDistribution):
+        raise ValueError("Target action distribution must be AffineTanhTransformedDistribution.")
+    if not isinstance(online_action_distribution.distribution, AffineTanhTransformedDistribution):
+        raise ValueError("Online action distribution must be AffineTanhTransformedDistribution.")
 
     # Transform dual variables from log-space.
     # Note: using softplus instead of exponential for numerical stability.
-    temperature = jax.nn.softplus(dual_params.log_temperature) + _MPO_FLOAT_EPSILON
-    alpha_mean = jax.nn.softplus(dual_params.log_alpha_mean) + _MPO_FLOAT_EPSILON
-    alpha_stddev = jax.nn.softplus(dual_params.log_alpha_stddev) + _MPO_FLOAT_EPSILON
+    temperature = jax.nn.softplus(dual_params.log_temperature).squeeze() + _MPO_FLOAT_EPSILON
+    alpha_mean = jax.nn.softplus(dual_params.log_alpha_mean).squeeze() + _MPO_FLOAT_EPSILON
+    alpha_stddev = jax.nn.softplus(dual_params.log_alpha_stddev).squeeze() + _MPO_FLOAT_EPSILON
 
     # Get online and target means and stddevs in preparation for decomposition.
-    online_mean = online_action_distribution.distribution.mean()
-    online_scale = online_action_distribution.distribution.stddev()
-    target_mean = target_action_distribution.distribution.mean()
-    target_scale = target_action_distribution.distribution.stddev()
+    # We get the non bijected means and stddevs here, as we need them for the
+    # decomposition.
+    online_mean = online_action_distribution.distribution.distribution.mean()
+    online_scale = online_action_distribution.distribution.distribution.stddev()
+    target_mean = target_action_distribution.distribution.distribution.mean()
+    target_scale = target_action_distribution.distribution.distribution.stddev()
+
+    batch_size = online_mean.shape[0]
+    action_dim = online_mean.shape[-1]
 
     # Compute normalized importance weights, used to compute expectations with
     # respect to the non-parametric policy; and the temperature loss, used to
@@ -229,36 +228,21 @@ def mpo_loss(
     # non-parametric and current target policies.
     kl_nonparametric = compute_nonparametric_kl_from_normalized_weights(normalized_weights)
 
-    if action_penalization:
-        # Transform action penalization temperature.
-        penalty_temperature = (
-            jax.nn.softplus(dual_params.log_penalty_temperature) + _MPO_FLOAT_EPSILON
-        )
-
-        # Compute action penalization cost.
-        # Note: the cost is zero in [-1, 1] and quadratic beyond.
-        diff_out_of_bound = target_sampled_actions - jnp.clip(target_sampled_actions, -1.0, 1.0)
-        cost_out_of_bound = -jnp.linalg.norm(diff_out_of_bound, axis=-1)
-
-        penalty_normalized_weights, loss_penalty_temperature = compute_weights_and_temperature_loss(
-            cost_out_of_bound, epsilon_penalty, penalty_temperature
-        )
-
-        # Only needed for diagnostics: Compute estimated actualized KL between the
-        # non-parametric and current target policies.
-        penalty_kl_nonparametric = compute_nonparametric_kl_from_normalized_weights(
-            penalty_normalized_weights
-        )
-
-        # Combine normalized weights.
-        normalized_weights += penalty_normalized_weights
-        loss_temperature += loss_penalty_temperature
-
     # Decompose the online policy into fixed-mean & fixed-stddev distributions.
     # This has been documented as having better performance in bandit settings,
     # see e.g. https://arxiv.org/pdf/1812.02256.pdf.
-    fixed_stddev_distribution = Independent(Normal(loc=online_mean, scale=target_scale))
-    fixed_mean_distribution = Independent(Normal(loc=target_mean, scale=online_scale))
+    fixed_stddev_distribution = Independent(
+        AffineTanhTransformedDistribution(
+            Normal(loc=online_mean, scale=target_scale), action_minimum, action_maximum
+        ),
+        reinterpreted_batch_ndims=1,
+    )
+    fixed_mean_distribution = Independent(
+        AffineTanhTransformedDistribution(
+            Normal(loc=target_mean, scale=online_scale), action_minimum, action_maximum
+        ),
+        reinterpreted_batch_ndims=1,
+    )
 
     # Compute the decomposed policy losses.
     loss_policy_mean = compute_cross_entropy_loss(
@@ -276,9 +260,14 @@ def mpo_loss(
         kl_stddev = target_action_distribution.distribution.kl_divergence(
             fixed_mean_distribution.distribution
         )  # Shape [B, D].
+
+        chex.assert_shape(kl_mean, (batch_size, action_dim))
+        chex.assert_shape(kl_stddev, (batch_size, action_dim))
     else:
         kl_mean = target_action_distribution.kl_divergence(fixed_stddev_distribution)  # Shape [B].
         kl_stddev = target_action_distribution.kl_divergence(fixed_mean_distribution)  # Shape [B].
+        chex.assert_shape(kl_mean, (batch_size,))
+        chex.assert_shape(kl_stddev, (batch_size,))
 
     # Compute the alpha-weighted KL-penalty and dual losses to adapt the alphas.
     loss_kl_mean, loss_alpha_mean = compute_parametric_kl_penalty_and_dual_loss(
@@ -295,31 +284,20 @@ def mpo_loss(
     loss = loss_policy + loss_kl_penalty + loss_dual
 
     # Create statistics.
-    pi_stddev = online_action_distribution.distribution.stddev()
-    stats = MPOStats(
-        # Dual Variables.
-        dual_alpha_mean=jnp.mean(alpha_mean),
-        dual_alpha_stddev=jnp.mean(alpha_stddev),
-        dual_temperature=jnp.mean(temperature),
-        # Losses.
-        loss_policy=jnp.mean(loss),
-        loss_alpha=jnp.mean(loss_alpha_mean + loss_alpha_stddev),
-        loss_temperature=jnp.mean(loss_temperature),
-        # KL measurements.
-        kl_q_rel=jnp.mean(kl_nonparametric) / epsilon,
-        penalty_kl_q_rel=(
-            (jnp.mean(penalty_kl_nonparametric) / epsilon_penalty) if action_penalization else None
-        ),
-        kl_mean_rel=jnp.mean(kl_mean, axis=0) / epsilon_mean,
-        kl_stddev_rel=jnp.mean(kl_stddev, axis=0) / epsilon_stddev,
-        # Q measurements.
-        q_min=jnp.mean(jnp.min(target_sampled_q_values, axis=0)),
-        q_max=jnp.mean(jnp.max(target_sampled_q_values, axis=0)),
-        # If the policy has stddev, log summary stats for this as well.
-        pi_stddev_min=jnp.mean(jnp.min(pi_stddev, axis=-1)),
-        pi_stddev_max=jnp.mean(jnp.max(pi_stddev, axis=-1)),
-        # Condition number of the diagonal covariance (actually, stddev) matrix.
-        pi_stddev_cond=jnp.mean(jnp.max(pi_stddev, axis=-1) / jnp.min(pi_stddev, axis=-1)),
-    )
+    loss_info = {
+        "temperature": temperature,
+        "alpha_mean": alpha_mean,
+        "alpha_stddev": alpha_stddev,
+        "loss_temperature": loss_temperature,
+        "loss_alpha_mean": loss_alpha_mean,
+        "loss_alpha_stddev": loss_alpha_stddev,
+        "loss_policy_mean": loss_policy_mean,
+        "loss_policy_stddev": loss_policy_stddev,
+        "loss_kl_mean": loss_kl_mean,
+        "loss_kl_stddev": loss_kl_stddev,
+        "kl_mean": kl_mean,
+        "kl_stddev": kl_stddev,
+        "kl_nonparametric": kl_nonparametric,
+    }
 
-    return loss, stats
+    return loss, loss_info
