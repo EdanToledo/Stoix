@@ -1,0 +1,42 @@
+site_name: Stoix
+theme:
+  name: material
+  features:
+    - navigation.tracking
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+  palette:
+      - media: "(prefers-color-scheme: dark)" 
+        scheme: slate
+        primary: indigo
+        accent: deep orange
+        toggle:
+          icon: material/weather-sunny
+          name: Switch to light mode
+      - media: "(prefers-color-scheme: light)" 
+        scheme: default
+        primary: indigo
+        accent: deep orange
+        toggle:
+          icon: material/weather-night
+          name: Switch to dark mode
+plugins:
+  - search
+nav:
+  - Overview: index.md
+  - Community: contributing.md
+  # - Get Started:
+  - RL Algorithms: 
+    - rl_algorithms/noisyDQN.md
+#adding git repo
+repo_url: https://github.com/EdanToledo/Stoix/tree/main
+repo_name: EdanToledo/Stoix
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/EdanToledo/Stoix/tree/main
+extra_javascript:
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
