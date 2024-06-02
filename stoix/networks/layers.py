@@ -11,47 +11,68 @@ class NoisyLinear(nn.Module):
     y = (μ_w + σ_w * ε_w) . x + μ_b + σ_b * ε_b,
 
     where μ_w, μ_b, σ_w, σ_b are learnable parameters
-    and ε_w, ε_b are noise random variables.
+    and ε_w, ε_b are noise random variables generated using
+    Factorised Gaussian Noise.
     """
 
     features: int
-    sigma_init: float = 0.017  # σ initialization in Fortunato et al. (2017)
+    sigma_zero: float = 0.5  # σ_0 initialization in Fortunato et al. (2017)
 
-    def _uniform_init(self, key: jax.random.PRNGKey, shape: tuple) -> jnp.ndarray:
+    def _uniform_initializer(self, key: jax.random.PRNGKey, shape: tuple) -> jnp.ndarray:
         """
         Each element μ is sampled from independent uniform
         distributions U[−√3/p, √3/p] where p is the number of inputs.
         """
-        input_dim = shape[0]  # assuming shape = (input_dim, features)
-        bound = jnp.sqrt(3 / input_dim)
-        return jax.random.uniform(
-            key,
-            shape,
-            minval=-bound,
-            maxval=bound,
-        )
+        input_dim = shape[0]  # assuming shape = (input_dim, features) or (input_dim, )
+        bound = jnp.sqrt(3 / input_dim)  # √3/p
+        return jax.random.uniform(key, shape, minval=-bound, maxval=bound)
 
+    def _scale_noise(self, x: jnp.ndarray) -> jnp.ndarray:
+        """Scaling function used with Factorised Gaussian Noise in the reference paper."""
+        return jnp.sign(x) * jnp.sqrt(jnp.abs(x))
+
+    def _generate_noise(self, shape: tuple):
+        return self._scale_noise(jax.random.normal(self.make_rng("noise"), shape))
+
+    def _get_noise_matrix_and_vect(self, shape: tuple) -> jnp.ndarray:
+        """
+        Uses Factorized Gaussian Noise to generate the noise matrix ε_w
+        and noise vector ε_b.
+        """
+
+        n_rows, n_cols = shape
+        row_noise = jax.random.normal(self.make_rng("noise"), (n_rows,))
+        col_noise = jax.random.normal(self.make_rng("noise"), (n_cols,))
+
+        noise_matrix = jnp.outer(row_noise, col_noise)
+
+        return noise_matrix, col_noise
+
+    @nn.compact
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         input_dim = x.shape[-1]
+        sigma_init = self.sigma_zero / jnp.sqrt(input_dim)
 
-        mu_w = self.param("mu_w", self._uniform_init, (input_dim, self.features))
-        mu_b = self.param("mu_b", self._uniform_init, (self.features))
+        weight_matrix_shape = (input_dim, self.features)
+        bias_vector_shape = (self.features,)
+
+        mu_w = self.param("mu_w", self._uniform_initializer, weight_matrix_shape)
+        mu_b = self.param("mu_b", self._uniform_initializer, bias_vector_shape)
 
         sigma_w = self.param(
             "sigma_w",
-            nn.initializers.constant(self.sigma_init),
-            (input_dim, self.features),
+            nn.initializers.constant(sigma_init),
+            weight_matrix_shape,
         )
         sigma_b = self.param(
             "sigma_b",
-            nn.initializers.constant(self.sigma_init),
-            (self.features),
+            nn.initializers.constant(sigma_init),
+            bias_vector_shape,
         )
 
-        eps_w = jax.random.normal(self.make_rng("params"), (input_dim, self.features))
-        eps_b = jax.random.normal(self.make_rng("params"), (self.features))
+        eps_w, eps_b = self._get_noise_matrix_and_vect(weight_matrix_shape)
 
         noisy_w = mu_w + sigma_w * eps_w
         noisy_b = mu_b + sigma_b * eps_b
 
-        return jnp.dot(noisy_w, x) + noisy_b
+        return jnp.dot(x, noisy_w) + noisy_b
