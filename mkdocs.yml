@@ -26,17 +26,44 @@ theme:
 plugins:
   - search
 nav:
-  - Overview: index.md
-  - Community: contributing.md
+  - Overview 🏛️: index.md
+  - Get Started:
+    - get_started/installation.md
+    - get_started/quickstart.md
+  - Community: 
+    - community/contributing.md
   # - Get Started:
   - RL Algorithms: 
+    - rl_algorithms/overview.md
+    - rl_algorithms/dqn.md
     - rl_algorithms/noisyDQN.md
-#adding git repo
+
 repo_url: https://github.com/EdanToledo/Stoix/tree/main
 repo_name: EdanToledo/Stoix
 extra:
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/EdanToledo/Stoix/tree/main
+
+markdown_extensions:
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - abbr
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.snippets
+  - admonition
+  - pymdownx.details
+  - attr_list
+  - md_in_html
+  - footnotes
+
 extra_javascript:
+  - javascripts/config.js
+  - https://polyfill.io/v3/polyfill.min.js?features=es6
   - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
+copyright: Copyright &copy; 2024, Stoix. All rights reserved.
