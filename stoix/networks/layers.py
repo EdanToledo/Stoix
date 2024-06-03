@@ -16,8 +16,8 @@ class NoisyLinear(nn.Module):
     Factorised Gaussian Noise.
 
     Attributes:
-        * features (int): The number of output features.
-        * sigma_zero (float): Initialization value for σ terms.
+    * features (int): The number of output features.
+    * sigma_zero (float): Initialization value for σ terms.
     """
 
     features: int
@@ -33,10 +33,11 @@ class NoisyLinear(nn.Module):
         return jax.random.uniform(key, shape, minval=-bound, maxval=bound)
 
     def _scale_noise(self, x: chex.Array) -> chex.Array:
-        """The reference paper uses f (x) = sgn(x)√|x| as a scaling function."""
+        """The reference paper uses f(x) = sgn(x)√|x| as a scaling function."""
         return jnp.sign(x) * jnp.sqrt(jnp.abs(x))
 
     def _generate_noise(self, shape: tuple) -> chex.Array:
+        """Generates a Gaussian noise matrix and applies the scaling function."""
         return self._scale_noise(jax.random.normal(self.make_rng("noise"), shape))
 
     def _get_noise_matrix_and_vect(self, shape: tuple) -> tuple[chex.Array, chex.Array]:
@@ -46,8 +47,8 @@ class NoisyLinear(nn.Module):
         """
 
         n_rows, n_cols = shape
-        row_noise = jax.random.normal(self.make_rng("noise"), (n_rows,))
-        col_noise = jax.random.normal(self.make_rng("noise"), (n_cols,))
+        row_noise = self._generate_noise((n_rows,))
+        col_noise = self._generate_noise((n_cols,))
 
         noise_matrix = jnp.outer(row_noise, col_noise)
 
