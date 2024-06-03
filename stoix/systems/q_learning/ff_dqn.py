@@ -55,7 +55,7 @@ def get_warmup_fn(
 
             env_state, last_timestep, key = carry
             # SELECT ACTION
-            key, policy_key = jax.random.split(key)
+            key, policy_key, noise_key = jax.random.split(key, num=3)
             actor_policy = q_apply_fn(q_params.online, last_timestep.observation)
             action = actor_policy.sample(seed=policy_key)
 
@@ -111,7 +111,7 @@ def get_learner_fn(
             q_params, opt_states, buffer_state, key, env_state, last_timestep = learner_state
 
             # SELECT ACTION
-            key, policy_key = jax.random.split(key)
+            key, policy_key, noise_key = jax.random.split(key, num=3)
             actor_policy = q_apply_fn(q_params.online, last_timestep.observation)
             action = actor_policy.sample(seed=policy_key)
 
@@ -149,10 +149,17 @@ def get_learner_fn(
                 q_params: FrozenDict,
                 target_q_params: FrozenDict,
                 transitions: Transition,
+                rng_key: chex.PRNGKey,
             ) -> jnp.ndarray:
 
-                q_tm1 = q_apply_fn(q_params, transitions.obs).preferences
-                q_t = q_apply_fn(target_q_params, transitions.next_obs).preferences
+                noise_key_tm1, noise_key_t = jax.random.split(rng_key)
+
+                q_tm1 = q_apply_fn(
+                    q_params, transitions.obs, rngs={"noise": noise_key_tm1}
+                ).preferences
+                q_t = q_apply_fn(
+                    target_q_params, transitions.next_obs, rngs={"noise": noise_key_t}
+                ).preferences
 
                 # Cast and clip rewards.
                 discount = 1.0 - transitions.done.astype(jnp.float32)
@@ -180,7 +187,7 @@ def get_learner_fn(
 
             params, opt_states, buffer_state, key = update_state
 
-            key, sample_key = jax.random.split(key)
+            key, sample_key, noise_key = jax.random.split(key, 3)
 
             # SAMPLE TRANSITIONS
             transition_sample = buffer_sample_fn(buffer_state, sample_key)
@@ -188,11 +195,7 @@ def get_learner_fn(
 
             # CALCULATE Q LOSS
             q_grad_fn = jax.grad(_q_loss_fn, has_aux=True)
-            q_grads, q_loss_info = q_grad_fn(
-                params.online,
-                params.target,
-                transitions,
-            )
+            q_grads, q_loss_info = q_grad_fn(params.online, params.target, transitions, noise_key)
 
             # Compute the parallel mean (pmean) over the batch.
             # This calculation is inspired by the Anakin architecture demo notebook.
@@ -359,9 +362,12 @@ def learner_setup(
     env_states, timesteps = jax.vmap(env.reset, in_axes=(0))(
         jnp.stack(env_keys),
     )
-    reshape_states = lambda x: x.reshape(
-        (n_devices, config.arch.update_batch_size, config.arch.num_envs) + x.shape[1:]
-    )
+
+    def reshape_states(x):
+        return x.reshape(
+            (n_devices, config.arch.update_batch_size, config.arch.num_envs) + x.shape[1:]
+        )
+
     # (devices, update batch size, num_envs, ...)
     env_states = jax.tree_util.tree_map(reshape_states, env_states)
     timesteps = jax.tree_util.tree_map(reshape_states, timesteps)
@@ -381,14 +387,19 @@ def learner_setup(
     key, step_key, warmup_key = jax.random.split(key, num=3)
     step_keys = jax.random.split(step_key, n_devices * config.arch.update_batch_size)
     warmup_keys = jax.random.split(warmup_key, n_devices * config.arch.update_batch_size)
-    reshape_keys = lambda x: x.reshape((n_devices, config.arch.update_batch_size) + x.shape[1:])
+
+    def reshape_keys(x):
+        return x.reshape((n_devices, config.arch.update_batch_size) + x.shape[1:])
+
     step_keys = reshape_keys(jnp.stack(step_keys))
     warmup_keys = reshape_keys(jnp.stack(warmup_keys))
 
     replicate_learner = (params, opt_states, buffer_states)
 
     # Duplicate learner for update_batch_size.
-    broadcast = lambda x: jnp.broadcast_to(x, (config.arch.update_batch_size,) + x.shape)
+    def broadcast(x):
+        return jnp.broadcast_to(x, (config.arch.update_batch_size,) + x.shape)
+
     replicate_learner = jax.tree_util.tree_map(broadcast, replicate_learner)
 
     # Duplicate learner across devices.
