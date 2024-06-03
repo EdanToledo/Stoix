@@ -5,6 +5,7 @@ import numpy as np
 from flax import linen as nn
 from flax.linen.initializers import Initializer, orthogonal
 
+from stoix.networks.layers import NoisyLinear
 from stoix.networks.utils import parse_activation_fn
 
 
@@ -22,6 +23,25 @@ class MLPTorso(nn.Module):
         x = observation
         for layer_size in self.layer_sizes:
             x = nn.Dense(layer_size, kernel_init=self.kernel_init)(x)
+            if self.use_layer_norm:
+                x = nn.LayerNorm(use_scale=False)(x)
+            x = parse_activation_fn(self.activation)(x)
+        return x
+
+
+class NoisyMLPTorso(nn.Module):
+    """MLP torso using NoisyLinear layers instead of standard Dense layers."""
+
+    layer_sizes: Sequence[int]
+    activation: str = "relu"
+    use_layer_norm: bool = False
+    sigma_zero: float = 0.5
+
+    @nn.compact
+    def __call__(self, observation: chex.Array) -> chex.Array:
+        x = observation
+        for layer_size in self.layer_sizes:
+            x = NoisyLinear(layer_size, self.sigma_zero)(x)
             if self.use_layer_norm:
                 x = nn.LayerNorm(use_scale=False)(x)
             x = parse_activation_fn(self.activation)(x)
