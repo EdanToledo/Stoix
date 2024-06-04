@@ -30,9 +30,11 @@ nav:
   - Get Started:
     - get_started/installation.md
     - get_started/quickstart.md
+    - get_started/hyperparameter_tuning.md
+    - get_started/resuming_training.md
+    - get_started/statistical_tests.md
   - Community: 
     - community/contributing.md
-  # - Get Started:
   - RL Algorithms: 
     - rl_algorithms/overview.md
     - rl_algorithms/dqn.md
