@@ -281,7 +281,8 @@ def learner_setup(
     config.system.action_dim = action_dim
 
     # PRNG keys.
-    key, q_net_key = keys
+    key, q_net_key, noise_key = keys
+    rngs = {"params": q_net_key, "noise": noise_key}
 
     # Define networks and optimiser.
     q_network_torso = hydra.utils.instantiate(config.network.actor_network.pre_torso)
@@ -311,7 +312,7 @@ def learner_setup(
     init_x = jax.tree_util.tree_map(lambda x: x[None, ...], init_x)
 
     # Initialise q params and optimiser state.
-    q_online_params = q_network.init(q_net_key, init_x)
+    q_online_params = q_network.init(rngs, init_x)
     q_target_params = q_online_params
     q_opt_state = q_optim.init(q_online_params)
 
@@ -443,16 +444,16 @@ def run_experiment(_config: DictConfig) -> float:
     env, eval_env = environments.make(config=config)
 
     # PRNG keys.
-    key, key_e, q_net_key = jax.random.split(jax.random.PRNGKey(config.arch.seed), num=3)
-
+    key, key_e, q_net_key, noise_key = jax.random.split(jax.random.PRNGKey(config.arch.seed), num=4)
+    rngs = {"params": q_net_key, "noise": noise_key}
     # Setup learner.
-    learn, eval_q_network, learner_state = learner_setup(env, (key, q_net_key), config)
+    learn, eval_q_network, learner_state = learner_setup(env, (key, q_net_key, noise_key), config)
 
     # Setup evaluator.
     evaluator, absolute_metric_evaluator, (trained_params, eval_keys) = evaluator_setup(
         eval_env=eval_env,
         key_e=key_e,
-        eval_act_fn=get_distribution_act_fn(config, eval_q_network.apply),
+        eval_act_fn=get_distribution_act_fn(config, eval_q_network.apply, rngs),
         params=learner_state.params.online,
         config=config,
     )
