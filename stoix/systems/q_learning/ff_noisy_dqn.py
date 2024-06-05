@@ -55,8 +55,10 @@ def get_warmup_fn(
 
             env_state, last_timestep, key = carry
             # SELECT ACTION
-            key, policy_key = jax.random.split(key)
-            actor_policy = q_apply_fn(q_params.online, last_timestep.observation)
+            key, policy_key, noise_key = jax.random.split(key, num=3)
+            actor_policy = q_apply_fn(
+                q_params.online, last_timestep.observation, rngs={"noise": noise_key}
+            )
             action = actor_policy.sample(seed=policy_key)
 
             # STEP ENVIRONMENT
@@ -111,8 +113,10 @@ def get_learner_fn(
             q_params, opt_states, buffer_state, key, env_state, last_timestep = learner_state
 
             # SELECT ACTION
-            key, policy_key = jax.random.split(key)
-            actor_policy = q_apply_fn(q_params.online, last_timestep.observation)
+            key, policy_key, noise_key = jax.random.split(key, num=3)
+            actor_policy = q_apply_fn(
+                q_params.online, last_timestep.observation, rngs={"noise": noise_key}
+            )
             action = actor_policy.sample(seed=policy_key)
 
             # STEP ENVIRONMENT
@@ -149,10 +153,17 @@ def get_learner_fn(
                 q_params: FrozenDict,
                 target_q_params: FrozenDict,
                 transitions: Transition,
+                noise_key: chex.PRNGKey,
             ) -> jnp.ndarray:
 
-                q_tm1 = q_apply_fn(q_params, transitions.obs).preferences
-                q_t = q_apply_fn(target_q_params, transitions.next_obs).preferences
+                noise_key_tm1, noise_key_t = jax.random.split(noise_key)
+
+                q_tm1 = q_apply_fn(
+                    q_params, transitions.obs, rngs={"noise": noise_key_tm1}
+                ).preferences
+                q_t = q_apply_fn(
+                    target_q_params, transitions.next_obs, rngs={"noise": noise_key_t}
+                ).preferences
 
                 # Cast and clip rewards.
                 discount = 1.0 - transitions.done.astype(jnp.float32)
@@ -180,7 +191,7 @@ def get_learner_fn(
 
             params, opt_states, buffer_state, key = update_state
 
-            key, sample_key = jax.random.split(key)
+            key, sample_key, noise_key = jax.random.split(key, num=3)
 
             # SAMPLE TRANSITIONS
             transition_sample = buffer_sample_fn(buffer_state, sample_key)
@@ -192,6 +203,7 @@ def get_learner_fn(
                 params.online,
                 params.target,
                 transitions,
+                noise_key,
             )
 
             # Compute the parallel mean (pmean) over the batch.
@@ -552,7 +564,9 @@ def run_experiment(_config: DictConfig) -> float:
     return eval_performance
 
 
-@hydra.main(config_path="../../configs", config_name="default_ff_dqn.yaml", version_base="1.2")
+@hydra.main(
+    config_path="../../configs", config_name="default_ff_noisy_dqn.yaml", version_base="1.2"
+)
 def hydra_entry_point(cfg: DictConfig) -> float:
     """Experiment entry point."""
     # Allow dynamic attributes.

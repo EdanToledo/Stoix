@@ -55,7 +55,7 @@ def get_warmup_fn(
 
             env_state, last_timestep, key = carry
             # SELECT ACTION
-            key, policy_key, noise_key = jax.random.split(key, num=3)
+            key, policy_key = jax.random.split(key)
             actor_policy = q_apply_fn(q_params.online, last_timestep.observation)
             action = actor_policy.sample(seed=policy_key)
 
@@ -111,7 +111,7 @@ def get_learner_fn(
             q_params, opt_states, buffer_state, key, env_state, last_timestep = learner_state
 
             # SELECT ACTION
-            key, policy_key, noise_key = jax.random.split(key, num=3)
+            key, policy_key = jax.random.split(key)
             actor_policy = q_apply_fn(q_params.online, last_timestep.observation)
             action = actor_policy.sample(seed=policy_key)
 
@@ -149,17 +149,10 @@ def get_learner_fn(
                 q_params: FrozenDict,
                 target_q_params: FrozenDict,
                 transitions: Transition,
-                rng_key: chex.PRNGKey,
             ) -> jnp.ndarray:
 
-                noise_key_tm1, noise_key_t = jax.random.split(rng_key)
-
-                q_tm1 = q_apply_fn(
-                    q_params, transitions.obs, rngs={"noise": noise_key_tm1}
-                ).preferences
-                q_t = q_apply_fn(
-                    target_q_params, transitions.next_obs, rngs={"noise": noise_key_t}
-                ).preferences
+                q_tm1 = q_apply_fn(q_params, transitions.obs).preferences
+                q_t = q_apply_fn(target_q_params, transitions.next_obs).preferences
 
                 # Cast and clip rewards.
                 discount = 1.0 - transitions.done.astype(jnp.float32)
@@ -187,7 +180,7 @@ def get_learner_fn(
 
             params, opt_states, buffer_state, key = update_state
 
-            key, sample_key, noise_key = jax.random.split(key, 3)
+            key, sample_key = jax.random.split(key)
 
             # SAMPLE TRANSITIONS
             transition_sample = buffer_sample_fn(buffer_state, sample_key)
@@ -195,7 +188,11 @@ def get_learner_fn(
 
             # CALCULATE Q LOSS
             q_grad_fn = jax.grad(_q_loss_fn, has_aux=True)
-            q_grads, q_loss_info = q_grad_fn(params.online, params.target, transitions, noise_key)
+            q_grads, q_loss_info = q_grad_fn(
+                params.online,
+                params.target,
+                transitions,
+            )
 
             # Compute the parallel mean (pmean) over the batch.
             # This calculation is inspired by the Anakin architecture demo notebook.
