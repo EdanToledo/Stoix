@@ -1,8 +1,21 @@
 import copy
 import time
-from typing import Any, Callable, Dict, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, Tuple
+
+from stoix.systems.q_learning.dqn_types import Transition
+from stoix.utils.checkpointing import Checkpointer
+from stoix.utils.jax_utils import unreplicate_batch_dim, unreplicate_n_dims
+from stoix.utils.loss import categorical_double_q_learning
+from stoix.utils.training import make_learning_rate
+from stoix.wrappers.episode_metrics import get_final_step_metrics
+
+if TYPE_CHECKING:
+    from dataclasses import dataclass
+else:
+    from chex import dataclass
 
 import chex
+import distrax
 import flashbax as fbx
 import flax
 import hydra
@@ -22,20 +35,15 @@ from stoix.base_types import (
     ExperimentOutput,
     LearnerFn,
     LogEnvState,
+    Observation,
     OffPolicyLearnerState,
     OnlineAndTarget,
 )
 from stoix.evaluator import evaluator_setup, get_distribution_act_fn
 from stoix.networks.base import FeedForwardActor as Actor
-from stoix.systems.q_learning.dqn_types import Transition
 from stoix.utils import make_env as environments
-from stoix.utils.checkpointing import Checkpointer
-from stoix.utils.jax_utils import unreplicate_batch_dim, unreplicate_n_dims
 from stoix.utils.logger import LogEvent, StoixLogger
-from stoix.utils.loss import q_learning
 from stoix.utils.total_timestep_checker import check_total_timesteps
-from stoix.utils.training import make_learning_rate
-from stoix.wrappers.episode_metrics import get_final_step_metrics
 
 
 def get_warmup_fn(
@@ -55,10 +63,8 @@ def get_warmup_fn(
 
             env_state, last_timestep, key = carry
             # SELECT ACTION
-            key, policy_key, noise_key = jax.random.split(key, num=3)
-            actor_policy = q_apply_fn(
-                q_params.online, last_timestep.observation, rngs={"noise": noise_key}
-            )
+            key, policy_key = jax.random.split(key)
+            actor_policy, _, _ = q_apply_fn(q_params.online, last_timestep.observation)
             action = actor_policy.sample(seed=policy_key)
 
             # STEP ENVIRONMENT
@@ -113,10 +119,8 @@ def get_learner_fn(
             q_params, opt_states, buffer_state, key, env_state, last_timestep = learner_state
 
             # SELECT ACTION
-            key, policy_key, noise_key = jax.random.split(key, num=3)
-            actor_policy = q_apply_fn(
-                q_params.online, last_timestep.observation, rngs={"noise": noise_key}
-            )
+            key, policy_key = jax.random.split(key)
+            actor_policy, _, _ = q_apply_fn(q_params.online, last_timestep.observation)
             action = actor_policy.sample(seed=policy_key)
 
             # STEP ENVIRONMENT
@@ -153,17 +157,12 @@ def get_learner_fn(
                 q_params: FrozenDict,
                 target_q_params: FrozenDict,
                 transitions: Transition,
-                noise_key: chex.PRNGKey,
             ) -> jnp.ndarray:
 
-                noise_key_tm1, noise_key_t = jax.random.split(noise_key)
-
-                q_tm1 = q_apply_fn(
-                    q_params, transitions.obs, rngs={"noise": noise_key_tm1}
-                ).preferences
-                q_t = q_apply_fn(
-                    target_q_params, transitions.next_obs, rngs={"noise": noise_key_t}
-                ).preferences
+                _, q_logits_tm1, q_atoms_tm1 = q_apply_fn(q_params, transitions.obs)
+                _, q_logits_t, q_atoms_t = q_apply_fn(target_q_params, transitions.next_obs)
+                q_t_selector_dist, _, _ = q_apply_fn(q_params, transitions.next_obs)
+                q_t_selector = q_t_selector_dist.preferences
 
                 # Cast and clip rewards.
                 discount = 1.0 - transitions.done.astype(jnp.float32)
@@ -173,25 +172,19 @@ def get_learner_fn(
                 ).astype(jnp.float32)
                 a_tm1 = transitions.action
 
-                # Compute Q-learning loss.
-                batch_loss = q_learning(
-                    q_tm1,
-                    a_tm1,
-                    r_t,
-                    d_t,
-                    q_t,
-                    config.system.huber_loss_parameter,
+                q_loss = categorical_double_q_learning(
+                    q_logits_tm1, q_atoms_tm1, a_tm1, r_t, d_t, q_logits_t, q_atoms_t, q_t_selector
                 )
 
                 loss_info = {
-                    "q_loss": batch_loss,
+                    "q_loss": q_loss,
                 }
 
-                return batch_loss, loss_info
+                return q_loss, loss_info
 
             params, opt_states, buffer_state, key = update_state
 
-            key, sample_key, noise_key = jax.random.split(key, num=3)
+            key, sample_key = jax.random.split(key)
 
             # SAMPLE TRANSITIONS
             transition_sample = buffer_sample_fn(buffer_state, sample_key)
@@ -203,7 +196,6 @@ def get_learner_fn(
                 params.online,
                 params.target,
                 transitions,
-                noise_key,
             )
 
             # Compute the parallel mean (pmean) over the batch.
@@ -252,7 +244,6 @@ def get_learner_fn(
         This function represents the learner, it updates the network parameters
         by iteratively applying the `_update_step` function for a fixed number of
         updates. The `_update_step` function is vectorized over a batch of inputs.
-
         """
 
         batched_update_step = jax.vmap(_update_step, in_axes=(0, None), axis_name="batch")
@@ -269,9 +260,17 @@ def get_learner_fn(
     return learner_fn
 
 
+@dataclass
+class EvalActorWrapper:
+    actor: Actor
+
+    def apply(self, params: FrozenDict, x: Observation) -> distrax.EpsilonGreedy:
+        return self.actor.apply(params, x)[0]
+
+
 def learner_setup(
     env: Environment, keys: chex.Array, config: DictConfig
-) -> Tuple[LearnerFn[OffPolicyLearnerState], Actor, OffPolicyLearnerState]:
+) -> Tuple[LearnerFn[OffPolicyLearnerState], EvalActorWrapper, OffPolicyLearnerState]:
     """Initialise learner_fn, network, optimiser, environment and states."""
     # Get available TPU cores.
     n_devices = len(jax.devices())
@@ -281,15 +280,17 @@ def learner_setup(
     config.system.action_dim = action_dim
 
     # PRNG keys.
-    key, q_net_key, noise_key = keys
-    rngs = {"params": q_net_key, "noise": noise_key}
+    key, q_net_key = keys
 
-    # Define networks and optimiser.
+    # Define actor_network and optimiser.
     q_network_torso = hydra.utils.instantiate(config.network.actor_network.pre_torso)
     q_network_action_head = hydra.utils.instantiate(
         config.network.actor_network.action_head,
         action_dim=action_dim,
         epsilon=config.system.training_epsilon,
+        num_atoms=config.system.num_atoms,
+        v_min=config.system.v_min,
+        v_max=config.system.v_max,
     )
 
     q_network = Actor(torso=q_network_torso, action_head=q_network_action_head)
@@ -298,8 +299,12 @@ def learner_setup(
         config.network.actor_network.action_head,
         action_dim=action_dim,
         epsilon=config.system.evaluation_epsilon,
+        num_atoms=config.system.num_atoms,
+        v_min=config.system.v_min,
+        v_max=config.system.v_max,
     )
     eval_q_network = Actor(torso=q_network_torso, action_head=eval_q_network_action_head)
+    eval_q_network = EvalActorWrapper(actor=eval_q_network)
 
     q_lr = make_learning_rate(config.system.q_lr, config, config.system.epochs)
     q_optim = optax.chain(
@@ -309,10 +314,10 @@ def learner_setup(
 
     # Initialise observation
     init_x = env.observation_spec().generate_value()
-    init_x = jax.tree_util.tree_map(lambda x: x[None, ...], init_x)
+    # init_x = jax.tree_util.tree_map(lambda x: x[None, ...], init_x)
 
     # Initialise q params and optimiser state.
-    q_online_params = q_network.init(rngs, init_x)
+    q_online_params = q_network.init(q_net_key, init_x)
     q_target_params = q_online_params
     q_opt_state = q_optim.init(q_online_params)
 
@@ -327,13 +332,18 @@ def learner_setup(
 
     # Create replay buffer
     dummy_transition = Transition(
-        obs=jax.tree_util.tree_map(lambda x: x.squeeze(0), init_x),
-        action=jnp.zeros((), dtype=int),
-        reward=jnp.zeros((), dtype=float),
-        done=jnp.zeros((), dtype=bool),
-        next_obs=jax.tree_util.tree_map(lambda x: x.squeeze(0), init_x),
-        info={"episode_return": 0.0, "episode_length": 0, "is_terminal_step": False},
+        obs=jnp.broadcast_to(init_x, shape=(config.rollout_length, *init_x.squeeze().shape)),
+        action=jnp.zeros((config.rollout_length), dtype=int),
+        reward=jnp.zeros((config.rollout_length), dtype=float),
+        done=jnp.zeros((config.rollout_length), dtype=bool),
+        next_obs=jnp.broadcast_to(init_x, shape=(3, *init_x.squeeze().shape)),
+        info={
+            "episode_return": jnp.zeros((config.rollout_length), dtype=float),
+            "episode_length": jnp.zeros((config.rollout_length), dtype=int),
+            "is_terminal_step": jnp.zeros((config.rollout_length), dtype=bool),
+        },
     )
+
     assert config.system.total_buffer_size % n_devices == 0, (
         f"{Fore.RED}{Style.BRIGHT}The total buffer size should be divisible "
         + "by the number of devices!{Style.RESET_ALL}"
@@ -348,13 +358,23 @@ def learner_setup(
     config.system.batch_size = config.system.total_batch_size // (
         n_devices * config.arch.update_batch_size
     )
-    buffer_fn = fbx.make_item_buffer(
-        max_length=config.system.buffer_size,
-        min_length=config.system.batch_size,
+    # buffer_fn = fbx.make_item_buffer(
+    #     max_length=config.system.buffer_size,
+    #     min_length=config.system.batch_size,
+    #     sample_batch_size=config.system.batch_size,
+    #     add_batches=True,
+    #     add_sequences=True,
+    # )
+
+    buffer_fn = fbx.make_trajectory_buffer(
+        max_length_time_axis=config.system.buffer_size,
+        min_length_time_axis=config.system.batch_size,
         sample_batch_size=config.system.batch_size,
-        add_batches=True,
-        add_sequences=True,
+        add_batch_size=config.system.rollout_length,
+        sample_sequence_length=config.system.rollout_length,
+        period=1,
     )
+
     buffer_fns = (buffer_fn.add, buffer_fn.sample)
     buffer_states = buffer_fn.init(dummy_transition)
 
@@ -444,16 +464,16 @@ def run_experiment(_config: DictConfig) -> float:
     env, eval_env = environments.make(config=config)
 
     # PRNG keys.
-    key, key_e, q_net_key, noise_key = jax.random.split(jax.random.PRNGKey(config.arch.seed), num=4)
-    rngs = {"params": q_net_key, "noise": noise_key}
+    key, key_e, q_net_key = jax.random.split(jax.random.PRNGKey(config.arch.seed), num=3)
+
     # Setup learner.
-    learn, eval_q_network, learner_state = learner_setup(env, (key, q_net_key, noise_key), config)
+    learn, eval_q_network, learner_state = learner_setup(env, (key, q_net_key), config)
 
     # Setup evaluator.
     evaluator, absolute_metric_evaluator, (trained_params, eval_keys) = evaluator_setup(
         eval_env=eval_env,
         key_e=key_e,
-        eval_act_fn=get_distribution_act_fn(config, eval_q_network.apply, rngs),
+        eval_act_fn=get_distribution_act_fn(config, eval_q_network.apply),
         params=learner_state.params.online,
         config=config,
     )
@@ -484,7 +504,7 @@ def run_experiment(_config: DictConfig) -> float:
         )
 
     # Run experiment for a total number of evaluations.
-    max_episode_return = jnp.float32(-1e6)
+    max_episode_return = jnp.float32(-1e7)
     best_params = unreplicate_batch_dim(learner_state.params.online)
     for eval_step in range(config.arch.num_evaluation):
         # Train.
@@ -565,9 +585,7 @@ def run_experiment(_config: DictConfig) -> float:
     return eval_performance
 
 
-@hydra.main(
-    config_path="../../configs", config_name="default_ff_noisy_dqn.yaml", version_base="1.2"
-)
+@hydra.main(config_path="../../configs", config_name="default_ff_c51.yaml", version_base="1.2")
 def hydra_entry_point(cfg: DictConfig) -> float:
     """Experiment entry point."""
     # Allow dynamic attributes.
@@ -576,7 +594,7 @@ def hydra_entry_point(cfg: DictConfig) -> float:
     # Run experiment.
     eval_performance = run_experiment(cfg)
 
-    print(f"{Fore.CYAN}{Style.BRIGHT}Noisy DQN experiment completed{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}{Style.BRIGHT}Rainbow experiment completed{Style.RESET_ALL}")
     return eval_performance
 
 

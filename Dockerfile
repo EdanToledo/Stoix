@@ -35,6 +35,6 @@ RUN pip install --quiet --upgrade pip setuptools wheel &&  \
 ARG USE_CUDA=true
 RUN if [ "$USE_CUDA" = true ] ; \
     # TODO try other version of jax to resolve issue
-    then pip install "jax[cuda11_pip]>=0.4.10" -f "https://storage.googleapis.com/jax-releases/jax_cuda_releases.html" ; \ 
+    then pip install "jax[cuda11]>=0.4.10" -f "https://storage.googleapis.com/jax-releases/jax_cuda_releases.html" ; \ 
     fi
 EXPOSE 6006
