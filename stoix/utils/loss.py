@@ -104,6 +104,39 @@ def categorical_double_q_learning(
     return q_loss
 
 
+def n_step_categorical_double_q_learning(
+    q_logits_tm1: chex.Array,
+    q_atoms_tm1: chex.Array,
+    a_tm1: chex.Array,
+    r_t: chex.Array,
+    d_t: chex.Array,
+    q_logits_t: chex.Array,
+    q_atoms_t: chex.Array,
+    q_t_selector: chex.Array,
+    n_steps: int,
+) -> chex.Array:
+    """
+    Computes the categorical n-step double Q-learning loss.
+    Each input is a batch of n transitions.
+    """
+    batch_indices = jnp.arange(a_tm1[0].shape[0])
+    discounted_return = r_t * jnp.power(d_t, jnp.arange(n_steps))
+    # Scale and shift time-t distribution atoms by discount and reward.
+    target_z = (
+        discounted_return[:, jnp.newaxis] + jnp.power(d_t[:, jnp.newaxis], n_steps) * q_atoms_t
+    )
+    # Select logits for greedy action in state s_t and convert to distribution.
+    p_target_z = jax.nn.softmax(q_logits_t[batch_indices, q_t_selector.argmax(-1)])
+    # Project using the Cramer distance and maybe stop gradient flow to targets.
+    target = jax.vmap(rlax.categorical_l2_project)(target_z, p_target_z, q_atoms_tm1)
+    # Compute loss (i.e. temporal difference error).
+    logit_qa_tm1 = q_logits_tm1[batch_indices, a_tm1]
+    td_error = tfd.Categorical(probs=target).cross_entropy(tfd.Categorical(logits=logit_qa_tm1))
+    q_loss = jnp.mean(td_error)
+
+    return q_loss
+
+
 def q_learning(
     q_tm1: chex.Array,
     a_tm1: chex.Array,

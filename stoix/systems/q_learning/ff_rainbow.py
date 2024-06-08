@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Tuple
 from stoix.systems.q_learning.dqn_types import Transition
 from stoix.utils.checkpointing import Checkpointer
 from stoix.utils.jax_utils import unreplicate_batch_dim, unreplicate_n_dims
-from stoix.utils.loss import categorical_double_q_learning
+from stoix.utils.loss import n_step_categorical_double_q_learning
 from stoix.utils.training import make_learning_rate
 from stoix.wrappers.episode_metrics import get_final_step_metrics
 
@@ -84,7 +84,13 @@ def get_warmup_fn(
         # STEP ENVIRONMENT FOR ROLLOUT LENGTH
         (env_states, timesteps, keys), traj_batch = jax.lax.scan(
             _env_step, (env_states, timesteps, keys), None, config.system.warmup_steps
-        )
+        )  # TODO: incorporate the n-step dimension in warmup_steps and reshape before
+        # adding to the trajectory buffer
+
+        # ERROR: AssertionError: [Chex] Assertion assert_tree_shape_prefix failed:
+        # Tree leaf 'obs/agent_view' has a shape prefix different from expected: (16,) != (1,).
+        # Tree leaf 'obs/action_mask' has a shape prefix different from expected: (16,) != (1,).
+        # ...
 
         # Add the trajectory to the buffer.
         buffer_states = buffer_add_fn(buffer_states, traj_batch)
@@ -159,9 +165,15 @@ def get_learner_fn(
                 transitions: Transition,
             ) -> jnp.ndarray:
 
-                _, q_logits_tm1, q_atoms_tm1 = q_apply_fn(q_params, transitions.obs)
-                _, q_logits_t, q_atoms_t = q_apply_fn(target_q_params, transitions.next_obs)
-                q_t_selector_dist, _, _ = q_apply_fn(q_params, transitions.next_obs)
+                _, q_logits_tm1, q_atoms_tm1 = jax.vmap(q_apply_fn, in_axes=(None, 0))(
+                    q_params, transitions.obs
+                )
+                _, q_logits_t, q_atoms_t = jax.vmap(q_apply_fn, in_axes=(None, 0))(
+                    target_q_params, transitions.next_obs
+                )
+                q_t_selector_dist, _, _ = jax.vmap(q_apply_fn, in_axes=(None, 0))(
+                    q_params, transitions.next_obs
+                )
                 q_t_selector = q_t_selector_dist.preferences
 
                 # Cast and clip rewards.
@@ -172,8 +184,16 @@ def get_learner_fn(
                 ).astype(jnp.float32)
                 a_tm1 = transitions.action
 
-                q_loss = categorical_double_q_learning(
-                    q_logits_tm1, q_atoms_tm1, a_tm1, r_t, d_t, q_logits_t, q_atoms_t, q_t_selector
+                q_loss = n_step_categorical_double_q_learning(
+                    q_logits_tm1,
+                    q_atoms_tm1,
+                    a_tm1,
+                    r_t,
+                    d_t,
+                    q_logits_t,
+                    q_atoms_t,
+                    q_t_selector,
+                    config.system.rollout_length,
                 )
 
                 loss_info = {
@@ -314,7 +334,7 @@ def learner_setup(
 
     # Initialise observation
     init_x = env.observation_spec().generate_value()
-    # init_x = jax.tree_util.tree_map(lambda x: x[None, ...], init_x)
+    init_x = jax.tree_util.tree_map(lambda x: x[None, ...], init_x)
 
     # Initialise q params and optimiser state.
     q_online_params = q_network.init(q_net_key, init_x)
@@ -332,16 +352,12 @@ def learner_setup(
 
     # Create replay buffer
     dummy_transition = Transition(
-        obs=jnp.broadcast_to(init_x, shape=(config.rollout_length, *init_x.squeeze().shape)),
-        action=jnp.zeros((config.rollout_length), dtype=int),
-        reward=jnp.zeros((config.rollout_length), dtype=float),
-        done=jnp.zeros((config.rollout_length), dtype=bool),
-        next_obs=jnp.broadcast_to(init_x, shape=(3, *init_x.squeeze().shape)),
-        info={
-            "episode_return": jnp.zeros((config.rollout_length), dtype=float),
-            "episode_length": jnp.zeros((config.rollout_length), dtype=int),
-            "is_terminal_step": jnp.zeros((config.rollout_length), dtype=bool),
-        },
+        obs=jax.tree_util.tree_map(lambda x: x.squeeze(0), init_x),
+        action=jnp.zeros((), dtype=int),
+        reward=jnp.zeros((), dtype=float),
+        done=jnp.zeros((), dtype=bool),
+        next_obs=jax.tree_util.tree_map(lambda x: x.squeeze(0), init_x),
+        info={"episode_return": 0.0, "episode_length": 0, "is_terminal_step": False},
     )
 
     assert config.system.total_buffer_size % n_devices == 0, (
@@ -358,21 +374,15 @@ def learner_setup(
     config.system.batch_size = config.system.total_batch_size // (
         n_devices * config.arch.update_batch_size
     )
-    # buffer_fn = fbx.make_item_buffer(
-    #     max_length=config.system.buffer_size,
-    #     min_length=config.system.batch_size,
-    #     sample_batch_size=config.system.batch_size,
-    #     add_batches=True,
-    #     add_sequences=True,
-    # )
 
+    # at each timestep, each of the `total_num_envs` agents should add
     buffer_fn = fbx.make_trajectory_buffer(
         max_length_time_axis=config.system.buffer_size,
         min_length_time_axis=config.system.batch_size,
         sample_batch_size=config.system.batch_size,
-        add_batch_size=config.system.rollout_length,
+        add_batch_size=1,  # TODO: is this the right size?
         sample_sequence_length=config.system.rollout_length,
-        period=1,
+        period=config.system.rollout_length - 1,
     )
 
     buffer_fns = (buffer_fn.add, buffer_fn.sample)
