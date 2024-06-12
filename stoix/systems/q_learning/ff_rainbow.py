@@ -176,7 +176,7 @@ def get_learner_fn(
                 a_tm1 = transitions.action
 
                 # q_loss = n_step_categorical_double_q_learning(
-                q_loss = categorical_double_q_learning(
+                q_loss = n_step_categorical_double_q_learning(
                     q_logits_tm1,
                     q_atoms_tm1,
                     a_tm1,
@@ -185,7 +185,7 @@ def get_learner_fn(
                     q_logits_t,
                     q_atoms_t,
                     q_t_selector,
-                    # config.system.rollout_length,
+                    config.system.rollout_length,
                 )
 
                 loss_info = {
@@ -371,36 +371,32 @@ def learner_setup(
         max_length_time_axis=config.system.buffer_size,
         min_length_time_axis=config.system.batch_size,
         sample_batch_size=config.system.batch_size,
-        add_batch_size=1,
+        add_batch_size=config.system.rollout_length,
         sample_sequence_length=config.system.rollout_length,
         period=config.system.rollout_length,  # no overlap
     )
 
-    def buffer_seq_add(
-        buffer_states,
-        transition_batch: Transition,
-        config: DictConfig = config,
-    ):
+    def buffer_seq_add(buffer_states, transition_batch: Transition, config: DictConfig = config):
         """
         Sequentially adds transitions from a warmup Transition batch to the replay
         buffer to match the `add_batch_size` requirement of the TrajectoryBuffer.
         Assumes n_warmup_steps % rollout_length == 0.
         """
 
+        def _add_single_transition(buffer_states, transition):
+            transition = jax.tree_util.tree_map(lambda x: jnp.expand_dims(x, axis=1), transition)
+            buffer_states = buffer_fn.add(buffer_states, transition)
+            return buffer_states, None
+
         def _reshape_fn(x: jnp.ndarray):
             """
-            Reshape a batch of transition with shape (n_envs, n_warmup_steps, *x)
+            Reshape a batch of transition with shape (n_agents, n_warmup_steps, *x)
             to (-1, rollout_length, *x) to be added to the replay buffer.
             """
             return x.reshape(-1, config.system.rollout_length, *x.shape[2:])
 
-        def _add_single_transition(buffer_states, transition):
-            # add batch_dim
-            transition = jax.tree_util.tree_map(lambda x: jnp.expand_dims(x, axis=0), transition)
-            buffer_states = buffer_fn.add(buffer_states, transition)
-            return buffer_states, None
-
         reshaped_batch = jax.tree_util.tree_map(_reshape_fn, transition_batch)
+
         buffer_states, _ = jax.lax.scan(
             lambda buffer_states, transition: _add_single_transition(buffer_states, transition),
             buffer_states,
