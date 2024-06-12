@@ -1,5 +1,5 @@
 # FROM ubuntu:22.04 as base
-FROM nvidia/cuda:12.5.0-devel-ubuntu22.04
+FROM nvidia/cuda:12.4.0-runtime-ubuntu22.04
 
 # Ensure no installs try to launch interactive screen
 ARG DEBIAN_FRONTEND=noninteractive

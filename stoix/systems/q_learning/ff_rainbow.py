@@ -84,13 +84,7 @@ def get_warmup_fn(
         # STEP ENVIRONMENT FOR ROLLOUT LENGTH
         (env_states, timesteps, keys), traj_batch = jax.lax.scan(
             _env_step, (env_states, timesteps, keys), None, config.system.warmup_steps
-        )  # TODO: incorporate the n-step dimension in warmup_steps and reshape before
-        # adding to the trajectory buffer
-
-        # ERROR: AssertionError: [Chex] Assertion assert_tree_shape_prefix failed:
-        # Tree leaf 'obs/agent_view' has a shape prefix different from expected: (16,) != (1,).
-        # Tree leaf 'obs/action_mask' has a shape prefix different from expected: (16,) != (1,).
-        # ...
+        )
 
         # Add the trajectory to the buffer.
         buffer_states = buffer_add_fn(buffer_states, traj_batch)
@@ -380,10 +374,35 @@ def learner_setup(
         max_length_time_axis=config.system.buffer_size,
         min_length_time_axis=config.system.batch_size,
         sample_batch_size=config.system.batch_size,
-        add_batch_size=1,  # TODO: is this the right size?
+        add_batch_size=1,
         sample_sequence_length=config.system.rollout_length,
-        period=config.system.rollout_length - 1,
+        period=config.system.rollout_length,  # no overlap
     )
+
+    def buffer_seq_add(
+        buffer_states,
+        transition_batch: Transition,
+        warmup_steps: int = config.system.warmup_steps,
+    ):
+        """
+        Sequentially adds transitions from a Transition batch to match the
+        `add_batch_size` requirement of the TrajectoryBuffer.
+        """
+
+        def _add_single_transition(i: int, val):
+            (buffer_states, transition_batch) = val
+            transition = jax.tree_util.tree_map(lambda x: x[jnp.newaxis, i], transition_batch)
+            buffer_states = buffer_fn.add(buffer_states, transition)
+            return (buffer_states, transition_batch)
+
+        buffer_states, transition_batch = jax.lax.fori_loop(
+            lower=0,
+            upper=warmup_steps - 1,
+            body_fun=_add_single_transition,
+            init_val=(buffer_states, transition_batch),
+        )
+
+        return buffer_states
 
     buffer_fns = (buffer_fn.add, buffer_fn.sample)
     buffer_states = buffer_fn.init(dummy_transition)
@@ -392,7 +411,7 @@ def learner_setup(
     learn = get_learner_fn(env, apply_fns, update_fns, buffer_fns, config)
     learn = jax.pmap(learn, axis_name="device")
 
-    warmup = get_warmup_fn(env, params, q_network_apply_fn, buffer_fn.add, config)
+    warmup = get_warmup_fn(env, params, q_network_apply_fn, buffer_seq_add, config)
     warmup = jax.pmap(warmup, axis_name="device")
 
     # Initialise environment states and timesteps: across devices and batches.
