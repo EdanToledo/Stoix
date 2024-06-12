@@ -117,7 +117,7 @@ def n_step_categorical_double_q_learning(
 ) -> chex.Array:
     """
     Computes the categorical n-step double Q-learning loss.
-    Each input is a batch of n transitions.
+    Each input is a batch of `rollout_length` transitions.
     """
     batch_indices = jnp.arange(a_tm1[0].shape[0])
     discounted_return = r_t * jnp.power(d_t, jnp.arange(n_steps))

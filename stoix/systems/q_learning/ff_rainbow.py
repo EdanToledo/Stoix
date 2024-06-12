@@ -5,7 +5,10 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Tuple
 from stoix.systems.q_learning.dqn_types import Transition
 from stoix.utils.checkpointing import Checkpointer
 from stoix.utils.jax_utils import unreplicate_batch_dim, unreplicate_n_dims
-from stoix.utils.loss import n_step_categorical_double_q_learning
+from stoix.utils.loss import (  # noqa: F401
+    categorical_double_q_learning,
+    n_step_categorical_double_q_learning,
+)
 from stoix.utils.training import make_learning_rate
 from stoix.wrappers.episode_metrics import get_final_step_metrics
 
@@ -159,15 +162,9 @@ def get_learner_fn(
                 transitions: Transition,
             ) -> jnp.ndarray:
 
-                _, q_logits_tm1, q_atoms_tm1 = jax.vmap(q_apply_fn, in_axes=(None, 0))(
-                    q_params, transitions.obs
-                )
-                _, q_logits_t, q_atoms_t = jax.vmap(q_apply_fn, in_axes=(None, 0))(
-                    target_q_params, transitions.next_obs
-                )
-                q_t_selector_dist, _, _ = jax.vmap(q_apply_fn, in_axes=(None, 0))(
-                    q_params, transitions.next_obs
-                )
+                _, q_logits_tm1, q_atoms_tm1 = q_apply_fn(q_params, transitions.obs)
+                _, q_logits_t, q_atoms_t = q_apply_fn(target_q_params, transitions.next_obs)
+                q_t_selector_dist, _, _ = q_apply_fn(q_params, transitions.next_obs)
                 q_t_selector = q_t_selector_dist.preferences
 
                 # Cast and clip rewards.
@@ -178,7 +175,8 @@ def get_learner_fn(
                 ).astype(jnp.float32)
                 a_tm1 = transitions.action
 
-                q_loss = n_step_categorical_double_q_learning(
+                # q_loss = n_step_categorical_double_q_learning(
+                q_loss = categorical_double_q_learning(
                     q_logits_tm1,
                     q_atoms_tm1,
                     a_tm1,
@@ -187,7 +185,7 @@ def get_learner_fn(
                     q_logits_t,
                     q_atoms_t,
                     q_t_selector,
-                    config.system.rollout_length,
+                    # config.system.rollout_length,
                 )
 
                 loss_info = {
@@ -369,7 +367,6 @@ def learner_setup(
         n_devices * config.arch.update_batch_size
     )
 
-    # at each timestep, each of the `total_num_envs` agents should add
     buffer_fn = fbx.make_trajectory_buffer(
         max_length_time_axis=config.system.buffer_size,
         min_length_time_axis=config.system.batch_size,
@@ -382,24 +379,32 @@ def learner_setup(
     def buffer_seq_add(
         buffer_states,
         transition_batch: Transition,
-        warmup_steps: int = config.system.warmup_steps,
+        config: DictConfig = config,
     ):
         """
-        Sequentially adds transitions from a Transition batch to match the
-        `add_batch_size` requirement of the TrajectoryBuffer.
+        Sequentially adds transitions from a warmup Transition batch to the replay
+        buffer to match the `add_batch_size` requirement of the TrajectoryBuffer.
+        Assumes n_warmup_steps % rollout_length == 0.
         """
 
-        def _add_single_transition(i: int, val):
-            (buffer_states, transition_batch) = val
-            transition = jax.tree_util.tree_map(lambda x: x[jnp.newaxis, i], transition_batch)
-            buffer_states = buffer_fn.add(buffer_states, transition)
-            return (buffer_states, transition_batch)
+        def _reshape_fn(x: jnp.ndarray):
+            """
+            Reshape a batch of transition with shape (n_envs, n_warmup_steps, *x)
+            to (-1, rollout_length, *x) to be added to the replay buffer.
+            """
+            return x.reshape(-1, config.system.rollout_length, *x.shape[2:])
 
-        buffer_states, transition_batch = jax.lax.fori_loop(
-            lower=0,
-            upper=warmup_steps - 1,
-            body_fun=_add_single_transition,
-            init_val=(buffer_states, transition_batch),
+        def _add_single_transition(buffer_states, transition):
+            # add batch_dim
+            transition = jax.tree_util.tree_map(lambda x: jnp.expand_dims(x, axis=0), transition)
+            buffer_states = buffer_fn.add(buffer_states, transition)
+            return buffer_states, None
+
+        reshaped_batch = jax.tree_util.tree_map(_reshape_fn, transition_batch)
+        buffer_states, _ = jax.lax.scan(
+            lambda buffer_states, transition: _add_single_transition(buffer_states, transition),
+            buffer_states,
+            reshaped_batch,
         )
 
         return buffer_states

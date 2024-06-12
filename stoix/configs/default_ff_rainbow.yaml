@@ -1,7 +1,7 @@
 defaults:
   - logger: base_logger
   - arch: anakin_exp
-  - system: ff_qr_dqn
+  - system: ff_rainbow
   - network: mlp_qr_dqn
   - env: gymnax/cartpole
   - _self_
