@@ -90,6 +90,8 @@ def get_warmup_fn(
         )
 
         # Add the trajectory to the buffer.
+        # Swap the batch and time axes.
+        traj_batch = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), traj_batch)
         buffer_states = buffer_add_fn(buffer_states, traj_batch)
 
         return env_states, timesteps, keys, buffer_states
@@ -151,6 +153,8 @@ def get_learner_fn(
         params, opt_states, buffer_state, key, env_state, last_timestep = learner_state
 
         # Add the trajectory to the buffer.
+        # Swap the batch and time axes.
+        traj_batch = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), traj_batch)
         buffer_state = buffer_add_fn(buffer_state, traj_batch)
 
         def _update_epoch(update_state: Tuple, _: Any) -> Tuple:
@@ -162,9 +166,15 @@ def get_learner_fn(
                 transitions: Transition,
             ) -> jnp.ndarray:
 
-                _, q_logits_tm1, q_atoms_tm1 = q_apply_fn(q_params, transitions.obs)
-                _, q_logits_t, q_atoms_t = q_apply_fn(target_q_params, transitions.next_obs)
-                q_t_selector_dist, _, _ = q_apply_fn(q_params, transitions.next_obs)
+                _, q_logits_tm1, q_atoms_tm1 = jax.vmap(q_apply_fn, in_axes=(None, 0))(
+                    q_params, transitions.obs
+                )
+                _, q_logits_t, q_atoms_t = jax.vmap(q_apply_fn, in_axes=(None, 0))(
+                    target_q_params, transitions.next_obs
+                )
+                q_t_selector_dist, _, _ = jax.vmap(q_apply_fn, in_axes=(None, 0))(
+                    q_params, transitions.next_obs
+                )
                 q_t_selector = q_t_selector_dist.preferences
 
                 # Cast and clip rewards.
@@ -175,7 +185,6 @@ def get_learner_fn(
                 ).astype(jnp.float32)
                 a_tm1 = transitions.action
 
-                # q_loss = n_step_categorical_double_q_learning(
                 q_loss = n_step_categorical_double_q_learning(
                     q_logits_tm1,
                     q_atoms_tm1,
@@ -371,39 +380,10 @@ def learner_setup(
         max_length_time_axis=config.system.buffer_size,
         min_length_time_axis=config.system.batch_size,
         sample_batch_size=config.system.batch_size,
-        add_batch_size=config.system.rollout_length,
+        add_batch_size=config.arch.num_envs,
         sample_sequence_length=config.system.rollout_length,
-        period=config.system.rollout_length,  # no overlap
+        period=config.system.period,  # no overlap
     )
-
-    def buffer_seq_add(buffer_states, transition_batch: Transition, config: DictConfig = config):
-        """
-        Sequentially adds transitions from a warmup Transition batch to the replay
-        buffer to match the `add_batch_size` requirement of the TrajectoryBuffer.
-        Assumes n_warmup_steps % rollout_length == 0.
-        """
-
-        def _add_single_transition(buffer_states, transition):
-            transition = jax.tree_util.tree_map(lambda x: jnp.expand_dims(x, axis=1), transition)
-            buffer_states = buffer_fn.add(buffer_states, transition)
-            return buffer_states, None
-
-        def _reshape_fn(x: jnp.ndarray):
-            """
-            Reshape a batch of transition with shape (n_agents, n_warmup_steps, *x)
-            to (-1, rollout_length, *x) to be added to the replay buffer.
-            """
-            return x.reshape(-1, config.system.rollout_length, *x.shape[2:])
-
-        reshaped_batch = jax.tree_util.tree_map(_reshape_fn, transition_batch)
-
-        buffer_states, _ = jax.lax.scan(
-            lambda buffer_states, transition: _add_single_transition(buffer_states, transition),
-            buffer_states,
-            reshaped_batch,
-        )
-
-        return buffer_states
 
     buffer_fns = (buffer_fn.add, buffer_fn.sample)
     buffer_states = buffer_fn.init(dummy_transition)
@@ -412,7 +392,7 @@ def learner_setup(
     learn = get_learner_fn(env, apply_fns, update_fns, buffer_fns, config)
     learn = jax.pmap(learn, axis_name="device")
 
-    warmup = get_warmup_fn(env, params, q_network_apply_fn, buffer_seq_add, config)
+    warmup = get_warmup_fn(env, params, q_network_apply_fn, buffer_fn.add, config)
     warmup = jax.pmap(warmup, axis_name="device")
 
     # Initialise environment states and timesteps: across devices and batches.
@@ -615,7 +595,7 @@ def run_experiment(_config: DictConfig) -> float:
     return eval_performance
 
 
-@hydra.main(config_path="../../configs", config_name="default_ff_c51.yaml", version_base="1.2")
+@hydra.main(config_path="../../configs", config_name="default_ff_rainbow.yaml", version_base="1.2")
 def hydra_entry_point(cfg: DictConfig) -> float:
     """Experiment entry point."""
     # Allow dynamic attributes.

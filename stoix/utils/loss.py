@@ -105,33 +105,44 @@ def categorical_double_q_learning(
 
 
 def n_step_categorical_double_q_learning(
-    q_logits_tm1: chex.Array,
-    q_atoms_tm1: chex.Array,
-    a_tm1: chex.Array,
-    r_t: chex.Array,
-    d_t: chex.Array,
-    q_logits_t: chex.Array,
-    q_atoms_t: chex.Array,
-    q_t_selector: chex.Array,
-    n_steps: int,
+    q_logits_tm1: chex.Array,  # (batch_size*rollout_length, 2, n_atoms)
+    q_atoms_tm1: chex.Array,  # (batch_size*rollout_length, 2, n_atoms)
+    a_tm1: chex.Array,  # (batch_size, rollout_length)
+    r_t: chex.Array,  # (batch_size, rollout_length)
+    d_t: chex.Array,  # (batch_size, rollout_length)
+    q_logits_t: chex.Array,  # (batch_size*rollout_length, 2, n_atoms)
+    q_atoms_t: chex.Array,  # (batch_size*rollout_length, 2, n_atoms)
+    q_t_selector: chex.Array,  # (batch_size*rollout_length, 2, n_atoms)
+    rollout_length: int,
 ) -> chex.Array:
     """
     Computes the categorical n-step double Q-learning loss.
     Each input is a batch of `rollout_length` transitions.
     """
-    batch_indices = jnp.arange(a_tm1[0].shape[0])
-    discounted_return = r_t * jnp.power(d_t, jnp.arange(n_steps))
-    # Scale and shift time-t distribution atoms by discount and reward.
-    target_z = (
-        discounted_return[:, jnp.newaxis] + jnp.power(d_t[:, jnp.newaxis], n_steps) * q_atoms_t
+
+    def _take_final_step(x, sequence_axis=1):
+        """Selects the last timestep of a sequence."""
+        return x.take(-1, sequence_axis)
+
+    # shape = (batch_size, rollout_length, n_atoms) => (batch_size, n_atoms)
+    q_logits_tn, q_tn_selector, q_atoms_tm1n, a_tm1n, q_logits_tm1n = jax.tree_util.tree_map(
+        _take_final_step, (q_logits_t, q_t_selector, q_atoms_tm1, a_tm1, q_logits_tm1)
     )
-    # Select logits for greedy action in state s_t and convert to distribution.
-    p_target_z = jax.nn.softmax(q_logits_t[batch_indices, q_t_selector.argmax(-1)])
-    # Project using the Cramer distance and maybe stop gradient flow to targets.
-    target = jax.vmap(rlax.categorical_l2_project)(target_z, p_target_z, q_atoms_tm1)
-    # Compute loss (i.e. temporal difference error).
-    logit_qa_tm1 = q_logits_tm1[batch_indices, a_tm1]
-    td_error = tfd.Categorical(probs=target).cross_entropy(tfd.Categorical(logits=logit_qa_tm1))
+
+    batch_indices = jnp.arange(a_tm1.shape[0])  # shape = (batch_size, )
+    discounted_returns = jnp.sum(
+        r_t * jnp.power(d_t, jnp.arange(rollout_length)), axis=1
+    )  # shape = (batch_size, )
+    target_z = discounted_returns[:, jnp.newaxis, jnp.newaxis] + q_atoms_t * jnp.expand_dims(
+        d_t**rollout_length, axis=-1
+    )  # shape = (batch_size, rollout_length, n_atoms)
+    target_z = _take_final_step(target_z)  # shape = (batch_size, n_atoms)
+
+    p_target_z = jax.nn.softmax(q_logits_tn[batch_indices, q_tn_selector.argmax(-1)])
+    target = jax.vmap(rlax.categorical_l2_project)(target_z, p_target_z, q_atoms_tm1n)
+
+    logit_qa_tm1n = q_logits_tm1n[batch_indices, a_tm1n]
+    td_error = tfd.Categorical(probs=target).cross_entropy(tfd.Categorical(logits=logit_qa_tm1n))
     q_loss = jnp.mean(td_error)
 
     return q_loss
