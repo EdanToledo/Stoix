@@ -105,14 +105,14 @@ def categorical_double_q_learning(
 
 
 def n_step_categorical_double_q_learning(
-    q_logits_tm1: chex.Array,  # (batch_size*rollout_length, 2, n_atoms)
-    q_atoms_tm1: chex.Array,  # (batch_size*rollout_length, 2, n_atoms)
+    q_logits_tm1: chex.Array,  # (batch_size*rollout_length, n_actions, n_atoms)
+    q_atoms_tm1: chex.Array,  # (batch_size*rollout_length, n_actions, n_atoms)
     a_tm1: chex.Array,  # (batch_size, rollout_length)
     r_t: chex.Array,  # (batch_size, rollout_length)
     d_t: chex.Array,  # (batch_size, rollout_length)
-    q_logits_t: chex.Array,  # (batch_size*rollout_length, 2, n_atoms)
-    q_atoms_t: chex.Array,  # (batch_size*rollout_length, 2, n_atoms)
-    q_t_selector: chex.Array,  # (batch_size*rollout_length, 2, n_atoms)
+    q_logits_t: chex.Array,  # (batch_size*rollout_length, n_actions, n_atoms)
+    q_atoms_t: chex.Array,  # (batch_size*rollout_length, n_actions, n_atoms)
+    q_t_selector: chex.Array,  # (batch_size*rollout_length, n_actions, n_atoms)
     rollout_length: int,
 ) -> chex.Array:
     """
@@ -120,30 +120,36 @@ def n_step_categorical_double_q_learning(
     Each input is a batch of `rollout_length` transitions.
     """
 
-    def _take_final_step(x, sequence_axis=1):
-        """Selects the last timestep of a sequence."""
-        return x.take(-1, sequence_axis)
+    def _take_final_step(x, time_axis=1):
+        """Returns the last timestep of a sequence."""
+        return x.take(-1, time_axis)
 
-    # shape = (batch_size, rollout_length, n_atoms) => (batch_size, n_atoms)
     q_logits_tn, q_tn_selector, q_atoms_tm1n, a_tm1n, q_logits_tm1n = jax.tree_util.tree_map(
         _take_final_step, (q_logits_t, q_t_selector, q_atoms_tm1, a_tm1, q_logits_tm1)
     )
 
     batch_indices = jnp.arange(a_tm1.shape[0])  # shape = (batch_size, )
+    # Compute the n-step discounted returns
     discounted_returns = jnp.sum(
         r_t * jnp.power(d_t, jnp.arange(rollout_length)), axis=1
     )  # shape = (batch_size, )
+    # Scale the target distribution by discount and shift by n-step discounted returns
     target_z = discounted_returns[:, jnp.newaxis, jnp.newaxis] + q_atoms_t * jnp.expand_dims(
         d_t**rollout_length, axis=-1
     )  # shape = (batch_size, rollout_length, n_atoms)
+    # The target distribution is the distribution of returns at the n-th step
     target_z = _take_final_step(target_z)  # shape = (batch_size, n_atoms)
-
+    # Convert the logits to probability distributions
     p_target_z = jax.nn.softmax(q_logits_tn[batch_indices, q_tn_selector.argmax(-1)])
+    # Map the target distribution on the support using L2-projection
     target = jax.vmap(rlax.categorical_l2_project)(target_z, p_target_z, q_atoms_tm1n)
-
+    # Get the logits for the actions predicted at t-1
     logit_qa_tm1n = q_logits_tm1n[batch_indices, a_tm1n]
+    # Compute the cross entropy between the target and predicted distribution
     td_error = tfd.Categorical(probs=target).cross_entropy(tfd.Categorical(logits=logit_qa_tm1n))
     q_loss = jnp.mean(td_error)
+
+    jax.debug.print("{x}", x=q_loss)
 
     return q_loss
 
