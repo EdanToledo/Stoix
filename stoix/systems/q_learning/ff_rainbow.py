@@ -7,8 +7,8 @@ from stoix.utils.checkpointing import Checkpointer
 from stoix.utils.jax_utils import unreplicate_batch_dim, unreplicate_n_dims
 from stoix.utils.loss import (  # noqa: F401
     categorical_double_q_learning,
-    n_step_categorical_double_q_learning,
 )
+from stoix.utils.multistep import batch_discounted_returns
 from stoix.utils.training import make_learning_rate
 from stoix.wrappers.episode_metrics import get_final_step_metrics
 
@@ -166,15 +166,9 @@ def get_learner_fn(
                 transitions: Transition,
             ) -> jnp.ndarray:
 
-                _, q_logits_tm1, q_atoms_tm1 = jax.vmap(q_apply_fn, in_axes=(None, 0))(
-                    q_params, transitions.obs
-                )
-                _, q_logits_t, q_atoms_t = jax.vmap(q_apply_fn, in_axes=(None, 0))(
-                    target_q_params, transitions.next_obs
-                )
-                q_t_selector_dist, _, _ = jax.vmap(q_apply_fn, in_axes=(None, 0))(
-                    q_params, transitions.next_obs
-                )
+                _, q_logits_tm1, q_atoms_tm1 = q_apply_fn(q_params, transitions.obs)
+                _, q_logits_t, q_atoms_t = q_apply_fn(target_q_params, transitions.next_obs)
+                q_t_selector_dist, _, _ = q_apply_fn(q_params, transitions.next_obs)
                 q_t_selector = q_t_selector_dist.preferences
 
                 # Cast and clip rewards.
@@ -185,16 +179,8 @@ def get_learner_fn(
                 ).astype(jnp.float32)
                 a_tm1 = transitions.action
 
-                q_loss = n_step_categorical_double_q_learning(
-                    q_logits_tm1,
-                    q_atoms_tm1,
-                    a_tm1,
-                    r_t,
-                    d_t,
-                    q_logits_t,
-                    q_atoms_t,
-                    q_t_selector,
-                    config.system.rollout_length,
+                q_loss = categorical_double_q_learning(
+                    q_logits_tm1, q_atoms_tm1, a_tm1, r_t, d_t, q_logits_t, q_atoms_t, q_t_selector
                 )
 
                 loss_info = {
@@ -209,8 +195,25 @@ def get_learner_fn(
 
             # SAMPLE TRANSITIONS
             transition_sample = buffer_sample_fn(buffer_state, sample_key)
-            transitions: Transition = transition_sample.experience
-
+            transition_sequence: Transition = transition_sample.experience
+            # Extract the first and last observations.
+            step_0_obs = jax.tree_util.tree_map(lambda x: x[:, 0], transition_sequence).obs
+            step_0_actions = transition_sequence.action[:,0]
+            step_n_obs = jax.tree_util.tree_map(lambda x: x[:, -1], transition_sequence).next_obs
+            # check if any of the transitions are done - this will be used to decide if bootstrapping is needed
+            n_step_done = jnp.any(transition_sequence.done, axis=-1)
+            # Calculate the n-step rewards and select the first one.
+            discounts = 1.0 - transition_sequence.done.astype(jnp.float32)
+            n_step_reward = batch_discounted_returns(transition_sequence.reward, discounts*config.system.gamma, jnp.zeros_like(discounts))[:, 0]
+            transitions = Transition(
+                obs=step_0_obs,
+                action=step_0_actions,
+                reward=n_step_reward,
+                done=n_step_done,
+                next_obs=step_n_obs,
+                info=transition_sequence.info,
+            )
+            
             # CALCULATE Q LOSS
             q_grad_fn = jax.grad(_q_loss_fn, has_aux=True)
             q_grads, q_loss_info = q_grad_fn(
@@ -381,8 +384,8 @@ def learner_setup(
         min_length_time_axis=config.system.batch_size,
         sample_batch_size=config.system.batch_size,
         add_batch_size=config.arch.num_envs,
-        sample_sequence_length=config.system.rollout_length,
-        period=config.system.period,  # no overlap
+        sample_sequence_length=config.system.n_step,
+        period=1,
     )
 
     buffer_fns = (buffer_fn.add, buffer_fn.sample)
