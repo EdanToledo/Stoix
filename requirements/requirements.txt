@@ -9,7 +9,7 @@ gymnax>=0.0.6
 huggingface_hub
 hydra-core==1.3.2
 id-marl-eval @ git+https://github.com/instadeepai/marl-eval
-jax>=0.4.10 
+jax>=0.4.10
 jaxlib
 jaxmarl
 jumanji==1.0.0
@@ -21,7 +21,7 @@ optax @ git+https://github.com/google-deepmind/optax.git
 pgx
 protobuf==3.20.2
 rlax
-tqdm
 tensorboard_logger
 tensorflow_probability
+tqdm
 xminigrid @ git+https://github.com/corl-team/xland-minigrid.git@main

@@ -6,7 +6,7 @@ from flax import linen as nn
 
 class NoisyLinear(nn.Module):
     """
-    Noisy Linear Layer using indepedent Gaussian noise
+    Noisy Linear Layer using independent Gaussian noise
     as defined in Fortunato et al. (2018):
 
     y = (μ_w + σ_w * ε_w) . x + μ_b + σ_b * ε_b,

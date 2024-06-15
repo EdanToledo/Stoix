@@ -5,9 +5,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Tuple
 from stoix.systems.q_learning.dqn_types import Transition
 from stoix.utils.checkpointing import Checkpointer
 from stoix.utils.jax_utils import unreplicate_batch_dim, unreplicate_n_dims
-from stoix.utils.loss import (  # noqa: F401
-    categorical_double_q_learning,
-)
+from stoix.utils.loss import categorical_double_q_learning  # noqa: F401
 from stoix.utils.multistep import batch_discounted_returns
 from stoix.utils.training import make_learning_rate
 from stoix.wrappers.episode_metrics import get_final_step_metrics
@@ -198,13 +196,18 @@ def get_learner_fn(
             transition_sequence: Transition = transition_sample.experience
             # Extract the first and last observations.
             step_0_obs = jax.tree_util.tree_map(lambda x: x[:, 0], transition_sequence).obs
-            step_0_actions = transition_sequence.action[:,0]
+            step_0_actions = transition_sequence.action[:, 0]
             step_n_obs = jax.tree_util.tree_map(lambda x: x[:, -1], transition_sequence).next_obs
-            # check if any of the transitions are done - this will be used to decide if bootstrapping is needed
+            # check if any of the transitions are done - this will be used to decide
+            # if bootstrapping is needed
             n_step_done = jnp.any(transition_sequence.done, axis=-1)
             # Calculate the n-step rewards and select the first one.
             discounts = 1.0 - transition_sequence.done.astype(jnp.float32)
-            n_step_reward = batch_discounted_returns(transition_sequence.reward, discounts*config.system.gamma, jnp.zeros_like(discounts))[:, 0]
+            n_step_reward = batch_discounted_returns(
+                transition_sequence.reward,
+                discounts * config.system.gamma,
+                jnp.zeros_like(discounts),
+            )[:, 0]
             transitions = Transition(
                 obs=step_0_obs,
                 action=step_0_actions,
@@ -213,7 +216,7 @@ def get_learner_fn(
                 next_obs=step_n_obs,
                 info=transition_sequence.info,
             )
-            
+
             # CALCULATE Q LOSS
             q_grad_fn = jax.grad(_q_loss_fn, has_aux=True)
             q_grads, q_loss_info = q_grad_fn(
@@ -380,8 +383,8 @@ def learner_setup(
     )
 
     buffer_fn = fbx.make_trajectory_buffer(
-        max_length_time_axis=config.system.buffer_size,
-        min_length_time_axis=config.system.batch_size,
+        max_size=config.system.buffer_size,
+        min_length_time_axis=config.system.n_step,
         sample_batch_size=config.system.batch_size,
         add_batch_size=config.arch.num_envs,
         sample_sequence_length=config.system.n_step,
