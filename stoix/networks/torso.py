@@ -16,6 +16,7 @@ class MLPTorso(nn.Module):
     activation: str = "relu"
     use_layer_norm: bool = False
     kernel_init: Initializer = orthogonal(np.sqrt(2.0))
+    activate_final: bool = True
 
     @nn.compact
     def __call__(self, observation: chex.Array) -> chex.Array:
@@ -25,7 +26,8 @@ class MLPTorso(nn.Module):
             x = nn.Dense(layer_size, kernel_init=self.kernel_init)(x)
             if self.use_layer_norm:
                 x = nn.LayerNorm(use_scale=False)(x)
-            x = parse_activation_fn(self.activation)(x)
+            if self.activate_final or layer_size != self.layer_sizes[-1]:
+                x = parse_activation_fn(self.activation)(x)
         return x
 
 

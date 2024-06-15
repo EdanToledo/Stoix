@@ -373,7 +373,7 @@ def learner_setup(
         jnp.stack(env_keys),
     )
 
-    def reshape_states(x):
+    def reshape_states(x: chex.Array) -> chex.Array:
         return x.reshape(
             (n_devices, config.arch.update_batch_size, config.arch.num_envs) + x.shape[1:]
         )
@@ -398,7 +398,7 @@ def learner_setup(
     step_keys = jax.random.split(step_key, n_devices * config.arch.update_batch_size)
     warmup_keys = jax.random.split(warmup_key, n_devices * config.arch.update_batch_size)
 
-    def reshape_keys(x):
+    def reshape_keys(x: chex.Array) -> chex.Array:
         return x.reshape((n_devices, config.arch.update_batch_size) + x.shape[1:])
 
     step_keys = reshape_keys(jnp.stack(step_keys))

@@ -105,12 +105,12 @@ def get_learner_fn(
     env: Environment,
     q_apply_fn: ActorApply,
     q_update_fn: optax.TransformUpdateFn,
-    buffer_fns: Tuple[Callable, Callable],
+    buffer_fns: Tuple[Callable, Callable, Callable],
     config: DictConfig,
 ) -> LearnerFn[OffPolicyLearnerState]:
     """Get the learner function."""
 
-    buffer_add_fn, buffer_sample_fn = buffer_fns
+    buffer_add_fn, buffer_sample_fn, buffer_set_priorities = buffer_fns
 
     def _update_step(
         learner_state: OffPolicyLearnerState, _: Any
@@ -162,6 +162,7 @@ def get_learner_fn(
                 q_params: FrozenDict,
                 target_q_params: FrozenDict,
                 transitions: Transition,
+                transition_probs: chex.Array,
             ) -> jnp.ndarray:
 
                 _, q_logits_tm1, q_atoms_tm1 = q_apply_fn(q_params, transitions.obs)
@@ -177,12 +178,22 @@ def get_learner_fn(
                 ).astype(jnp.float32)
                 a_tm1 = transitions.action
 
-                q_loss = categorical_double_q_learning(
+                batch_q_error = categorical_double_q_learning(
                     q_logits_tm1, q_atoms_tm1, a_tm1, r_t, d_t, q_logits_t, q_atoms_t, q_t_selector
                 )
 
+                # Importance weighting.
+                importance_weights = (1.0 / transition_probs).astype(jnp.float32)
+                importance_weights **= config.system.importance_sampling_exponent
+                importance_weights /= jnp.max(importance_weights)
+
+                # Reweight.
+                q_loss = jnp.mean(importance_weights * batch_q_error)
+                new_priorities = batch_q_error
+
                 loss_info = {
                     "q_loss": q_loss,
+                    "priorities": new_priorities,
                 }
 
                 return q_loss, loss_info
@@ -220,9 +231,13 @@ def get_learner_fn(
             # CALCULATE Q LOSS
             q_grad_fn = jax.grad(_q_loss_fn, has_aux=True)
             q_grads, q_loss_info = q_grad_fn(
-                params.online,
-                params.target,
-                transitions,
+                params.online, params.target, transitions, transition_sample.priorities
+            )
+
+            # Update priorities in the buffer.
+            updated_priorities = q_loss_info.pop("priorities")
+            buffer_state = buffer_set_priorities(
+                buffer_state, transition_sample.indices, updated_priorities
             )
 
             # Compute the parallel mean (pmean) over the batch.
@@ -310,9 +325,8 @@ def learner_setup(
     key, q_net_key = keys
 
     # Define actor_network and optimiser.
-    q_network_torso = hydra.utils.instantiate(config.network.actor_network.pre_torso)
-    q_network_action_head = hydra.utils.instantiate(
-        config.network.actor_network.action_head,
+    q_network = hydra.utils.instantiate(
+        config.network.actor_network.pre_torso,
         action_dim=action_dim,
         epsilon=config.system.training_epsilon,
         num_atoms=config.system.num_atoms,
@@ -320,17 +334,17 @@ def learner_setup(
         v_max=config.system.v_max,
     )
 
-    q_network = Actor(torso=q_network_torso, action_head=q_network_action_head)
-
-    eval_q_network_action_head = hydra.utils.instantiate(
-        config.network.actor_network.action_head,
+    eval_q_network = hydra.utils.instantiate(
+        config.network.actor_network.pre_torso,
         action_dim=action_dim,
         epsilon=config.system.evaluation_epsilon,
         num_atoms=config.system.num_atoms,
         v_min=config.system.v_min,
         v_max=config.system.v_max,
     )
-    eval_q_network = Actor(torso=q_network_torso, action_head=eval_q_network_action_head)
+
+    q_network = Actor(torso=q_network, action_head=lambda x: x)
+    eval_q_network = Actor(torso=eval_q_network, action_head=lambda x: x)
     eval_q_network = EvalActorWrapper(actor=eval_q_network)
 
     q_lr = make_learning_rate(config.system.q_lr, config, config.system.epochs)
@@ -382,16 +396,18 @@ def learner_setup(
         n_devices * config.arch.update_batch_size
     )
 
-    buffer_fn = fbx.make_trajectory_buffer(
+    buffer_fn = fbx.make_prioritised_trajectory_buffer(
         max_size=config.system.buffer_size,
         min_length_time_axis=config.system.n_step,
         sample_batch_size=config.system.batch_size,
         add_batch_size=config.arch.num_envs,
         sample_sequence_length=config.system.n_step,
         period=1,
+        priority_exponent=config.system.priority_exponent,
+        device="tpu",
     )
 
-    buffer_fns = (buffer_fn.add, buffer_fn.sample)
+    buffer_fns = (buffer_fn.add, buffer_fn.sample, buffer_fn.set_priorities)
     buffer_states = buffer_fn.init(dummy_transition)
 
     # Get batched iterated update and replicate it to pmap it over cores.
@@ -409,7 +425,7 @@ def learner_setup(
         jnp.stack(env_keys),
     )
 
-    def reshape_states(x):
+    def reshape_states(x: chex.Array) -> chex.Array:
         return x.reshape(
             (n_devices, config.arch.update_batch_size, config.arch.num_envs) + x.shape[1:]
         )
@@ -443,7 +459,7 @@ def learner_setup(
     replicate_learner = (params, opt_states, buffer_states)
 
     # Duplicate learner for update_batch_size.
-    def broadcast(x):
+    def broadcast(x: chex.Array) -> chex.Array:
         return jnp.broadcast_to(x, (config.arch.update_batch_size,) + x.shape)
 
     replicate_learner = jax.tree_util.tree_map(broadcast, replicate_learner)

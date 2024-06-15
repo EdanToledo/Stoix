@@ -1,0 +1,9 @@
+# ---MLP Dueling DQN Networks---
+actor_network:
+  pre_torso:
+    _target_: stoix.networks.dueling.DistributionalDuelingQNetwork
+    layer_sizes: [128, 128]
+    use_layer_norm: False
+    activation: silu
+  # We dont use an action head here, because we are using a dueling network
+  # which has a value and advantage head.
