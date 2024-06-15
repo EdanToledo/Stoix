@@ -24,4 +24,5 @@ rlax
 tdqm
 tensorboard_logger
 tensorflow_probability
+wandb
 xminigrid @ git+https://github.com/corl-team/xland-minigrid.git@main
