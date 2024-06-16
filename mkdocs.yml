@@ -9,14 +9,14 @@ theme:
     - search.suggest
     - search.highlight
   palette:
-      - media: "(prefers-color-scheme: dark)" 
+      - media: "(prefers-color-scheme: dark)"
         scheme: slate
         primary: indigo
         accent: deep orange
         toggle:
           icon: material/weather-sunny
           name: Switch to light mode
-      - media: "(prefers-color-scheme: light)" 
+      - media: "(prefers-color-scheme: light)"
         scheme: default
         primary: indigo
         accent: deep orange
@@ -33,12 +33,20 @@ nav:
     - get_started/hyperparameter_tuning.md
     - get_started/resuming_training.md
     - get_started/statistical_tests.md
-  - Community: 
+  - Community:
     - community/contributing.md
-  - RL Algorithms: 
+  - RL Algorithms:
     - rl_algorithms/overview.md
+    - rl_algorithms/ppo.md
     - rl_algorithms/dqn.md
+    - rl_algorithms/ddqn.md
+    - rl_algorithms/dueling_dqn.md
+    - rl_algorithms/c51.md
+    - rl_algorithms/mdqn.md
+    - rl_algorithms/qr_dqn.md
+    - rl_algorithms/reinforce.md
     - rl_algorithms/noisyDQN.md
+
 
 repo_url: https://github.com/EdanToledo/Stoix/tree/main
 repo_name: EdanToledo/Stoix
