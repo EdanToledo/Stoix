@@ -8,7 +8,7 @@ actor_network:
     use_layer_norm: False
     activation: silu
   action_head:
-    _target_: stoix.networks.dueling.RainbowDuelingHead
+    _target_: stoix.networks.dueling.NoisyDistributionalDuelingQNetwork
     layer_sizes: [512]
     use_layer_norm: False
     activation: silu

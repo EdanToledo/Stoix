@@ -319,8 +319,10 @@ def get_learner_fn(
 class EvalActorWrapper:
     actor: Actor
 
-    def apply(self, params: FrozenDict, x: Observation) -> distrax.EpsilonGreedy:
-        return self.actor.apply(params, x)[0]
+    def apply(
+        self, params: FrozenDict, x: Observation, rngs: Dict[str, chex.PRNGKey]
+    ) -> distrax.EpsilonGreedy:
+        return self.actor.apply(params, x, rngs=rngs)[0]
 
 
 def learner_setup(
@@ -352,7 +354,16 @@ def learner_setup(
 
     q_network = Actor(torso=q_network_torso, action_head=q_network_action_head)
 
-    eval_q_network = Actor(torso=q_network_torso, action_head=q_network_action_head)
+    eval_q_network_action_head = hydra.utils.instantiate(
+        config.network.actor_network.action_head,
+        action_dim=action_dim,
+        epsilon=config.system.evaluation_epsilon,
+        sigma_zero=config.system.sigma_zero,
+        num_atoms=config.system.num_atoms,
+        v_min=config.system.v_min,
+        v_max=config.system.v_max,
+    )
+    eval_q_network = Actor(torso=q_network_torso, action_head=eval_q_network_action_head)
     eval_q_network = EvalActorWrapper(actor=eval_q_network)
 
     q_lr = make_learning_rate(config.system.q_lr, config, config.system.epochs)

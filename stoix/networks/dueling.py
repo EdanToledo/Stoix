@@ -87,7 +87,7 @@ class DistributionalDuelingQNetwork(nn.Module):
         return distrax.EpsilonGreedy(preferences=q_values, epsilon=self.epsilon), q_logits, atoms
 
 
-class RainbowDuelingHead(nn.Module):
+class NoisyDistributionalDuelingQNetwork(nn.Module):
     num_atoms: int
     v_max: float
     v_min: float

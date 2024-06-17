@@ -394,7 +394,7 @@ def learner_setup(
     replicate_learner = (params, opt_states, buffer_states)
 
     # Duplicate learner for update_batch_size.
-    def broadcast(x):
+    def broadcast(x: chex.Array) -> chex.Array:
         return jnp.broadcast_to(x, (config.arch.update_batch_size,) + x.shape)
 
     replicate_learner = jax.tree_util.tree_map(broadcast, replicate_learner)
