@@ -44,6 +44,13 @@ The current code in Stoix was initially **largely** taken and subsequently adapt
 
 ## Overview 🦜
 
+### Stoix TLDR
+1. **Algorithms:** Stoix offers easily hackable, single-file implementations of popular algorithms in pure JAX. You can vectorize algorithm training on a single device using `vmap` as well as distribute training across multiple devices with `pmap` (or both). Multi-host support (i.e., vmap/pmap over multiple devices **and** machines) is coming soon! All implementations include checkpointing to save and resume parameters and training runs.
+
+2. **Hydra Config System:** Leverage the Hydra configuration system for efficient and consistent management of experiments, network architectures, and environments. Hydra facilitates the easy addition of new hyperparameters and supports multi-runs and Optuna hyperparameter optimization. No more need to create large bash scripts to run a series of experiments with differing hyperparameters, network architectures or environments.
+
+3. **Advanced Logging:** Stoix features advanced and configurable logging, ready for output to the terminal, TensorBoard, and other ML tracking dashboards (WandB and Neptune). It also supports logging experiments in JSON format ready for statistical tests and generating RLiable plots (see the plotting notebook). This enables statistically confident comparisons of algorithms natively.
+
 Stoix currently offers the following building blocks for Single-Agent RL research:
 
 ### Implementations of Algorithms 🥑

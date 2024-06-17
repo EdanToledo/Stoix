@@ -9,6 +9,7 @@ from typing import Dict, List, Union
 import jax
 import neptune
 import numpy as np
+import wandb
 from colorama import Fore, Style
 from jax.typing import ArrayLike
 from marl_eval.json_tools import JsonLogger as MarlEvalJsonLogger
@@ -134,13 +135,13 @@ class NeptuneLogger(BaseLogger):
     """Logger for neptune.ai."""
 
     def __init__(self, cfg: DictConfig, unique_token: str) -> None:
-        tags = list(cfg.logger.kwargs.neptune_tag)
-        project = cfg.logger.kwargs.neptune_project
+        tags = list(cfg.logger.kwargs.tags)
+        project = cfg.logger.kwargs.project
 
         self.logger = neptune.init_run(project=project, tags=tags)
 
         self.logger["config"] = stringify_unsupported(cfg)
-        self.detailed_logging = cfg.logger.kwargs.detailed_neptune_logging
+        self.detailed_logging = cfg.logger.kwargs.detailed_logging
 
         # Store json path for uploading json data to Neptune.
         json_exp_path = get_logger_path(cfg, "json")
@@ -174,6 +175,52 @@ class NeptuneLogger(BaseLogger):
             zipf.write(self.json_file_path)
 
         self.logger[f"metrics/metrics_{self.unique_token}"].upload(zip_file_path)
+
+
+class WandBLogger(BaseLogger):
+    """Logger for wandb.ai."""
+
+    def __init__(self, cfg: DictConfig, unique_token: str) -> None:
+        tags = list(cfg.logger.kwargs.tags)
+        project = cfg.logger.kwargs.project
+
+        wandb.init(project=project, tags=tags, config=stringify_unsupported(cfg))
+
+        self.detailed_logging = cfg.logger.kwargs.detailed_logging
+
+        # Store json path for uploading json data to Neptune.
+        json_exp_path = get_logger_path(cfg, "json")
+        self.json_file_path = os.path.join(
+            cfg.logger.base_exp_path, f"{json_exp_path}/{unique_token}/metrics.json"
+        )
+        self.unique_token = unique_token
+        self.upload_json_data = cfg.logger.kwargs.upload_json_data
+
+    def log_stat(self, key: str, value: float, step: int, eval_step: int, event: LogEvent) -> None:
+        # Main metric if it's the mean of a list of metrics (ends with '/mean')
+        # or it's a single metric doesn't contain a '/'.
+        is_main_metric = "/" not in key or key.endswith("/mean")
+        # If we're not detailed logging (logging everything) then make sure it's a main metric.
+        if not self.detailed_logging and not is_main_metric:
+            return
+
+        data_to_log = {f"{event.value}/{key}": value}
+        wandb.log(data_to_log, step=step)
+
+    def stop(self) -> None:
+        if self.upload_json_data:
+            self._zip_and_upload_json()
+        wandb.finish()
+
+    def _zip_and_upload_json(self) -> None:
+        # Create the zip file path by replacing '.json' with '.zip'
+        zip_file_path = self.json_file_path.rsplit(".json", 1)[0] + ".zip"
+
+        # Create a zip file containing the specified JSON file
+        with zipfile.ZipFile(zip_file_path, "w", zipfile.ZIP_DEFLATED) as zipf:
+            zipf.write(self.json_file_path)
+
+        wandb.save(zip_file_path)
 
 
 class TensorboardLogger(BaseLogger):
@@ -290,7 +337,7 @@ def _make_multi_logger(cfg: DictConfig) -> BaseLogger:
     unique_token = datetime.now().strftime("%Y%m%d%H%M%S")
 
     if (
-        cfg.logger.use_neptune
+        (cfg.logger.use_neptune or cfg.logger.use_wandb)
         and cfg.logger.use_json
         and cfg.logger.kwargs.upload_json_data
         and cfg.logger.kwargs.json_path
@@ -305,6 +352,8 @@ def _make_multi_logger(cfg: DictConfig) -> BaseLogger:
 
     if cfg.logger.use_neptune:
         loggers.append(NeptuneLogger(cfg, unique_token))
+    if cfg.logger.use_wandb:
+        loggers.append(WandBLogger(cfg, unique_token))
     if cfg.logger.use_tb:
         loggers.append(TensorboardLogger(cfg, unique_token))
     if cfg.logger.use_json:
