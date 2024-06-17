@@ -2,6 +2,6 @@ defaults:
   - logger: base_logger
   - arch: anakin
   - system: ff_rainbow
-  - network: mlp_dueling_c51
+  - network: cnn_rainbow
   - env: gymnax/cartpole
   - _self_

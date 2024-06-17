@@ -64,8 +64,10 @@ def get_warmup_fn(
 
             env_state, last_timestep, key = carry
             # SELECT ACTION
-            key, policy_key = jax.random.split(key)
-            actor_policy, _, _ = q_apply_fn(q_params.online, last_timestep.observation)
+            key, policy_key, noise_key = jax.random.split(key, num=3)
+            actor_policy, _, _ = q_apply_fn(
+                q_params.online, last_timestep.observation, rngs={"noise": noise_key}
+            )
             action = actor_policy.sample(seed=policy_key)
 
             # STEP ENVIRONMENT
@@ -122,8 +124,10 @@ def get_learner_fn(
             q_params, opt_states, buffer_state, key, env_state, last_timestep = learner_state
 
             # SELECT ACTION
-            key, policy_key = jax.random.split(key)
-            actor_policy, _, _ = q_apply_fn(q_params.online, last_timestep.observation)
+            key, policy_key, noise_key = jax.random.split(key, num=3)
+            actor_policy, _, _ = q_apply_fn(
+                q_params.online, last_timestep.observation, rngs={"noise": noise_key}
+            )
             action = actor_policy.sample(seed=policy_key)
 
             # STEP ENVIRONMENT
@@ -163,11 +167,20 @@ def get_learner_fn(
                 target_q_params: FrozenDict,
                 transitions: Transition,
                 transition_probs: chex.Array,
+                noise_key: chex.PRNGKey,
             ) -> jnp.ndarray:
 
-                _, q_logits_tm1, q_atoms_tm1 = q_apply_fn(q_params, transitions.obs)
-                _, q_logits_t, q_atoms_t = q_apply_fn(target_q_params, transitions.next_obs)
-                q_t_selector_dist, _, _ = q_apply_fn(q_params, transitions.next_obs)
+                noise_key_tm1, noise_key_t, noise_key_select = jax.random.split(noise_key, num=3)
+
+                _, q_logits_tm1, q_atoms_tm1 = q_apply_fn(
+                    q_params, transitions.obs, rngs={"noise": noise_key_tm1}
+                )
+                _, q_logits_t, q_atoms_t = q_apply_fn(
+                    target_q_params, transitions.next_obs, rngs={"noise": noise_key_t}
+                )
+                q_t_selector_dist, _, _ = q_apply_fn(
+                    q_params, transitions.next_obs, rngs={"noise": noise_key_select}
+                )
                 q_t_selector = q_t_selector_dist.preferences
 
                 # Cast and clip rewards.
@@ -200,7 +213,7 @@ def get_learner_fn(
 
             params, opt_states, buffer_state, key = update_state
 
-            key, sample_key = jax.random.split(key)
+            key, sample_key, noise_key = jax.random.split(key, num=3)
 
             # SAMPLE TRANSITIONS
             transition_sample = buffer_sample_fn(buffer_state, sample_key)
@@ -231,7 +244,7 @@ def get_learner_fn(
             # CALCULATE Q LOSS
             q_grad_fn = jax.grad(_q_loss_fn, has_aux=True)
             q_grads, q_loss_info = q_grad_fn(
-                params.online, params.target, transitions, transition_sample.priorities
+                params.online, params.target, transitions, transition_sample.priorities, noise_key
             )
 
             # Update priorities in the buffer.
@@ -322,35 +335,30 @@ def learner_setup(
     config.system.action_dim = action_dim
 
     # PRNG keys.
-    key, q_net_key = keys
+    key, q_net_key, noise_key = keys
+    rngs = {"params": q_net_key, "noise": noise_key}
 
     # Define actor_network and optimiser.
-    q_network = hydra.utils.instantiate(
-        config.network.actor_network.pre_torso,
+    q_network_torso = hydra.utils.instantiate(config.network.actor_network.pre_torso)
+    q_network_action_head = hydra.utils.instantiate(
+        config.network.actor_network.action_head,
         action_dim=action_dim,
         epsilon=config.system.training_epsilon,
+        sigma_zero=config.system.sigma_zero,
         num_atoms=config.system.num_atoms,
         v_min=config.system.v_min,
         v_max=config.system.v_max,
     )
 
-    eval_q_network = hydra.utils.instantiate(
-        config.network.actor_network.pre_torso,
-        action_dim=action_dim,
-        epsilon=config.system.evaluation_epsilon,
-        num_atoms=config.system.num_atoms,
-        v_min=config.system.v_min,
-        v_max=config.system.v_max,
-    )
+    q_network = Actor(torso=q_network_torso, action_head=q_network_action_head)
 
-    q_network = Actor(torso=q_network, action_head=lambda x: x)
-    eval_q_network = Actor(torso=eval_q_network, action_head=lambda x: x)
+    eval_q_network = Actor(torso=q_network_torso, action_head=q_network_action_head)
     eval_q_network = EvalActorWrapper(actor=eval_q_network)
 
     q_lr = make_learning_rate(config.system.q_lr, config, config.system.epochs)
     q_optim = optax.chain(
         optax.clip_by_global_norm(config.system.max_grad_norm),
-        optax.adam(q_lr, eps=1e-5),
+        optax.adam(q_lr, eps=config.system.adam_eps),
     )
 
     # Initialise observation
@@ -358,7 +366,7 @@ def learner_setup(
     init_x = jax.tree_util.tree_map(lambda x: x[None, ...], init_x)
 
     # Initialise q params and optimiser state.
-    q_online_params = q_network.init(q_net_key, init_x)
+    q_online_params = q_network.init(rngs, init_x)
     q_target_params = q_online_params
     q_opt_state = q_optim.init(q_online_params)
 
@@ -496,16 +504,17 @@ def run_experiment(_config: DictConfig) -> float:
     env, eval_env = environments.make(config=config)
 
     # PRNG keys.
-    key, key_e, q_net_key = jax.random.split(jax.random.PRNGKey(config.arch.seed), num=3)
+    key, key_e, q_net_key, noise_key = jax.random.split(jax.random.PRNGKey(config.arch.seed), num=4)
+    rngs = {"params": q_net_key, "noise": noise_key}
 
     # Setup learner.
-    learn, eval_q_network, learner_state = learner_setup(env, (key, q_net_key), config)
+    learn, eval_q_network, learner_state = learner_setup(env, (key, q_net_key, noise_key), config)
 
     # Setup evaluator.
     evaluator, absolute_metric_evaluator, (trained_params, eval_keys) = evaluator_setup(
         eval_env=eval_env,
         key_e=key_e,
-        eval_act_fn=get_distribution_act_fn(config, eval_q_network.apply),
+        eval_act_fn=get_distribution_act_fn(config, eval_q_network.apply, rngs),
         params=learner_state.params.online,
         config=config,
     )
