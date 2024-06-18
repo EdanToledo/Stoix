@@ -108,7 +108,7 @@ def get_learner_fn(
     q_apply_fn: ActorApply,
     q_update_fn: optax.TransformUpdateFn,
     buffer_fns: Tuple[Callable, Callable, Callable],
-    scheduler_fn: Callable,
+    importance_weight_scheduler_fn: Callable,
     config: DictConfig,
 ) -> LearnerFn[OffPolicyLearnerState]:
     """Get the learner function."""
@@ -196,11 +196,7 @@ def get_learner_fn(
                 batch_q_error = categorical_double_q_learning(
                     q_logits_tm1, q_atoms_tm1, a_tm1, r_t, d_t, q_logits_t, q_atoms_t, q_t_selector
                 )
-
-                jax.debug.print(
-                    "{x}", x=importance_sampling_exponent
-                )  # TODO: remove after debugging
-
+                
                 # Importance weighting.
                 importance_weights = (1.0 / transition_probs).astype(jnp.float32)
                 importance_weights **= importance_sampling_exponent
@@ -248,7 +244,7 @@ def get_learner_fn(
             )
 
             step_count = optax.tree_utils.tree_get(opt_states, "count")
-            importance_sampling_exponent = scheduler_fn(step_count)
+            importance_sampling_exponent = importance_weight_scheduler_fn(step_count)
 
             # CALCULATE Q LOSS
             q_grad_fn = jax.grad(_q_loss_fn, has_aux=True)
@@ -383,13 +379,13 @@ def learner_setup(
     q_lr = make_learning_rate(config.system.q_lr, config, config.system.epochs)
     q_optim = optax.chain(
         optax.clip_by_global_norm(config.system.max_grad_norm),
-        optax.adam(q_lr, eps=config.system.adam_eps),
+        optax.adam(q_lr, eps=1e-5),
     )
 
     # anneal the importance sampling exponent
     importance_sampling_exponent_scheduler: Callable = optax.linear_schedule(
         init_value=config.system.importance_sampling_exponent,
-        end_value=1,
+        end_value=1.0,
         transition_steps=config.arch.num_updates * config.system.epochs,
         transition_begin=0,
     )
