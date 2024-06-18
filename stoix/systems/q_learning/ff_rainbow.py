@@ -108,6 +108,7 @@ def get_learner_fn(
     q_apply_fn: ActorApply,
     q_update_fn: optax.TransformUpdateFn,
     buffer_fns: Tuple[Callable, Callable, Callable],
+    scheduler_fn: Callable,
     config: DictConfig,
 ) -> LearnerFn[OffPolicyLearnerState]:
     """Get the learner function."""
@@ -168,6 +169,7 @@ def get_learner_fn(
                 transitions: Transition,
                 transition_probs: chex.Array,
                 noise_key: chex.PRNGKey,
+                importance_sampling_exponent: float,
             ) -> jnp.ndarray:
 
                 noise_key_tm1, noise_key_t, noise_key_select = jax.random.split(noise_key, num=3)
@@ -197,7 +199,7 @@ def get_learner_fn(
 
                 # Importance weighting.
                 importance_weights = (1.0 / transition_probs).astype(jnp.float32)
-                importance_weights **= config.system.importance_sampling_exponent
+                importance_weights **= importance_sampling_exponent
                 importance_weights /= jnp.max(importance_weights)
 
                 # Reweight.
@@ -241,10 +243,18 @@ def get_learner_fn(
                 info=transition_sequence.info,
             )
 
+            step_count = optax.tree_utils.tree_get(opt_states, "count")
+            importance_sampling_exponent = scheduler_fn(step_count)
+
             # CALCULATE Q LOSS
             q_grad_fn = jax.grad(_q_loss_fn, has_aux=True)
             q_grads, q_loss_info = q_grad_fn(
-                params.online, params.target, transitions, transition_sample.priorities, noise_key
+                params.online,
+                params.target,
+                transitions,
+                transition_sample.priorities,
+                noise_key,
+                importance_sampling_exponent,
             )
 
             # Update priorities in the buffer.
@@ -372,6 +382,14 @@ def learner_setup(
         optax.adam(q_lr, eps=config.system.adam_eps),
     )
 
+    # anneal the importance sampling exponent
+    importance_sampling_exponent_scheduler: Callable = optax.linear_schedule(
+        init_value=config.system.importance_sampling_exponent,
+        end_value=1,
+        transition_steps=config.arch.num_updates,
+        transition_begin=0,
+    )
+
     # Initialise observation
     init_x = env.observation_spec().generate_value()
     init_x = jax.tree_util.tree_map(lambda x: x[None, ...], init_x)
@@ -386,9 +404,10 @@ def learner_setup(
 
     q_network_apply_fn = q_network.apply
 
-    # Pack apply and update functions.
+    # Pack apply, update and scheduler functions.
     apply_fns = q_network_apply_fn
     update_fns = q_optim.update
+    scheduler_fns = importance_sampling_exponent_scheduler
 
     # Create replay buffer
     dummy_transition = Transition(
@@ -430,7 +449,7 @@ def learner_setup(
     buffer_states = buffer_fn.init(dummy_transition)
 
     # Get batched iterated update and replicate it to pmap it over cores.
-    learn = get_learner_fn(env, apply_fns, update_fns, buffer_fns, config)
+    learn = get_learner_fn(env, apply_fns, update_fns, buffer_fns, scheduler_fns, config)
     learn = jax.pmap(learn, axis_name="device")
 
     warmup = get_warmup_fn(env, params, q_network_apply_fn, buffer_fn.add, config)
