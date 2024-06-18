@@ -197,6 +197,10 @@ def get_learner_fn(
                     q_logits_tm1, q_atoms_tm1, a_tm1, r_t, d_t, q_logits_t, q_atoms_t, q_t_selector
                 )
 
+                jax.debug.print(
+                    "{x}", x=importance_sampling_exponent
+                )  # TODO: remove after debugging
+
                 # Importance weighting.
                 importance_weights = (1.0 / transition_probs).astype(jnp.float32)
                 importance_weights **= importance_sampling_exponent
@@ -386,7 +390,7 @@ def learner_setup(
     importance_sampling_exponent_scheduler: Callable = optax.linear_schedule(
         init_value=config.system.importance_sampling_exponent,
         end_value=1,
-        transition_steps=config.arch.num_updates,
+        transition_steps=config.arch.num_updates * config.system.epochs,
         transition_begin=0,
     )
 
