@@ -131,7 +131,7 @@ class RNNLearnerState(NamedTuple):
 
 class OffPolicyLearnerState(NamedTuple):
     params: Parameters
-    opt_states: ActorCriticOptStates
+    opt_states: OptStates
     buffer_state: BufferState
     key: chex.PRNGKey
     env_state: LogEnvState
