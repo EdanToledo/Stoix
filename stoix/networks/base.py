@@ -79,7 +79,6 @@ class MultiNetwork(nn.Module):
         for network in self.networks:
             outputs.append(network(*network_input))
         concatenated = jnp.stack(outputs, axis=-1)
-        chex.assert_rank(concatenated, 2)
         return concatenated
 
 
