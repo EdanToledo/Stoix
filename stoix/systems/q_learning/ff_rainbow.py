@@ -32,7 +32,7 @@ from omegaconf import DictConfig, OmegaConf
 from rich.pretty import pprint
 
 from stoix.base_types import (
-    ActorApply,
+    ActorRngApply,
     ExperimentOutput,
     LearnerFn,
     LogEnvState,
@@ -50,7 +50,7 @@ from stoix.utils.total_timestep_checker import check_total_timesteps
 def get_warmup_fn(
     env: Environment,
     q_params: FrozenDict,
-    q_apply_fn: ActorApply,
+    q_apply_fn: ActorRngApply,
     buffer_add_fn: Callable,
     config: DictConfig,
 ) -> Callable:
@@ -105,7 +105,7 @@ def get_warmup_fn(
 
 def get_learner_fn(
     env: Environment,
-    q_apply_fn: ActorApply,
+    q_apply_fn: ActorRngApply,
     q_update_fn: optax.TransformUpdateFn,
     buffer_fns: Tuple[Callable, Callable, Callable],
     importance_weight_scheduler_fn: Callable,
@@ -171,7 +171,6 @@ def get_learner_fn(
                 noise_key: chex.PRNGKey,
                 importance_sampling_exponent: float,
             ) -> jnp.ndarray:
-
                 noise_key_tm1, noise_key_t, noise_key_select = jax.random.split(noise_key, num=3)
 
                 _, q_logits_tm1, q_atoms_tm1 = q_apply_fn(
@@ -196,7 +195,7 @@ def get_learner_fn(
                 batch_q_error = categorical_double_q_learning(
                     q_logits_tm1, q_atoms_tm1, a_tm1, r_t, d_t, q_logits_t, q_atoms_t, q_t_selector
                 )
-                
+
                 # Importance weighting.
                 importance_weights = (1.0 / transition_probs).astype(jnp.float32)
                 importance_weights **= importance_sampling_exponent
@@ -488,7 +487,7 @@ def learner_setup(
     step_keys = jax.random.split(step_key, n_devices * config.arch.update_batch_size)
     warmup_keys = jax.random.split(warmup_key, n_devices * config.arch.update_batch_size)
 
-    def reshape_keys(x):
+    def reshape_keys(x: chex.PRNGKey) -> chex.PRNGKey:
         return x.reshape((n_devices, config.arch.update_batch_size) + x.shape[1:])
 
     step_keys = reshape_keys(jnp.stack(step_keys))

@@ -5,6 +5,7 @@ from distrax import DistributionLike
 from flashbax.buffers.trajectory_buffer import BufferState
 from flax.core.frozen_dict import FrozenDict
 from jumanji.types import TimeStep
+from mypy_extensions import NamedArg
 from optax import OptState
 from typing_extensions import NamedTuple, TypeAlias
 
@@ -161,6 +162,15 @@ LearnerFn = Callable[[StoixState], ExperimentOutput[StoixState]]
 EvalFn = Callable[[FrozenDict, chex.PRNGKey], ExperimentOutput[StoixState]]
 
 ActorApply = Callable[[FrozenDict, Observation], DistributionLike]
+ActorRngApply = Callable[
+    [
+        FrozenDict,
+        Observation,
+        NamedArg(dict[str, chex.PRNGKey], "rngs"),  # noqa: F821
+    ],
+    DistributionLike,
+]
+
 ActFn = Callable[[FrozenDict, Observation, chex.PRNGKey], chex.Array]
 CriticApply = Callable[[FrozenDict, Observation], Value]
 DistributionCriticApply = Callable[[FrozenDict, Observation], DistributionLike]
