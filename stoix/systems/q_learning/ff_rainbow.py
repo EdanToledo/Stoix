@@ -32,7 +32,7 @@ from omegaconf import DictConfig, OmegaConf
 from rich.pretty import pprint
 
 from stoix.base_types import (
-    ActorRngApply,
+    ActorApply,
     ExperimentOutput,
     LearnerFn,
     LogEnvState,
@@ -50,7 +50,7 @@ from stoix.utils.total_timestep_checker import check_total_timesteps
 def get_warmup_fn(
     env: Environment,
     q_params: FrozenDict,
-    q_apply_fn: ActorRngApply,
+    q_apply_fn: ActorApply,
     buffer_add_fn: Callable,
     config: DictConfig,
 ) -> Callable:
@@ -105,7 +105,7 @@ def get_warmup_fn(
 
 def get_learner_fn(
     env: Environment,
-    q_apply_fn: ActorRngApply,
+    q_apply_fn: ActorApply,
     q_update_fn: optax.TransformUpdateFn,
     buffer_fns: Tuple[Callable, Callable, Callable],
     importance_weight_scheduler_fn: Callable,
