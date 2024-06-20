@@ -22,12 +22,19 @@ from stoix.base_types import (
 from stoix.utils.jax_utils import unreplicate_batch_dim
 
 
-def get_distribution_act_fn(config: DictConfig, actor_apply: ActorApply) -> ActFn:
+def get_distribution_act_fn(
+    config: DictConfig,
+    actor_apply: ActorApply,
+    rngs: Optional[Dict[str, chex.PRNGKey]] = None,
+) -> ActFn:
     """Get the act_fn for a network that returns a distribution."""
 
     def act_fn(params: FrozenDict, observation: chex.Array, key: chex.PRNGKey) -> chex.Array:
         """Get the action from the distribution."""
-        pi = actor_apply(params, observation)
+        if rngs is None:
+            pi = actor_apply(params, observation)
+        else:
+            pi = actor_apply(params, observation, rngs=rngs)
         if config.arch.evaluation_greedy:
             action = pi.mode()
         else:
