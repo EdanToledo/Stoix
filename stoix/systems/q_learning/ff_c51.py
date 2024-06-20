@@ -176,6 +176,8 @@ def get_learner_fn(
                     q_logits_tm1, q_atoms_tm1, a_tm1, r_t, d_t, q_logits_t, q_atoms_t, q_t_selector
                 )
 
+                q_loss = jnp.mean(q_loss)
+
                 loss_info = {
                     "q_loss": q_loss,
                 }

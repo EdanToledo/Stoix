@@ -127,6 +127,18 @@ Stoix makes use of Hydra for config management. In order to see our default syst
 python stoix/systems/ppo/ff_ppo.py env=gymnax/cartpole
 ```
 
+Additionally, certain implementations such as Dueling DQN are decided by the network architecture but the underlying algorithm stays the same. For example, if you wanted to run Dueling DQN you would simply do:
+
+```bash
+python stoix/systems/q_learning/ff_dqn.py network=mlp_dueling_dqn
+```
+
+or if you wanted to do dueling C51, you could do:
+
+```bash
+python stoix/systems/q_learning/ff_c51.py network=mlp_dueling_c51
+```
+
 ## Contributing 🤝
 
 Please read our [contributing docs](docs/CONTRIBUTING.md) for details on how to submit pull requests, our Contributor License Agreement and community guidelines.
