@@ -2,7 +2,7 @@
 
 | :material-file-document: Paper      |:material-github: code |
 | ----------- | ----------- |
-|*[Fortunato et al. (2019)](http://arxiv.org/abs/1706.10295)*| [`ff_noisy_dqn.py`](https://github.com/EdanToledo/Stoix/blob/main/stoix/systems/q_learning/ff_dqn.py) |
+|*[Fortunato et al. (2019)](http://arxiv.org/abs/1706.10295)*| [`noisy_layer`](https://github.com/EdanToledo/Stoix/blob/main/stoix/networks/layers/layers.py) |
 
 ## Key features
 
@@ -58,5 +58,3 @@ $$\begin{align*}
 2. **Reduced Hyperparameters**: By integrating noise directly into the network, Noisy DQN reduces the need for manually tuning exploration-related hyperparameters like epsilon in epsilon-greedy strategies.
 
 3. **Better Performance**: Noisy DQN has been shown to perform better than standard DQN in various tasks, particularly in environments where exploration is crucial for learning optimal policies.
-
-## Usage
