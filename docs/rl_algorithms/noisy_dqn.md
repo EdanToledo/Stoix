@@ -2,7 +2,7 @@
 
 | :material-file-document: Paper      |:material-github: code |
 | ----------- | ----------- |
-|*[Fortunato et al. (2019)](http://arxiv.org/abs/1706.10295)*| [`noisy_layer`](https://github.com/EdanToledo/Stoix/blob/main/stoix/networks/layers/layers.py) |
+|*[Fortunato et al. (2017)](http://arxiv.org/abs/1706.10295)*| [`noisy_layer`](https://github.com/EdanToledo/Stoix/blob/main/stoix/networks/layers/layers.py) |
 
 ## Key features
 

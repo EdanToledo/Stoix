@@ -37,16 +37,18 @@ nav:
       - community/contributing.md
   - RL Algorithms:
       - rl_algorithms/overview.md
-      - rl_algorithms/ppo.md
-      - rl_algorithms/dqn.md
-      - rl_algorithms/ddqn.md
-      - rl_algorithms/dueling_dqn.md
-      - rl_algorithms/c51.md
-      - rl_algorithms/mdqn.md
-      - rl_algorithms/qr_dqn.md
-      - rl_algorithms/reinforce.md
-      - rl_algorithms/noisy_dqn.md
-      - rl_algorithms/rainbow_dqn.md
+      - Q-learning:
+          - rl_algorithms/dqn.md
+          - rl_algorithms/ddqn.md
+          - rl_algorithms/dueling_dqn.md
+          - rl_algorithms/c51.md
+          - rl_algorithms/mdqn.md
+          - rl_algorithms/qr_dqn.md
+          - rl_algorithms/noisy_dqn.md
+          - rl_algorithms/rainbow_dqn.md
+      - Policy Gradients:
+          - rl_algorithms/ppo.md
+          - rl_algorithms/reinforce.md
 
 repo_url: https://github.com/EdanToledo/Stoix/tree/main
 repo_name: EdanToledo/Stoix
