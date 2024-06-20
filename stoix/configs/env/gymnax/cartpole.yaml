@@ -1,9 +1,9 @@
 # ---Environment Configs---
-env_name: gymnax
+env_name: gymnax # Used for logging purposes and selection of the corresponding wrapper.
 
 scenario:
   name: CartPole-v1
-  task_name: cartpole
+  task_name: cartpole # For logging purposes.
 
 kwargs: {}
 
