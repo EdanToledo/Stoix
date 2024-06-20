@@ -403,9 +403,6 @@ def learner_setup(
     q_network_torso = hydra.utils.instantiate(config.network.q_network.pre_torso)
     q_network_head = hydra.utils.instantiate(
         config.network.q_network.critic_head,
-        num_atoms=config.system.num_atoms,
-        v_min=config.system.v_min,
-        v_max=config.system.v_max,
     )
     q_network = CompositeNetwork([q_network_input, q_network_torso, q_network_head])
 

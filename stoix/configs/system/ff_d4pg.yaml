@@ -16,7 +16,7 @@ max_grad_norm: 0.5 # Maximum norm of the gradients for a weight update.
 decay_learning_rates: False # Whether learning rates should be linearly decayed during training.
 max_abs_reward : 20_000  # maximum absolute reward value
 num_atoms: 301  # number of atoms in the distributional Q network
-v_min: -9_000.0  # minimum value of the support
-v_max: 9_000.0  # maximum value of the support
+vmin: -9_000.0  # minimum value of the support
+vmax: 9_000.0  # maximum value of the support
 exploration_noise : 0.15  # standard deviation of the exploration noise
 n_step: 5 # how many steps in the trajectory to use for the n-step return

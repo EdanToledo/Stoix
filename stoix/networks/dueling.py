@@ -49,8 +49,8 @@ class DuelingQNetwork(nn.Module):
 
 class DistributionalDuelingQNetwork(nn.Module):
     num_atoms: int
-    v_max: float
-    v_min: float
+    vmax: float
+    vmin: float
     action_dim: int
     epsilon: float
     layer_sizes: Sequence[int]
@@ -79,7 +79,7 @@ class DistributionalDuelingQNetwork(nn.Module):
         adv_logits = jnp.reshape(adv_logits, (-1, self.action_dim, self.num_atoms))
         q_logits = value_logits + adv_logits - adv_logits.mean(axis=1, keepdims=True)
 
-        atoms = jnp.linspace(self.v_min, self.v_max, self.num_atoms)
+        atoms = jnp.linspace(self.vmin, self.vmax, self.num_atoms)
         q_dist = jax.nn.softmax(q_logits)
         q_values = jnp.sum(q_dist * atoms, axis=2)
         q_values = jax.lax.stop_gradient(q_values)
@@ -89,8 +89,8 @@ class DistributionalDuelingQNetwork(nn.Module):
 
 class NoisyDistributionalDuelingQNetwork(nn.Module):
     num_atoms: int
-    v_max: float
-    v_min: float
+    vmax: float
+    vmin: float
     action_dim: int
     epsilon: float
     layer_sizes: Sequence[int]
@@ -116,7 +116,7 @@ class NoisyDistributionalDuelingQNetwork(nn.Module):
         adv_logits = jnp.reshape(adv_logits, (-1, self.action_dim, self.num_atoms))
         q_logits = value_logits + adv_logits - adv_logits.mean(axis=1, keepdims=True)
 
-        atoms = jnp.linspace(self.v_min, self.v_max, self.num_atoms)
+        atoms = jnp.linspace(self.vmin, self.vmax, self.num_atoms)
         q_dist = jax.nn.softmax(q_logits)
         q_values = jnp.sum(q_dist * atoms, axis=2)
         q_values = jax.lax.stop_gradient(q_values)
