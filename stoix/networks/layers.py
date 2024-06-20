@@ -1,8 +1,16 @@
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import chex
+import jax
+import jax.numpy as jnp
 from flax import linen as nn
+from flax.linen import initializers
+from flax.linen.dtypes import promote_dtype
+from flax.typing import Dtype, Initializer, PrecisionLike
+
 from stoix.networks.utils import parse_activation_fn
+
+default_kernel_init = initializers.lecun_normal()
 
 
 class StackedRNN(nn.Module):
@@ -41,16 +49,16 @@ class StackedRNN(nn.Module):
             x (chex.Array): Input to the RNN.
 
         Returns:
-            Tuple[List[chex.ArrayTree], chex.Array]: A tuple containing the a list of 
+            Tuple[List[chex.ArrayTree], chex.Array]: A tuple containing the a list of
                 the RNN states of each RNN and the output of the last layer.
         """
         # Ensure all_rnn_states is a list
         if not isinstance(all_rnn_states, list):
             all_rnn_states = [all_rnn_states]
-        
-        assert len(all_rnn_states) == self.num_layers, (
-            f"Expected {self.num_layers} RNN states, but got {len(all_rnn_states)}."
-        )
+
+        assert (
+            len(all_rnn_states) == self.num_layers
+        ), f"Expected {self.num_layers} RNN states, but got {len(all_rnn_states)}."
 
         new_states = []
         for cell, rnn_state in zip(self.cells, all_rnn_states):
@@ -58,17 +66,6 @@ class StackedRNN(nn.Module):
             new_states.append(new_rnn_state)
 
         return new_states, x
-from typing import Optional
-
-import chex
-import jax
-import jax.numpy as jnp
-from flax import linen as nn
-from flax.linen import initializers
-from flax.linen.dtypes import promote_dtype
-from flax.typing import Dtype, Initializer, PrecisionLike
-
-default_kernel_init = initializers.lecun_normal()
 
 
 class NoisyLinear(nn.Module):
