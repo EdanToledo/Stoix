@@ -1,0 +1,7 @@
+defaults:
+  - logger: base_logger
+  - arch: anakin
+  - system: ff_stochastic_mz
+  - network: stochastic_muzero
+  - env: gymnax/cartpole
+  - _self_
