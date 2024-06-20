@@ -108,9 +108,9 @@ class NoisyDistributionalDuelingQNetwork(nn.Module):
             self.layer_sizes, self.activation, self.use_layer_norm, self.sigma_zero
         )(embeddings)
 
-        value_logits = NoisyLinear(self.num_atoms, self.sigma_zero)(value_torso)
+        value_logits = NoisyLinear(self.num_atoms, sigma_zero=self.sigma_zero)(value_torso)
         value_logits = jnp.reshape(value_logits, (-1, 1, self.num_atoms))
-        adv_logits = NoisyLinear(self.action_dim * self.num_atoms, self.sigma_zero)(
+        adv_logits = NoisyLinear(self.action_dim * self.num_atoms, sigma_zero=self.sigma_zero)(
             advantages_torso
         )
         adv_logits = jnp.reshape(adv_logits, (-1, self.action_dim, self.num_atoms))

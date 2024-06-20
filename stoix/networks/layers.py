@@ -1,7 +1,14 @@
+from typing import Optional
+
 import chex
 import jax
 import jax.numpy as jnp
 from flax import linen as nn
+from flax.linen import initializers
+from flax.linen.dtypes import promote_dtype
+from flax.typing import Dtype, Initializer, PrecisionLike
+
+default_kernel_init = initializers.lecun_normal()
 
 
 class NoisyLinear(nn.Module):
@@ -21,16 +28,13 @@ class NoisyLinear(nn.Module):
     """
 
     features: int
+    use_bias: bool = True
+    dtype: Optional[Dtype] = None
+    param_dtype: Dtype = jnp.float32
+    precision: PrecisionLike = None
+    kernel_init: Initializer = default_kernel_init
+    bias_init: Initializer = initializers.zeros_init()
     sigma_zero: float = 0.5  # σ_0 initialization in Fortunato et al. (2017)
-
-    def _uniform_initializer(self, key: jax.random.PRNGKey, shape: tuple) -> chex.Array:
-        """
-        Each element μ is sampled from independent uniform
-        distributions U[−√3/p, √3/p] where p is the number of inputs.
-        """
-        input_dim = shape[0]  # assuming shape = (input_dim, features) or (input_dim, )
-        bound = jnp.sqrt(3 / input_dim)  # √3/p
-        return jax.random.uniform(key, shape, minval=-bound, maxval=bound)
 
     def _scale_noise(self, x: chex.Array) -> chex.Array:
         """The reference paper uses f(x) = sgn(x)√|x| as a scaling function."""
@@ -55,30 +59,54 @@ class NoisyLinear(nn.Module):
         return noise_matrix, col_noise
 
     @nn.compact
-    def __call__(self, x: chex.Array) -> chex.Array:
-        input_dim = x.shape[-1]
-        weight_matrix_shape = (input_dim, self.features)
-        bias_vector_shape = (self.features,)
+    def __call__(self, inputs: chex.Array) -> chex.Array:
 
+        input_dim = jnp.shape(inputs)[-1]
+        kernel_shape = (input_dim, self.features)
+        bias_vector_shape = (self.features,)
         sigma_init = self.sigma_zero / jnp.sqrt(input_dim)
 
-        mu_w = self.param("mu_w", self._uniform_initializer, weight_matrix_shape)
-        mu_b = self.param("mu_b", self._uniform_initializer, bias_vector_shape)
+        kernel = self.param(
+            "kernel",
+            self.kernel_init,
+            kernel_shape,
+            self.param_dtype,
+        )
 
         sigma_w = self.param(
             "sigma_w",
             nn.initializers.constant(sigma_init),
-            weight_matrix_shape,
-        )
-        sigma_b = self.param(
-            "sigma_b",
-            nn.initializers.constant(sigma_init),
-            bias_vector_shape,
+            kernel_shape,
         )
 
-        eps_w, eps_b = self._get_noise_matrix_and_vect(weight_matrix_shape)
+        if self.use_bias:
+            bias = self.param("bias", self.bias_init, bias_vector_shape, self.param_dtype)
+            sigma_b = self.param(
+                "sigma_b",
+                nn.initializers.constant(sigma_init),
+                bias_vector_shape,
+            )
+        else:
+            bias = None
+            sigma_b = None
 
-        noisy_w = mu_w + sigma_w * eps_w
-        noisy_b = mu_b + sigma_b * eps_b
+        inputs, kernel, bias, sigma_w, sigma_b = promote_dtype(
+            inputs, kernel, bias, sigma_w, sigma_b, dtype=self.dtype
+        )
 
-        return jnp.dot(x, noisy_w) + noisy_b
+        eps_w, eps_b = self._get_noise_matrix_and_vect(kernel_shape)
+
+        noisy_kernel = kernel + sigma_w * eps_w
+
+        y = jax.lax.dot_general(
+            inputs,
+            noisy_kernel,
+            (((inputs.ndim - 1,), (0,)), ((), ())),
+            precision=self.precision,
+        )
+
+        if bias is not None:
+            noisy_bias = bias + sigma_b * eps_b
+            y += jnp.reshape(noisy_bias, (1,) * (y.ndim - 1) + (-1,))
+
+        return y

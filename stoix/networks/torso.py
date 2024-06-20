@@ -37,16 +37,19 @@ class NoisyMLPTorso(nn.Module):
     layer_sizes: Sequence[int]
     activation: str = "relu"
     use_layer_norm: bool = False
+    kernel_init: Initializer = orthogonal(np.sqrt(2.0))
+    activate_final: bool = True
     sigma_zero: float = 0.5
 
     @nn.compact
     def __call__(self, observation: chex.Array) -> chex.Array:
         x = observation
         for layer_size in self.layer_sizes:
-            x = NoisyLinear(layer_size, self.sigma_zero)(x)
+            x = NoisyLinear(layer_size, sigma_zero=self.sigma_zero)(x)
             if self.use_layer_norm:
                 x = nn.LayerNorm(use_scale=False)(x)
-            x = parse_activation_fn(self.activation)(x)
+            if self.activate_final or layer_size != self.layer_sizes[-1]:
+                x = parse_activation_fn(self.activation)(x)
         return x
 
 
