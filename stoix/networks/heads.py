@@ -230,15 +230,15 @@ class DistributionalDiscreteQNetwork(nn.Module):
     action_dim: int
     epsilon: float
     num_atoms: int
-    v_min: float
-    v_max: float
+    vmin: float
+    vmax: float
     kernel_init: Initializer = lecun_normal()
 
     @nn.compact
     def __call__(
         self, embedding: chex.Array
     ) -> Tuple[distrax.EpsilonGreedy, chex.Array, chex.Array]:
-        atoms = jnp.linspace(self.v_min, self.v_max, self.num_atoms)
+        atoms = jnp.linspace(self.vmin, self.vmax, self.num_atoms)
         q_logits = nn.Dense(self.action_dim * self.num_atoms, kernel_init=self.kernel_init)(
             embedding
         )
@@ -252,15 +252,15 @@ class DistributionalDiscreteQNetwork(nn.Module):
 
 class DistributionalContinuousQNetwork(nn.Module):
     num_atoms: int
-    v_min: float
-    v_max: float
+    vmin: float
+    vmax: float
     kernel_init: Initializer = lecun_normal()
 
     @nn.compact
     def __call__(
         self, embedding: chex.Array
     ) -> Tuple[distrax.EpsilonGreedy, chex.Array, chex.Array]:
-        atoms = jnp.linspace(self.v_min, self.v_max, self.num_atoms)
+        atoms = jnp.linspace(self.vmin, self.vmax, self.num_atoms)
         q_logits = nn.Dense(self.num_atoms, kernel_init=self.kernel_init)(embedding)
         q_dist = jax.nn.softmax(q_logits)
         q_value = jnp.sum(q_dist * atoms, axis=-1)

@@ -483,9 +483,6 @@ def learner_setup(
     critic_torso = hydra.utils.instantiate(config.network.critic_network.pre_torso)
     critic_head = hydra.utils.instantiate(
         config.network.critic_network.critic_head,
-        num_atoms=config.system.critic_num_atoms,
-        vmin=config.system.critic_vmin,
-        vmax=config.system.critic_vmax,
     )
 
     actor_network = Actor(

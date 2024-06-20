@@ -5,5 +5,6 @@ actor_network:
     layer_sizes: [256, 256]
     use_layer_norm: True
     activation: silu
+    sigma_zero: ${system.sigma_zero}
   action_head:
     _target_: stoix.networks.heads.DiscreteQNetworkHead

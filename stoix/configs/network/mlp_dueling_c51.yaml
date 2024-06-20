@@ -10,3 +10,6 @@ actor_network:
     layer_sizes: [128, 128]
     use_layer_norm: False
     activation: silu
+    vmin: ${system.vmin}
+    vmax: ${system.vmax}
+    num_atoms: ${system.num_atoms}

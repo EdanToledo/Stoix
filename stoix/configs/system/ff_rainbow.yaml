@@ -20,6 +20,6 @@ training_epsilon: 0.0 # epsilon for the epsilon-greedy policy during training
 evaluation_epsilon: 0.0 # epsilon for the epsilon-greedy policy during evaluation
 max_abs_reward: 1000.0 # maximum absolute reward value
 num_atoms: 51 # number of atoms in the distributional Q network
-v_min: 0.0 # minimum value of the support
-v_max: 500.0 # maximum value of the support
+vmin: 0.0 # minimum value of the support
+vmax: 500.0 # maximum value of the support
 sigma_zero: 0.25 # initialization value for noisy variance terms
