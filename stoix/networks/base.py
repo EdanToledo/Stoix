@@ -208,13 +208,11 @@ class RecurrentActorFFM(nn.Module):
         policy_embedding = self.pre_torso(observation)
         policy_rnn_input = (policy_embedding, done)
         BatchFFM = nn.vmap(
-    FFM,
-    in_axes=1, out_axes=1,
-    variable_axes={'params': None},
-    split_rngs={'params': False})
-        policy_hidden_state, policy_embedding = BatchFFM(self.hidden_state_dim, self.hidden_state_dim, self.hidden_state_dim)(
-            policy_hidden_state, policy_rnn_input
+            FFM, in_axes=1, out_axes=1, variable_axes={"params": None}, split_rngs={"params": False}
         )
+        policy_hidden_state, policy_embedding = BatchFFM(
+            self.hidden_state_dim, self.hidden_state_dim, self.hidden_state_dim
+        )(policy_hidden_state, policy_rnn_input)
         actor_logits = self.post_torso(policy_embedding)
         pi = self.action_head(actor_logits)
 
@@ -245,13 +243,11 @@ class RecurrentCriticFFM(nn.Module):
         critic_embedding = self.pre_torso(observation)
         critic_rnn_input = (critic_embedding, done)
         BatchFFM = nn.vmap(
-    FFM,
-    in_axes=1, out_axes=1,
-    variable_axes={'params': None},
-    split_rngs={'params': False})
-        critic_hidden_state, critic_embedding = BatchFFM(self.hidden_state_dim, self.hidden_state_dim, self.hidden_state_dim)(
-            critic_hidden_state, critic_rnn_input
+            FFM, in_axes=1, out_axes=1, variable_axes={"params": None}, split_rngs={"params": False}
         )
+        critic_hidden_state, critic_embedding = BatchFFM(
+            self.hidden_state_dim, self.hidden_state_dim, self.hidden_state_dim
+        )(critic_hidden_state, critic_rnn_input)
         critic_output = self.post_torso(critic_embedding)
         critic_output = self.critic_head(critic_output)
 

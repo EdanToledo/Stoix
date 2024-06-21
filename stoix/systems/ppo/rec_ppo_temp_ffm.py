@@ -24,7 +24,13 @@ from stoix.base_types import (
     RNNLearnerState,
 )
 from stoix.evaluator import evaluator_setup, get_rec_distribution_act_fn
-from stoix.networks.base import RecurrentActor, RecurrentActorFFM, RecurrentCritic, RecurrentCriticFFM, ScannedRNN
+from stoix.networks.base import (
+    RecurrentActor,
+    RecurrentActorFFM,
+    RecurrentCritic,
+    RecurrentCriticFFM,
+    ScannedRNN,
+)
 from stoix.networks.ffm import FFM
 from stoix.systems.ppo.ppo_types import ActorCriticHiddenStates, RNNPPOTransition
 from stoix.utils import make_env as environments
@@ -94,8 +100,8 @@ def get_learner_fn(
                 batched_observation,
                 last_done[jnp.newaxis, :],
             )
-            
-            jax.debug.print("ac_in {x} {y}", x=ac_in[0].agent_view.shape, y=ac_in[1].shape)
+
+            # jax.debug.print("ac_in {x} {y}", x=ac_in[0].agent_view.shape, y=ac_in[1].shape)
 
             # Run the network.
             policy_hidden_state, actor_policy = actor_apply_fn(
@@ -131,7 +137,7 @@ def get_learner_fn(
                 timestep.reward,
                 log_prob,
                 last_timestep.observation,
-                hstates,
+                jax.tree_map(lambda x: x.squeeze(0), hstates),
                 info,
             )
             learner_state = RNNLearnerState(
@@ -215,10 +221,10 @@ def get_learner_fn(
                 ) -> Tuple:
                     """Calculate the actor loss."""
                     # RERUN NETWORK
-
+                    # jax.debug.print("{x}",x= traj_batch.hstates.policy_hidden_state.shape)
                     obs_and_done = (traj_batch.obs, traj_batch.done)
                     policy_hidden_state = jax.tree_util.tree_map(
-                        lambda x: x[0], traj_batch.hstates.policy_hidden_state
+                        lambda x: x[0][jnp.newaxis, ...], traj_batch.hstates.policy_hidden_state
                     )
                     _, actor_policy = actor_apply_fn(
                         actor_params, policy_hidden_state, obs_and_done
@@ -235,6 +241,7 @@ def get_learner_fn(
                         "actor_loss": loss_actor,
                         "entropy": entropy,
                     }
+
                     return total_loss, loss_info
 
                 def _critic_loss_fn(
@@ -246,7 +253,7 @@ def get_learner_fn(
                     # RERUN NETWORK
                     obs_and_done = (traj_batch.obs, traj_batch.done)
                     critic_hidden_state = jax.tree_util.tree_map(
-                        lambda x: x[0], traj_batch.hstates.critic_hidden_state
+                        lambda x: x[0][jnp.newaxis, ...], traj_batch.hstates.critic_hidden_state
                     )
                     _, value = critic_apply_fn(critic_params, critic_hidden_state, obs_and_done)
 
@@ -259,6 +266,7 @@ def get_learner_fn(
                     loss_info = {
                         "value_loss": value_loss,
                     }
+
                     return total_loss, loss_info
 
                 # CALCULATE ACTOR LOSS
@@ -478,7 +486,7 @@ def learner_setup(
     critic_rnn = FFM(
         config.network.critic_network.rnn_layer.hidden_state_dim,
         config.network.critic_network.rnn_layer.hidden_state_dim,
-        config.network.critic_network.rnn_layer.hidden_state_dim
+        config.network.critic_network.rnn_layer.hidden_state_dim,
     )
 
     actor_lr = make_learning_rate(
@@ -517,8 +525,8 @@ def learner_setup(
     critic_params = critic_network.init(critic_net_key, init_critic_hstate, init_x)
     critic_opt_state = critic_optim.init(critic_params)
 
-    actor_network_apply_fn = jax.vmap(actor_network.apply, in_axes=(None, 1, 1))
-    critic_network_apply_fn = jax.vmap(critic_network.apply, in_axes=(None, 1, 1))
+    actor_network_apply_fn = actor_network.apply
+    critic_network_apply_fn = critic_network.apply
 
     # Get network apply functions and optimiser updates.
     apply_fns = (actor_network_apply_fn, critic_network_apply_fn)
@@ -694,28 +702,28 @@ def run_experiment(_config: DictConfig) -> float:
         eval_keys = eval_keys.reshape(n_devices, -1)
 
         # Evaluate.
-        evaluator_output = evaluator(trained_params, eval_keys)
-        jax.block_until_ready(evaluator_output)
+        # evaluator_output = evaluator(trained_params, eval_keys)
+        # jax.block_until_ready(evaluator_output)
 
-        # Log the results of the evaluation.
-        elapsed_time = time.time() - start_time
-        episode_return = jnp.mean(evaluator_output.episode_metrics["episode_return"])
+        # # Log the results of the evaluation.
+        # elapsed_time = time.time() - start_time
+        # episode_return = jnp.mean(evaluator_output.episode_metrics["episode_return"])
 
-        steps_per_eval = int(jnp.sum(evaluator_output.episode_metrics["episode_length"]))
-        evaluator_output.episode_metrics["steps_per_second"] = steps_per_eval / elapsed_time
-        logger.log(evaluator_output.episode_metrics, t, eval_step, LogEvent.EVAL)
+        # steps_per_eval = int(jnp.sum(evaluator_output.episode_metrics["episode_length"]))
+        # evaluator_output.episode_metrics["steps_per_second"] = steps_per_eval / elapsed_time
+        # logger.log(evaluator_output.episode_metrics, t, eval_step, LogEvent.EVAL)
 
-        if save_checkpoint:
-            # Save checkpoint of learner state
-            checkpointer.save(
-                timestep=int(steps_per_rollout * (eval_step + 1)),
-                unreplicated_learner_state=unreplicate_n_dims(learner_output.learner_state),
-                episode_return=episode_return,
-            )
+        # if save_checkpoint:
+        #     # Save checkpoint of learner state
+        #     checkpointer.save(
+        #         timestep=int(steps_per_rollout * (eval_step + 1)),
+        #         unreplicated_learner_state=unreplicate_n_dims(learner_output.learner_state),
+        #         episode_return=episode_return,
+        #     )
 
-        if config.arch.absolute_metric and max_episode_return <= episode_return:
-            best_params = copy.deepcopy(trained_params)
-            max_episode_return = episode_return
+        # if config.arch.absolute_metric and max_episode_return <= episode_return:
+        #     best_params = copy.deepcopy(trained_params)
+        #     max_episode_return = episode_return
 
         # Update runner state to continue training.
         learner_state = learner_output.learner_state
