@@ -23,7 +23,6 @@ def init_deterministic(
 
 class FFM(nn.Module):
     """Feedforward Memory Network."""
-    input_size: int
     trace_size: int
     context_size: int
     output_size: int
@@ -117,27 +116,52 @@ class FFM(nn.Module):
         out = self.ln(z * gate_out) + skip * (1 - gate_out)
         return out
 
-    def __call__(self, x, recurrent_state, start):
+    def __call__(self, recurrent_state, inputs):
+        x, resets = inputs
         z = self.map_to_h(x)
-        recurrent_state = self.scan(z, recurrent_state, start)
+        recurrent_state = self.scan(z, recurrent_state, resets)
         out = self.map_from_h(recurrent_state, x)
         final_state = recurrent_state[-1:]
-        return out, final_state
+        return final_state, out
 
-    def initial_state(self, shape=tuple()):
-        return jnp.zeros((*shape, 1, self.trace_size, self.context_size), dtype=jnp.complex64)
+    def initialize_carry(self, batch_size: int = None):
+        if batch_size is None:
+            return jnp.zeros((1, self.trace_size, self.context_size), dtype=jnp.complex64)
+        
+        return jnp.zeros((1, batch_size, self.trace_size, self.context_size), dtype=jnp.complex64)
+        
 
 
     
 if __name__ == "__main__":
     m = FFM(
-        input_size=2,
         output_size=4,
         trace_size=5,
         context_size=6,
     )
-    s = m.initial_state()
+    s = m.initialize_carry()
     x = jnp.ones((10, 2))
     start = jnp.zeros(10, dtype=bool)
-    params = m.init(jax.random.PRNGKey(0), x, s, start)
-    out = m.apply(params, x, s, start)
+    params = m.init(jax.random.PRNGKey(0), s, (x, start))
+    out_state, out = m.apply(params, s, (x, start))
+    
+    
+    BatchFFM = nn.vmap(
+    FFM,
+    in_axes=1, out_axes=1,
+    variable_axes={'params': None},
+    split_rngs={'params': False})
+    
+    m = BatchFFM(
+        output_size=4,
+        trace_size=5,
+        context_size=6,
+    )
+    
+    s = m.initialize_carry(8)
+    x = jnp.ones((10, 8, 2))
+    start = jnp.zeros((10, 8), dtype=bool)
+    params = m.init(jax.random.PRNGKey(0), s, (x, start))
+    out_state, out = m.apply(params, s, (x, start))
+
+

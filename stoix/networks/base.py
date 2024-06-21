@@ -9,6 +9,7 @@ import numpy as np
 from flax import linen as nn
 
 from stoix.base_types import Observation, RNNObservation
+from stoix.networks.ffm import FFM
 from stoix.networks.inputs import ObservationInput
 from stoix.networks.utils import parse_rnn_cell
 
@@ -176,6 +177,79 @@ class RecurrentCritic(nn.Module):
         critic_embedding = self.pre_torso(observation)
         critic_rnn_input = (critic_embedding, done)
         critic_hidden_state, critic_embedding = ScannedRNN(self.hidden_state_dim, self.cell_type)(
+            critic_hidden_state, critic_rnn_input
+        )
+        critic_output = self.post_torso(critic_embedding)
+        critic_output = self.critic_head(critic_output)
+
+        return critic_hidden_state, critic_output
+
+
+class RecurrentActorFFM(nn.Module):
+    """Recurrent Actor Network."""
+
+    action_head: nn.Module
+    post_torso: nn.Module
+    hidden_state_dim: int
+    cell_type: str
+    pre_torso: nn.Module
+    input_layer: nn.Module = ObservationInput()
+
+    @nn.compact
+    def __call__(
+        self,
+        policy_hidden_state: chex.Array,
+        observation_done: RNNObservation,
+    ) -> Tuple[chex.Array, distrax.DistributionLike]:
+
+        observation, done = observation_done
+
+        observation = self.input_layer(observation)
+        policy_embedding = self.pre_torso(observation)
+        policy_rnn_input = (policy_embedding, done)
+        BatchFFM = nn.vmap(
+    FFM,
+    in_axes=1, out_axes=1,
+    variable_axes={'params': None},
+    split_rngs={'params': False})
+        policy_hidden_state, policy_embedding = BatchFFM(self.hidden_state_dim, self.hidden_state_dim, self.hidden_state_dim)(
+            policy_hidden_state, policy_rnn_input
+        )
+        actor_logits = self.post_torso(policy_embedding)
+        pi = self.action_head(actor_logits)
+
+        return policy_hidden_state, pi
+
+
+class RecurrentCriticFFM(nn.Module):
+    """Recurrent Critic Network."""
+
+    critic_head: nn.Module
+    post_torso: nn.Module
+    hidden_state_dim: int
+    cell_type: str
+    pre_torso: nn.Module
+    input_layer: nn.Module = ObservationInput()
+
+    @nn.compact
+    def __call__(
+        self,
+        critic_hidden_state: Tuple[chex.Array, chex.Array],
+        observation_done: RNNObservation,
+    ) -> Tuple[chex.Array, chex.Array]:
+
+        observation, done = observation_done
+
+        observation = self.input_layer(observation)
+
+        critic_embedding = self.pre_torso(observation)
+        critic_rnn_input = (critic_embedding, done)
+        BatchFFM = nn.vmap(
+    FFM,
+    in_axes=1, out_axes=1,
+    variable_axes={'params': None},
+    split_rngs={'params': False})
+        critic_hidden_state, critic_embedding = BatchFFM(self.hidden_state_dim, self.hidden_state_dim, self.hidden_state_dim)(
             critic_hidden_state, critic_rnn_input
         )
         critic_output = self.post_torso(critic_embedding)
