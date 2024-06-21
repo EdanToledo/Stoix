@@ -31,7 +31,7 @@ class StoixLogger:
     """The main logger for Stoix systems.
 
     Thin wrapper around the MultiLogger that is able to describe arrays of metrics
-    and calculate environment specific metrics if required (e.g winrate).
+    and calculate environment specific metrics if required (e.g solve_rate).
     """
 
     def __init__(self, config: DictConfig) -> None:
@@ -50,8 +50,8 @@ class StoixLogger:
         # Ideally we want to avoid special metrics like this as much as possible.
         # Might be better to calculate this outside as we want to keep the number of these
         # if statements to a minimum.
-        if "won_episode" in metrics:
-            metrics = self.calc_winrate(metrics, event)
+        if "solve_episode" in metrics:
+            metrics = self.calc_solve_rate(metrics, event)
 
         if event == LogEvent.TRAIN:
             # We only want to log mean losses, max/min/std don't matter.
@@ -63,8 +63,8 @@ class StoixLogger:
 
         self.logger.log_dict(metrics, t, t_eval, event)
 
-    def calc_winrate(self, episode_metrics: Dict, event: LogEvent) -> Dict:
-        """Log the win rate of the environment's episodes."""
+    def calc_solve_rate(self, episode_metrics: Dict, event: LogEvent) -> Dict:
+        """Log the solve rate of the environment's episodes."""
         # Get the number of episodes used to evaluate.
         if event == LogEvent.ABSOLUTE:
             # To measure the absolute metric, we evaluate the best policy
@@ -75,12 +75,12 @@ class StoixLogger:
         else:
             n_episodes = self.cfg.arch.num_eval_episodes
 
-        # Calculate the win rate.
-        n_won_episodes: int = np.sum(episode_metrics["won_episode"])
-        win_rate = (n_won_episodes / n_episodes) * 100
+        # Calculate the solve rate.
+        n_solve_episodes: int = np.sum(episode_metrics["solve_episode"])
+        solve_rate = (n_solve_episodes / n_episodes) * 100
 
-        episode_metrics["win_rate"] = win_rate
-        episode_metrics.pop("won_episode")
+        episode_metrics["solve_rate"] = solve_rate
+        episode_metrics.pop("solve_episode")
 
         return episode_metrics
 
@@ -242,7 +242,7 @@ class JsonLogger(BaseLogger):
     """Json logger for marl-eval."""
 
     # These are the only metrics that marl-eval needs to plot.
-    _METRICS_TO_LOG = ["episode_return/mean", "win_rate", "steps_per_second"]
+    _METRICS_TO_LOG = ["episode_return/mean", "solve_rate", "steps_per_second"]
 
     def __init__(self, cfg: DictConfig, unique_token: str) -> None:
         json_exp_path = get_logger_path(cfg, "json")
