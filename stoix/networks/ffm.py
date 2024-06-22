@@ -6,6 +6,34 @@ import jax
 import jax.numpy as jnp
 
 
+def recurrent_associative_scan(
+    cell: nn.Module,
+    state: jax.Array,
+    inputs: jax.Array,
+    axis: int = 0,
+) -> jax.Array:
+    """Execute the associative scan to update the recurrent state.
+    
+    Note that we do a trick here by concatenating the previous state to the inputs.
+    This is allowed since the scan is associative. This ensures that the previous
+    recurrent state feeds information into the scan. Without this method, we need
+    separate methods for rollouts and training."""
+
+    # Concatenate the prevous state to the inputs and scan over the result
+    # This ensures the previous recurrent state contributes to the current batch
+    # state: [start, (x, j)]
+    # inputs: [start, (x, j)]
+    scan_inputs = jax.tree.map(lambda x, s: jnp.concatenate([s, x], axis=0), inputs, state)
+    new_state = jax.lax.associative_scan(        
+        cell,
+        scan_inputs,
+        axis=axis,
+    )
+    # The zeroth index corresponds to the previous recurrent state
+    # We just use it to ensure continuity 
+    # We do not actually want to use these values, so slice them away
+    return jax.tree.map(lambda x: x[1:], new_state)
+
 class Gate(nn.Module):
     """Sigmoidal gating"""
     output_size: int
@@ -111,33 +139,6 @@ class FFM(nn.Module):
         self.mix = nn.Dense(self.output_size)
         self.ln = nn.LayerNorm(use_scale=False, use_bias=False)
 
-    def scan(
-        self,
-        state: jax.Array,
-        inputs: jax.Array,
-    ) -> jax.Array:
-        """Execute the associative scan to update the recurrent state.
-        
-        Note that we do a trick here by concatenating the previou state to the inputs.
-        This is allowed since the scan is associative. This ensures that the previous
-        recurrent state feeds information into the scan. Without this method, we need
-        separate methods for rollouts and training."""
-
-        # Concatenate the prevous state to the inputs and scan over the result
-        # This ensures the previous recurrent state contributes to the current batch
-        # state: [start, (x, j)]
-        # inputs: [start, (x, j)]
-        scan_inputs = jax.tree.map(lambda x, s: jnp.concatenate([s, x], axis=0), inputs, state)
-        new_state = jax.lax.associative_scan(        
-            self.cell,
-            scan_inputs,
-            axis=0,
-        )
-        # The zeroth index corresponds to the previous recurrent state
-        # We just use it to ensure continuity 
-        # We do not actually want to use these values, so slice them away
-        return jax.tree.map(lambda x: x[1:], new_state)
-
     def map_to_h(self, inputs):
         """Map from the input space to the recurrent state space"""
         x, resets = inputs
@@ -165,7 +166,7 @@ class FFM(nn.Module):
         # Recurrent state should be ((state, timestep), reset)
         # Inputs should be (x, reset)
         h = self.map_to_h(inputs)
-        recurrent_state = self.scan(recurrent_state, h)
+        recurrent_state = recurrent_associative_scan(self.cell, recurrent_state, h)
         # recurrent_state is ((state, timestep), reset)
         out = self.map_from_h(recurrent_state, x)
 
