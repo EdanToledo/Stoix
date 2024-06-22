@@ -99,10 +99,15 @@ class FFMCell(LRUCellBase):
     output_size: int
 
     def setup(self):
+
+        # Create the parameters that are explicitly used in the cells core computation
         a, b = init_deterministic(self.trace_size, self.context_size)
         self.params = (self.param("ffa_a", lambda rng: a), self.param("ffa_b", lambda rng: b))
 
-        # Mapping from input space to recurrent state space
+        # Create the networks and parameters that are used when
+        # mapping from input space to recurrent state space
+        # This is used in the map_to_h method and is used in the
+        # associative scan outer loop
         self.pre = nn.Dense(self.trace_size)
         self.gate_in = Gate(self.trace_size)
         self.gate_out = Gate(self.output_size)
@@ -111,7 +116,9 @@ class FFMCell(LRUCellBase):
         self.ln = nn.LayerNorm(use_scale=False, use_bias=False)
 
     def map_to_h(self, inputs):
-        """Map from the input space to the recurrent state space"""
+        """Map from the input space to the recurrent state space - unlike the call function
+        this explicitly expects a shape including the sequence dimension. This is used in the
+        outer network that uses the associative scan."""
         x, resets = inputs
         gate_in = self.gate_in(x)
         pre = self.pre(x)

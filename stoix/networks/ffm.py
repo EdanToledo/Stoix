@@ -13,7 +13,7 @@ def recurrent_associative_scan(
     axis: int = 0,
 ) -> jax.Array:
     """Execute the associative scan to update the recurrent state.
-    
+
     Note that we do a trick here by concatenating the previous state to the inputs.
     This is allowed since the scan is associative. This ensures that the previous
     recurrent state feeds information into the scan. Without this method, we need
@@ -24,18 +24,20 @@ def recurrent_associative_scan(
     # state: [start, (x, j)]
     # inputs: [start, (x, j)]
     scan_inputs = jax.tree.map(lambda x, s: jnp.concatenate([s, x], axis=0), inputs, state)
-    new_state = jax.lax.associative_scan(        
+    new_state = jax.lax.associative_scan(
         cell,
         scan_inputs,
         axis=axis,
     )
     # The zeroth index corresponds to the previous recurrent state
-    # We just use it to ensure continuity 
+    # We just use it to ensure continuity
     # We do not actually want to use these values, so slice them away
     return jax.tree.map(lambda x: x[1:], new_state)
 
+
 class Gate(nn.Module):
     """Sigmoidal gating"""
+
     output_size: int
 
     @nn.compact
@@ -55,6 +57,7 @@ def init_deterministic(
     b = 2 * jnp.pi / jnp.linspace(min_period, max_period, context_size)
     return a, b
 
+
 def init_random(
     memory_size: int, context_size: int, min_period: int = 1, max_period: int = 10_000, *, key
 ) -> Tuple[jax.Array, jax.Array]:
@@ -62,19 +65,28 @@ def init_random(
     a_low = 1e-6
     a_high = 0.1
     a = jax.random.uniform(k1, (memory_size,), minval=a_low, maxval=a_high)
-    b = 2 * jnp.pi / jnp.exp(jax.random.uniform(k2, (context_size,), minval=jnp.log(min_period), maxval=jnp.log(max_period)))
+    b = (
+        2
+        * jnp.pi
+        / jnp.exp(
+            jax.random.uniform(
+                k2, (context_size,), minval=jnp.log(min_period), maxval=jnp.log(max_period)
+            )
+        )
+    )
     return a, b
 
 
 class FFMCell(nn.Module):
     """The binary associative update function for the FFM."""
+
     trace_size: int
     context_size: int
     output_size: int
     deterministic_init: bool = True
 
     def setup(self):
-        if self.deterministic_init: 
+        if self.deterministic_init:
             a, b = init_deterministic(self.trace_size, self.context_size)
         else:
             # TODO: Will this result in the same keys for multiple FFMCells?
@@ -94,9 +106,13 @@ class FFMCell(nn.Module):
 
     def initialize_carry(self, batch_size: int = None):
         if batch_size is None:
-            return jnp.zeros((1, self.trace_size, self.context_size), dtype=jnp.complex64), jnp.ones((1,), dtype=jnp.int32)
+            return jnp.zeros(
+                (1, self.trace_size, self.context_size), dtype=jnp.complex64
+            ), jnp.ones((1,), dtype=jnp.int32)
 
-        return jnp.zeros((1, batch_size, self.trace_size, self.context_size), dtype=jnp.complex64), jnp.ones((1, batch_size), dtype=jnp.int32)
+        return jnp.zeros(
+            (1, batch_size, self.trace_size, self.context_size), dtype=jnp.complex64
+        ), jnp.ones((1, batch_size), dtype=jnp.int32)
 
     def __call__(self, carry, incoming):
         (
@@ -111,6 +127,7 @@ class FFMCell(nn.Module):
 class MemoroidResetWrapper(nn.Module):
     """A wrapper around memoroid cells like FFM, LRU, etc that resets
     the recurrent state upon a reset signal."""
+
     cell: nn.Module
 
     def __call__(self, carry, incoming):
@@ -132,8 +149,8 @@ class MemoroidResetWrapper(nn.Module):
 
     def initialize_carry(self, batch_size: int = None):
         if batch_size is None:
-            # TODO: Should this be one or zero? 
-            return self.cell.initialize_carry(batch_size), jnp.zeros((1,), dtype=bool) 
+            # TODO: Should this be one or zero?
+            return self.cell.initialize_carry(batch_size), jnp.zeros((1,), dtype=bool)
 
         return self.cell.initialize_carry(batch_size), jnp.zeros((batch_size,), dtype=bool)
 
@@ -170,9 +187,9 @@ class FFM(nn.Module):
         """Map from the recurrent space to the Markov space"""
         (state, ts), reset = recurrent_state
         (x, start) = inputs
-        z_in = jnp.concatenate(
-            [jnp.real(state), jnp.imag(state)], axis=-1
-        ).reshape(state.shape[0], -1)
+        z_in = jnp.concatenate([jnp.real(state), jnp.imag(state)], axis=-1).reshape(
+            state.shape[0], -1
+        )
         z = self.mix(z_in)
         gate_out = self.gate_out(x)
         skip = self.skip(x)
@@ -206,21 +223,30 @@ class SFFM(nn.Module):
     def setup(self):
         self.W_trace = nn.Dense(self.trace_size)
         self.W_context = Gate(self.context_size)
-        self.ffa = FFMCell(self.trace_size, self.context_size, self.hidden_size, deterministic_init=False)
-        self.post = nn.Sequential([
-            # Default init but with smaller weights
-            nn.Dense(self.hidden_size, kernel_init=nn.initializers.variance_scaling(0.01, "fan_in", "truncated_normal")),
-            nn.LayerNorm(),
-            nn.leaky_relu,
-            nn.Dense(self.hidden_size),
-            nn.LayerNorm(),
-            nn.leaky_relu,
-        ])
+        self.ffa = FFMCell(
+            self.trace_size, self.context_size, self.hidden_size, deterministic_init=False
+        )
+        self.post = nn.Sequential(
+            [
+                # Default init but with smaller weights
+                nn.Dense(
+                    self.hidden_size,
+                    kernel_init=nn.initializers.variance_scaling(
+                        0.01, "fan_in", "truncated_normal"
+                    ),
+                ),
+                nn.LayerNorm(),
+                nn.leaky_relu,
+                nn.Dense(self.hidden_size),
+                nn.LayerNorm(),
+                nn.leaky_relu,
+            ]
+        )
 
     def map_to_h(self, inputs):
         x, resets = inputs
         pre = jnp.abs(jnp.einsum("bi, bj -> bij", self.W_trace(x), self.W_context(x)))
-        pre = pre / jnp.sum(pre, axis=(-2,-1), keepdims=True)
+        pre = pre / jnp.sum(pre, axis=(-2, -1), keepdims=True)
         # We also need relative timesteps, i.e., each observation is 1 timestep newer than the previous
         ts = jnp.ones(x.shape[0], dtype=jnp.int32)
         return (pre, ts), resets
@@ -229,12 +255,15 @@ class SFFM(nn.Module):
         x, resets = inputs
         (state, ts), reset = recurrent_state
         s = state.reshape(state.shape[0], self.context_size * self.trace_size)
-        eps = s.real + (s.real==0 + jnp.sign(s.real)) * 0.01
+        eps = s.real + (s.real == 0 + jnp.sign(s.real)) * 0.01
         s = s + eps
-        scaled = jnp.concatenate([
-            jnp.log(1 + jnp.abs(s)) * jnp.sin(jnp.angle(s)),
-            jnp.log(1 + jnp.abs(s)) * jnp.cos(jnp.angle(s)),
-        ], axis=-1)
+        scaled = jnp.concatenate(
+            [
+                jnp.log(1 + jnp.abs(s)) * jnp.sin(jnp.angle(s)),
+                jnp.log(1 + jnp.abs(s)) * jnp.cos(jnp.angle(s)),
+            ],
+            axis=-1,
+        )
         z = self.post(scaled)
         return z
 
@@ -253,17 +282,16 @@ class SFFM(nn.Module):
     def initialize_carry(self, batch_size: int = None):
         return self.cell.initialize_carry(batch_size)
 
+
 class StackedSFFM(nn.Module):
     """A multilayer version of SFFM"""
+
     cells: List[nn.Module]
 
     def setup(self):
         self.project = nn.Dense(cells[0].hidden_size)
 
-
-    def __call__(
-        self, recurrent_state: jax.Array, inputs: Any
-    ) -> Tuple[jax.Array, jax.Array]:
+    def __call__(self, recurrent_state: jax.Array, inputs: Any) -> Tuple[jax.Array, jax.Array]:
         x, start = inputs
         x = self.project(x)
         inputs = x, start
@@ -271,23 +299,18 @@ class StackedSFFM(nn.Module):
             s, y = cell(recurrent_state[i], inputs)
             x = x + y
             recurrent_state[i] = s
-        return y, recurrent_state 
+        return y, recurrent_state
 
     def initialize_carry(self, batch_size: int = None):
-        return [
-            c.initialize_carry(batch_size) for c in self.cells
-        ]
+        return [c.initialize_carry(batch_size) for c in self.cells]
+
 
 if __name__ == "__main__":
     m = FFM(
         output_size=4,
         trace_size=5,
         context_size=6,
-        cell=MemoroidResetWrapper(
-            cell=FFMCell(
-                output_size=4,trace_size=5,context_size=6
-            )
-        )
+        cell=MemoroidResetWrapper(cell=FFMCell(output_size=4, trace_size=5, context_size=6)),
     )
     s = m.initialize_carry()
     x = jnp.ones((10, 2))
@@ -321,7 +344,7 @@ if __name__ == "__main__":
             trace_size=4,
             context_size=5,
             hidden_size=6,
-            cell=MemoroidResetWrapper(cell=FFMCell(4,5,6))
+            cell=MemoroidResetWrapper(cell=FFMCell(4, 5, 6)),
         )
         for i in range(3)
     ]
