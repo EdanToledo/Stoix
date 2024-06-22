@@ -9,8 +9,11 @@ import jax.numpy as jnp
 Carry = chex.ArrayTree
 
 
-class LRUCellBase(nn.Module):
-    """LRU cell base class."""
+def debug_shape(x):
+    return jax.tree.map(lambda x: x.shape, x)
+
+class MemoroidCellBase(nn.Module):
+    """Memoroid cell base class."""
 
     def map_to_h(self, inputs):
         """Map from the input space to the recurrent state space"""
@@ -21,12 +24,13 @@ class LRUCellBase(nn.Module):
         raise NotImplementedError
 
     @nn.nowrap
-    def initialize_carry(self, rng: chex.PRNGKey, input_shape: Tuple[int, ...]) -> Carry:
-        """Initialize the LRU cell carry.
+    def initialize_carry(self, rng: chex.PRNGKey, batch_shape: Tuple[int, ...]) -> Carry:
+        """Initialize the Memoroid cell carry.
 
         Args:
         rng: random number generator passed to the init_fn.
-        input_shape: a tuple providing the shape of the input to the cell.
+        batch_shape: a tuple providing the shape of the input to the cell, 
+            excluding any time or feature dimension(s).
 
         Returns:
         An initialized carry for the given RNN cell.
@@ -35,7 +39,7 @@ class LRUCellBase(nn.Module):
 
     @property
     def num_feature_axes(self) -> int:
-        """Returns the number of feature axes of the LRU cell."""
+        """Returns the number of feature axes of the cell."""
         raise NotImplementedError
 
 
@@ -56,7 +60,7 @@ def recurrent_associative_scan(
     # This ensures the previous recurrent state contributes to the current batch
     # state: [start, (x, j)]
     # inputs: [start, (x, j)]
-    scan_inputs = jax.tree.map(lambda x, s: jnp.concatenate([s, x], axis=0), inputs, state)
+    scan_inputs = jax.tree.map(lambda s, x: jnp.concatenate([s, x], axis=axis), state, inputs)
     new_state = jax.lax.associative_scan(
         cell,
         scan_inputs,
@@ -65,7 +69,11 @@ def recurrent_associative_scan(
     # The zeroth index corresponds to the previous recurrent state
     # We just use it to ensure continuity
     # We do not actually want to use these values, so slice them away
-    return jax.tree.map(lambda x: x[1:], new_state)
+    return jax.tree.map(
+        lambda x: jax.lax.slice_in_dim(
+            x, start_index=1, limit_index=None, axis=axis
+        ), new_state
+    )
 
 
 class Gate(nn.Module):
@@ -91,7 +99,7 @@ def init_deterministic(
     return a, b
 
 
-class FFMCell(LRUCellBase):
+class FFMCell(MemoroidCellBase):
     """The binary associative update function for the FFM."""
 
     trace_size: int
@@ -150,15 +158,13 @@ class FFMCell(LRUCellBase):
     def gamma(self, t: jax.Array) -> jax.Array:
         return jnp.exp(self.log_gamma(t))
 
-    def initialize_carry(self, batch_size: int = None):
-        if batch_size is None:
-            return jnp.zeros(
-                (1, self.trace_size, self.context_size), dtype=jnp.complex64
-            ), jnp.ones((1,), dtype=jnp.int32)
-
+    @nn.nowrap
+    def initialize_carry(self, rng: chex.PRNGKey, batch_shape: Tuple[int, ...]) -> Carry:
+        # inputs should be of shape [*batch, time, feature]
+        # recurrent states should be of shape [*batch, 1, feature]
         return jnp.zeros(
-            (1, batch_size, self.trace_size, self.context_size), dtype=jnp.complex64
-        ), jnp.ones((1, batch_size), dtype=jnp.int32)
+            (*batch_shape, 1, self.trace_size, self.context_size), dtype=jnp.complex64
+        ), jnp.ones((*batch_shape, 1), dtype=jnp.int32)
 
     def __call__(self, carry, incoming):
         (
@@ -170,23 +176,25 @@ class FFMCell(LRUCellBase):
         return state, j + i
 
 
-class MemoroidResetWrapper(LRUCellBase):
+class MemoroidResetWrapper(MemoroidCellBase):
     """A wrapper around memoroid cells like FFM, LRU, etc that resets
     the recurrent state upon a reset signal."""
 
     cell: nn.Module
 
-    def __call__(self, carry, incoming):
+    def __call__(self, carry, incoming, rng=None):
         states, prev_start = carry
         xs, start = incoming
 
         def reset_state(start, current_state, initial_state):
             # Expand to reset all dims of state: [B, 1, 1, ...]
+            assert initial_state.ndim == current_state.ndim
             expanded_start = start.reshape(-1, *([1] * (current_state.ndim - 1)))
             out = current_state * jnp.logical_not(expanded_start) + initial_state
             return out
 
-        initial_states = self.cell.initialize_carry()
+        # Add an extra dim, as start will be [Batch] while intialize carry expects [Batch, Feature]
+        initial_states = self.cell.initialize_carry(rng, ())
         states = jax.tree.map(partial(reset_state, start), states, initial_states)
         out = self.cell(states, xs)
         start_carry = jnp.logical_or(start, prev_start)
@@ -199,15 +207,14 @@ class MemoroidResetWrapper(LRUCellBase):
     def map_from_h(self, recurrent_state, x):
         return self.cell.map_from_h(recurrent_state, x)
 
-    def initialize_carry(self, batch_size: int = None):
-        if batch_size is None:
-            # TODO: Should this be one or zero?
-            return self.cell.initialize_carry(batch_size), jnp.zeros((1,), dtype=bool)
+    @nn.nowrap
+    def initialize_carry(self, rng: chex.PRNGKey, batch_shape: Tuple[int, ...]) -> Carry:
+        # inputs should be of shape [*batch, time, feature]
+        # recurrent states should be of shape [*batch, 1, feature]
+        return self.cell.initialize_carry(rng, batch_shape), jnp.zeros((*batch_shape, 1), dtype=bool)
 
-        return self.cell.initialize_carry(batch_size), jnp.zeros((1, batch_size), dtype=bool)
 
-
-class ScannedLRU(nn.Module):
+class ScannedMemoroid(nn.Module):
     cell: nn.Module
 
     @nn.compact
@@ -223,18 +230,36 @@ class ScannedLRU(nn.Module):
         final_recurrent_state = jax.tree.map(lambda x: x[-1:], recurrent_state)
         return final_recurrent_state, out
 
-    def initialize_carry(self, batch_size: int = None):
-        return self.cell.initialize_carry(batch_size)
+    @nn.nowrap
+    def initialize_carry(self, rng: chex.PRNGKey, batch_shape: Tuple[int, ...]) -> Carry:
+        return self.cell.initialize_carry(rng, batch_shape)
 
 
 if __name__ == "__main__":
-    m = ScannedLRU(
+    m = ScannedMemoroid(
         cell=MemoroidResetWrapper(cell=FFMCell(output_size=4, trace_size=5, context_size=6))
     )
-    s = m.initialize_carry()
     x = jnp.ones((10, 2))
+    s = m.initialize_carry(None, ())
     start = jnp.zeros(10, dtype=bool)
     params = m.init(jax.random.PRNGKey(0), s, (x, start))
     out_state, out = m.apply(params, s, (x, start))
 
     print(out)
+
+    BatchFFM = nn.vmap(
+        ScannedMemoroid, in_axes=0, out_axes=0, variable_axes={"params": None}, split_rngs={"params": False}
+    )
+
+    m = BatchFFM(
+        cell=MemoroidResetWrapper(cell=FFMCell(output_size=4, trace_size=5, context_size=6))
+    )
+
+    x = jnp.ones((8, 10, 2))
+    s = m.initialize_carry(None, (8,))
+    start = jnp.zeros((8, 10), dtype=bool)
+    params = m.init(jax.random.PRNGKey(0), s, (x, start))
+    out_state, out = m.apply(params, s, (x, start))
+
+    print(out.shape)
+    print(debug_shape(out_state))
