@@ -131,7 +131,7 @@ class RNNLearnerState(NamedTuple):
 
 class OffPolicyLearnerState(NamedTuple):
     params: Parameters
-    opt_states: ActorCriticOptStates
+    opt_states: OptStates
     buffer_state: BufferState
     key: chex.PRNGKey
     env_state: LogEnvState
@@ -160,7 +160,8 @@ RNNObservation: TypeAlias = Tuple[Observation, Done]
 LearnerFn = Callable[[StoixState], ExperimentOutput[StoixState]]
 EvalFn = Callable[[FrozenDict, chex.PRNGKey], ExperimentOutput[StoixState]]
 
-ActorApply = Callable[[FrozenDict, Observation], DistributionLike]
+ActorApply = Callable[..., DistributionLike]
+
 ActFn = Callable[[FrozenDict, Observation, chex.PRNGKey], chex.Array]
 CriticApply = Callable[[FrozenDict, Observation], Value]
 DistributionCriticApply = Callable[[FrozenDict, Observation], DistributionLike]

@@ -304,7 +304,6 @@ def learner_setup(
         config.network.actor_network.action_head,
         action_dim=action_dim,
         epsilon=config.system.training_epsilon,
-        num_quantiles=config.system.num_quantiles,
     )
 
     q_network = Actor(torso=q_network_torso, action_head=q_network_action_head)
@@ -313,7 +312,6 @@ def learner_setup(
         config.network.actor_network.action_head,
         action_dim=action_dim,
         epsilon=config.system.evaluation_epsilon,
-        num_quantiles=config.system.num_quantiles,
     )
     eval_q_network = Actor(torso=q_network_torso, action_head=eval_q_network_action_head)
     eval_q_network = EvalActorWrapper(actor=eval_q_network)

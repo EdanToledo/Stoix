@@ -7,3 +7,4 @@ actor_network:
     activation: silu
   action_head:
     _target_: stoix.networks.heads.QuantileDiscreteQNetwork
+    num_quantiles: ${system.num_quantiles}

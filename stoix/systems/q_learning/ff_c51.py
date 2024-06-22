@@ -176,6 +176,8 @@ def get_learner_fn(
                     q_logits_tm1, q_atoms_tm1, a_tm1, r_t, d_t, q_logits_t, q_atoms_t, q_t_selector
                 )
 
+                q_loss = jnp.mean(q_loss)
+
                 loss_info = {
                     "q_loss": q_loss,
                 }
@@ -288,9 +290,6 @@ def learner_setup(
         config.network.actor_network.action_head,
         action_dim=action_dim,
         epsilon=config.system.training_epsilon,
-        num_atoms=config.system.num_atoms,
-        v_min=config.system.v_min,
-        v_max=config.system.v_max,
     )
 
     q_network = Actor(torso=q_network_torso, action_head=q_network_action_head)
@@ -299,9 +298,6 @@ def learner_setup(
         config.network.actor_network.action_head,
         action_dim=action_dim,
         epsilon=config.system.evaluation_epsilon,
-        num_atoms=config.system.num_atoms,
-        v_min=config.system.v_min,
-        v_max=config.system.v_max,
     )
     eval_q_network = Actor(torso=q_network_torso, action_head=eval_q_network_action_head)
     eval_q_network = EvalActorWrapper(actor=eval_q_network)

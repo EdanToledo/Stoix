@@ -3,7 +3,6 @@ from typing import TYPE_CHECKING, Tuple
 import chex
 import jax
 import jax.numpy as jnp
-import numpy as np
 from jumanji import specs
 from jumanji.specs import Array, DiscreteArray, Spec
 from jumanji.types import TimeStep
@@ -25,10 +24,9 @@ class XMiniGridEnvState:
 
 
 class XMiniGridWrapper(Wrapper):
-    def __init__(self, env: Environment, env_params: EnvParams, flatten_observation: bool = False):
+    def __init__(self, env: Environment, env_params: EnvParams):
         self._env = env
         self._env_params = env_params
-        self._flatten_observation = flatten_observation
 
         self._legal_action_mask = jnp.ones((self.action_spec().num_values,), dtype=jnp.float32)
 
@@ -36,8 +34,6 @@ class XMiniGridWrapper(Wrapper):
         key, reset_key = jax.random.split(key)
         minigrid_state_timestep = self._env.reset(self._env_params, reset_key)
         obs = minigrid_state_timestep.observation
-        if self._flatten_observation:
-            obs = obs.flatten()
         obs = Observation(obs, self._legal_action_mask, jnp.array(0))
         timestep = TimeStep(
             observation=obs,
@@ -54,8 +50,6 @@ class XMiniGridWrapper(Wrapper):
             self._env_params, state.minigrid_state_timestep, action
         )
         obs = minigrid_state_timestep.observation
-        if self._flatten_observation:
-            obs = obs.flatten()
         obs = Observation(
             obs,
             self._legal_action_mask,
@@ -78,8 +72,7 @@ class XMiniGridWrapper(Wrapper):
 
     def observation_spec(self) -> Spec:
         obs_shape = self._env.observation_shape(self._env_params)
-        if self._flatten_observation:
-            obs_shape = (np.prod(obs_shape),)
+
         return specs.Spec(
             Observation,
             "ObservationSpec",

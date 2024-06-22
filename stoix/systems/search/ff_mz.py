@@ -32,7 +32,6 @@ from stoix.base_types import (
 from stoix.networks.base import FeedForwardActor as Actor
 from stoix.networks.base import FeedForwardCritic as Critic
 from stoix.networks.inputs import EmbeddingInput
-from stoix.networks.model_based import Dynamics, Representation
 from stoix.systems.search.evaluator import search_evaluator_setup
 from stoix.systems.search.search_types import (
     DynamicsApply,
@@ -41,7 +40,6 @@ from stoix.systems.search.search_types import (
     RepresentationApply,
     RootFnApply,
     SearchApply,
-    WorldModelParams,
     ZLearnerState,
 )
 from stoix.utils import make_env as environments
@@ -72,9 +70,7 @@ def make_root_fn(
         _: chex.ArrayTree,  # This is the state of the environment and unused in MuZero
         rng_key: chex.PRNGKey,
     ) -> mctx.RootFnOutput:
-        observation_embedding = representation_apply_fn(
-            params.world_model_params.representation_params, observation
-        )
+        observation_embedding = representation_apply_fn(params.world_model_params, observation)
 
         pi = actor_apply_fn(params.prediction_params.actor_params, observation_embedding)
         value_dist = critic_apply_fn(params.prediction_params.critic_params, observation_embedding)
@@ -108,7 +104,7 @@ def make_recurrent_fn(
     ) -> Tuple[mctx.RecurrentFnOutput, chex.ArrayTree]:
 
         next_state_embedding, next_reward_dist = dynamics_apply_fn(
-            params.world_model_params.dynamics_params, state_embedding, action
+            params.world_model_params, state_embedding, action
         )
         next_reward = reward_tx_pair.apply_inv(next_reward_dist.probs)
 
@@ -290,7 +286,7 @@ def get_learner_fn(
 
                 # Get the state embedding of the first observation of each sequence
                 state_embedding = representation_apply_fn(
-                    muzero_params.world_model_params.representation_params, sequence.obs
+                    muzero_params.world_model_params, sequence.obs
                 )[
                     :, 0
                 ]  # B, T=0
@@ -309,7 +305,7 @@ def get_learner_fn(
                     )
                     state_embedding = scale_gradient(state_embedding, 0.5)
                     next_state_embedding, predicted_reward = dynamics_apply_fn(
-                        muzero_params.world_model_params.dynamics_params, state_embedding, action
+                        muzero_params.world_model_params, state_embedding, action
                     )
 
                     # CALCULATE ACTOR LOSS
@@ -343,10 +339,10 @@ def get_learner_fn(
                     )
 
                     curr_loss = {
-                        "actor": actor_loss,
-                        "value": value_loss,
-                        "reward": reward_loss,
-                        "entropy": entropy_loss,
+                        "actor_loss": actor_loss,
+                        "value_loss": value_loss,
+                        "reward_loss": reward_loss,
+                        "entropy_loss": entropy_loss,
                     }
                     # UPDATE LOSS
                     total_loss = jax.tree_util.tree_map(
@@ -367,10 +363,10 @@ def get_learner_fn(
 
                 targets = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), targets)  # T, B
                 init_total_loss = {
-                    "actor": jnp.array(0.0),
-                    "value": jnp.array(0.0),
-                    "reward": jnp.array(0.0),
-                    "entropy": jnp.array(0.0),
+                    "actor_loss": jnp.array(0.0),
+                    "value_loss": jnp.array(0.0),
+                    "reward_loss": jnp.array(0.0),
+                    "entropy_loss": jnp.array(0.0),
                 }
                 init_mask = jnp.ones((config.system.batch_size,))
                 (losses, _, _, _), _ = jax.lax.scan(
@@ -383,7 +379,10 @@ def get_learner_fn(
                 )
 
                 total_loss = (
-                    losses["actor"] + losses["value"] + losses["reward"] - losses["entropy"]
+                    losses["actor_loss"]
+                    + losses["value_loss"]
+                    + losses["reward_loss"]
+                    - losses["entropy_loss"]
                 )
 
                 return total_loss, losses
@@ -474,7 +473,7 @@ def learner_setup(
     config.system.action_dim = num_actions
 
     # PRNG keys.
-    key, representation_net_key, dynamics_net_key, actor_net_key, critic_net_key = keys
+    key, wm_network_key, actor_net_key, critic_net_key = keys
 
     # Define network and optimiser.
     actor_torso = hydra.utils.instantiate(config.network.actor_network.pre_torso)
@@ -484,9 +483,6 @@ def learner_setup(
     critic_torso = hydra.utils.instantiate(config.network.critic_network.pre_torso)
     critic_head = hydra.utils.instantiate(
         config.network.critic_network.critic_head,
-        num_atoms=config.system.critic_num_atoms,
-        vmin=config.system.critic_vmin,
-        vmax=config.system.critic_vmax,
     )
 
     actor_network = Actor(
@@ -496,31 +492,8 @@ def learner_setup(
         torso=critic_torso, critic_head=critic_head, input_layer=EmbeddingInput()
     )
 
-    representation_network_torso = hydra.utils.instantiate(
-        config.network.representation_network.torso
-    )
-    representation_embedding_head = hydra.utils.instantiate(
-        config.network.representation_network.embedding_head
-    )
-    representation_network = Representation(
-        torso=representation_network_torso, embedding_head=representation_embedding_head
-    )
-    dynamics_network_torso = hydra.utils.instantiate(config.network.dynamics_network.torso)
-    embedding_head = hydra.utils.instantiate(config.network.dynamics_network.embedding_head)
-    reward_head = hydra.utils.instantiate(
-        config.network.dynamics_network.reward_head,
-        num_atoms=config.system.reward_num_atoms,
-        vmin=config.system.reward_vmin,
-        vmax=config.system.reward_vmax,
-    )
-    dynamics_input_layer = hydra.utils.instantiate(
-        config.network.dynamics_network.input_layer, action_dim=num_actions
-    )
-    dynamics_network = Dynamics(
-        torso=dynamics_network_torso,
-        embedding_head=embedding_head,
-        reward_head=reward_head,
-        input_layer=dynamics_input_layer,
+    wm_network = hydra.utils.instantiate(
+        config.network.wm_network, action_dim=config.system.action_dim
     )
 
     lr = make_learning_rate(
@@ -541,12 +514,10 @@ def learner_setup(
     init_a = jax.tree_util.tree_map(lambda x: x[None, ...], init_a)
 
     # Initialise params params and optimiser state.
-    representation_params = representation_network.init(representation_net_key, init_x)
-    state_embedding = representation_network.apply(representation_params, init_x)
-    dynamics_params = dynamics_network.init(dynamics_net_key, state_embedding, init_a)
-    world_model_params = WorldModelParams(representation_params, dynamics_params)
-    actor_params = actor_network.init(actor_net_key, state_embedding)
-    critic_params = critic_network.init(critic_net_key, state_embedding)
+    world_model_params = wm_network.init(wm_network_key, init_x, init_a)
+    hidden_state_embedding, _ = wm_network.apply(world_model_params, init_x, init_a)
+    actor_params = actor_network.init(actor_net_key, hidden_state_embedding)
+    critic_params = critic_network.init(critic_net_key, hidden_state_embedding)
 
     # Pack params.
     prediction_params = ActorCriticParams(actor_params, critic_params)
@@ -555,8 +526,13 @@ def learner_setup(
     # Initialise optimiser state.
     opt_state = optim.init(params)
 
-    representation_network_apply_fn = representation_network.apply
-    dynamics_network_apply_fn = dynamics_network.apply
+    # Define apply functions.
+    representation_network_apply_fn = functools.partial(
+        wm_network.apply, method=wm_network.initial_inference
+    )
+    dynamics_network_apply_fn = functools.partial(
+        wm_network.apply, method=wm_network.recurrent_inference
+    )
     actor_network_apply_fn = actor_network.apply
     critic_network_apply_fn = critic_network.apply
 
@@ -723,13 +699,13 @@ def run_experiment(_config: DictConfig) -> float:
     env, eval_env = environments.make(config=config)
 
     # PRNG keys.
-    key, key_e, representation_key, dynamics_key, actor_net_key, critic_net_key = jax.random.split(
-        jax.random.PRNGKey(config.arch.seed), num=6
+    key, key_e, wm_key, actor_net_key, critic_net_key = jax.random.split(
+        jax.random.PRNGKey(config.arch.seed), num=5
     )
 
     # Setup learner.
     learn, root_fn, search_apply_fn, learner_state = learner_setup(
-        env, (key, representation_key, dynamics_key, actor_net_key, critic_net_key), config
+        env, (key, wm_key, actor_net_key, critic_net_key), config
     )
 
     # Setup evaluator.

@@ -17,27 +17,27 @@ critic_network:
   critic_head:
     _target_: stoix.networks.heads.CategoricalCriticHead
 
-# ---MLP MuZero Networks---
-representation_network:
-  torso:
-    _target_: stoix.networks.torso.MLPTorso
-    layer_sizes: [256, 256]
-    use_layer_norm: False
-    activation: silu
-  embedding_head:
-    _target_: stoix.networks.heads.LinearHead
-    output_dim: 128 # Output dimension of the embedding head. This should match the output dimension of the dynamics network.
+wm_network:
+  _target_: stoix.networks.model_based.RewardBasedWorldModel
 
-dynamics_network:
-  input_layer:
-    _target_: stoix.networks.inputs.EmbeddingActionInput
-  torso:
+  obs_encoder: # Encoder for the observation. This can be seen as the representation network.
     _target_: stoix.networks.torso.MLPTorso
     layer_sizes: [256, 256]
     use_layer_norm: False
     activation: silu
-  embedding_head:
-    _target_: stoix.networks.heads.LinearHead
-    output_dim: 128 # Output dimension of the embedding head. This should match the output dimension of the representation network.
+
+  # This can be seen as the dyanmics network.
+  rnn_size: 256
+  num_stacked_rnn_layers: 2
+
+  # This can be seen as the reward network.
+  reward_torso:
+    _target_: stoix.networks.torso.MLPTorso
+    layer_sizes: [256, 256]
+    use_layer_norm: False
+    activation: silu
   reward_head:
     _target_: stoix.networks.heads.CategoricalCriticHead
+    vmin: ${system.reward_vmin}
+    vmax: ${system.reward_vmax}
+    num_atoms: ${system.reward_num_atoms}

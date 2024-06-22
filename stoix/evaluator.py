@@ -22,12 +22,19 @@ from stoix.base_types import (
 from stoix.utils.jax_utils import unreplicate_batch_dim
 
 
-def get_distribution_act_fn(config: DictConfig, actor_apply: ActorApply) -> ActFn:
+def get_distribution_act_fn(
+    config: DictConfig,
+    actor_apply: ActorApply,
+    rngs: Optional[Dict[str, chex.PRNGKey]] = None,
+) -> ActFn:
     """Get the act_fn for a network that returns a distribution."""
 
     def act_fn(params: FrozenDict, observation: chex.Array, key: chex.PRNGKey) -> chex.Array:
         """Get the action from the distribution."""
-        pi = actor_apply(params, observation)
+        if rngs is None:
+            pi = actor_apply(params, observation)
+        else:
+            pi = actor_apply(params, observation, rngs=rngs)
         if config.arch.evaluation_greedy:
             action = pi.mode()
         else:
@@ -58,7 +65,7 @@ def get_ff_evaluator_fn(
     env: Environment,
     act_fn: ActFn,
     config: DictConfig,
-    log_win_rate: bool = False,
+    log_solve_rate: bool = False,
     eval_multiplier: int = 1,
 ) -> EvalFn:
     """Get the evaluator function for feedforward networks.
@@ -113,9 +120,11 @@ def get_ff_evaluator_fn(
             "episode_return": final_state.episode_return,
             "episode_length": final_state.step_count,
         }
-        # Log won episode if win rate is required.
-        if log_win_rate:
-            eval_metrics["won_episode"] = jnp.all(final_state.timestep.reward >= 1.0).astype(int)
+        # Log solve episode if solve rate is required.
+        if log_solve_rate:
+            eval_metrics["solve_episode"] = jnp.all(
+                final_state.episode_return >= config.env.solved_return_threshold
+            ).astype(int)
 
         return eval_metrics
 
@@ -164,7 +173,7 @@ def get_rnn_evaluator_fn(
     rec_act_fn: RecActFn,
     config: DictConfig,
     scanned_rnn: nn.Module,
-    log_win_rate: bool = False,
+    log_solve_rate: bool = False,
     eval_multiplier: int = 1,
 ) -> EvalFn:
     """Get the evaluator function for recurrent networks."""
@@ -225,9 +234,11 @@ def get_rnn_evaluator_fn(
             "episode_return": final_state.episode_return,
             "episode_length": final_state.step_count,
         }
-        # Log won episode if win rate is required.
-        if log_win_rate:
-            eval_metrics["won_episode"] = jnp.all(final_state.timestep.reward >= 1.0).astype(int)
+        # Log solve episode if solve rate is required.
+        if log_solve_rate:
+            eval_metrics["solve_episode"] = jnp.all(
+                final_state.episode_return >= config.env.solved_return_threshold
+            ).astype(int)
         return eval_metrics
 
     def evaluator_fn(
@@ -294,8 +305,11 @@ def evaluator_setup(
     """Initialise evaluator_fn."""
     # Get available TPU cores.
     n_devices = len(jax.devices())
-    # Check if win rate is required for evaluation.
-    log_win_rate = False
+    # Check if solve rate is required for evaluation.
+    if hasattr(config.env, "solved_return_threshold"):
+        log_solve_rate = True
+    else:
+        log_solve_rate = False
     # Vmap it over number of agents and create evaluator_fn.
     if use_recurrent_net:
         assert scanned_rnn is not None
@@ -304,23 +318,25 @@ def evaluator_setup(
             eval_act_fn,  # type: ignore
             config,
             scanned_rnn,
-            log_win_rate,
+            log_solve_rate,
         )
         absolute_metric_evaluator = get_rnn_evaluator_fn(
             eval_env,
             eval_act_fn,  # type: ignore
             config,
             scanned_rnn,
-            log_win_rate,
+            log_solve_rate,
             10,
         )
     else:
-        evaluator = get_ff_evaluator_fn(eval_env, eval_act_fn, config, log_win_rate)  # type: ignore
+        evaluator = get_ff_evaluator_fn(
+            eval_env, eval_act_fn, config, log_solve_rate  # type: ignore
+        )
         absolute_metric_evaluator = get_ff_evaluator_fn(
             eval_env,
             eval_act_fn,  # type: ignore
             config,
-            log_win_rate,
+            log_solve_rate,
             10,
         )
 

@@ -6,7 +6,10 @@ actor_network:
     use_layer_norm: False
     activation: silu
   action_head:
-    _target_: stoix.networks.dueling.DuelingQNetwork
+    _target_: stoix.networks.dueling.DistributionalDuelingQNetwork
     layer_sizes: [128, 128]
     use_layer_norm: False
     activation: silu
+    vmin: ${system.vmin}
+    vmax: ${system.vmax}
+    num_atoms: ${system.num_atoms}
