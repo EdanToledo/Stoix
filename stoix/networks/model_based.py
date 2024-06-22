@@ -1,5 +1,5 @@
 from functools import cached_property
-from typing import List
+from typing import List, Sequence
 
 import chex
 import jax
@@ -16,9 +16,8 @@ class RewardBasedWorldModel(nn.Module):
     obs_encoder: nn.Module
     reward_torso: nn.Module
     reward_head: nn.Module
-    rnn_size: int
+    rnn_sizes: Sequence[int]
     action_dim: int
-    num_stacked_rnn_layers: int
     normalize_hidden_state: bool = True
     rnn_cell_type: str = "lstm"
     recurrent_activation: str = "tanh"
@@ -34,16 +33,14 @@ class RewardBasedWorldModel(nn.Module):
 
         rnn_cell_cls = parse_rnn_cell(self.rnn_cell_type)
 
-        self._core = StackedRNN(
-            self.rnn_size, rnn_cell_cls, self.num_stacked_rnn_layers, self.recurrent_activation
-        )
+        self._core = StackedRNN(self.rnn_sizes, rnn_cell_cls, self.recurrent_activation)
 
     @cached_property
     def hidden_state_size(self) -> int:
         if self.rnn_cell_type in ("gru", "simple"):
-            hidden_state_size = sum([self.rnn_size] * self.num_stacked_rnn_layers)
+            hidden_state_size = sum(self.rnn_sizes)
         elif self.rnn_cell_type in ("lstm", "optimised_lstm"):
-            hidden_state_size = sum([self.rnn_size * self.num_stacked_rnn_layers]) * 2
+            hidden_state_size = sum(self.rnn_sizes) * 2
         return hidden_state_size
 
     def _rnn_to_flat(self, state: List[chex.ArrayTree]) -> chex.Array:
@@ -60,16 +57,16 @@ class RewardBasedWorldModel(nn.Module):
         """Maps flat vector to RNN state."""
         tensors = []
         cur_idx = 0
-        for _ in range(self.num_stacked_rnn_layers):
+        for size in self.rnn_sizes:
             if self.rnn_cell_type in ("gru", "simple"):
-                states = state[Ellipsis, cur_idx : cur_idx + self.rnn_size]
-                cur_idx += self.rnn_size
+                states = state[Ellipsis, cur_idx : cur_idx + size]
+                cur_idx += size
             elif self.rnn_cell_type in ("lstm", "optimised_lstm"):
                 states = (
-                    state[Ellipsis, cur_idx : cur_idx + self.rnn_size],
-                    state[Ellipsis, cur_idx + self.rnn_size : cur_idx + 2 * self.rnn_size],
+                    state[Ellipsis, cur_idx : cur_idx + size],
+                    state[Ellipsis, cur_idx + size : cur_idx + 2 * size],
                 )
-                cur_idx += 2 * self.rnn_size
+                cur_idx += 2 * size
             tensors.append(states)
         assert cur_idx == state.shape[-1]
         return tensors

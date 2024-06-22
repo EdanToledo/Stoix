@@ -7,7 +7,7 @@ actor_network:
     use_layer_norm: False
     activation: silu
   rnn_layer:
-    _target_: stoix.networks.base.ScannedRNN
+    _target_: stoix.networks.recurrent.ScannedRNN
     cell_type: gru
     hidden_state_dim: 128
   post_torso:
@@ -25,7 +25,7 @@ critic_network:
     use_layer_norm: False
     activation: silu
   rnn_layer:
-    _target_: stoix.networks.base.ScannedRNN
+    _target_: stoix.networks.recurrent.ScannedRNN
     cell_type: gru
     hidden_state_dim: 128
   post_torso:
