@@ -94,7 +94,6 @@ class MemoroidResetWrapper(nn.Module):
         return self.cell.initialize_carry(batch_size), jnp.zeros((batch_size,), dtype=bool)
 
 
-
 class FFM(nn.Module):
     """Fast and Forgetful Memory"""
 
@@ -139,17 +138,23 @@ class FFM(nn.Module):
         # We do not actually want to use these values, so slice them away
         return jax.tree.map(lambda x: x[1:], new_state)
 
-    def map_to_h(self, x):
+    def map_to_h(self, inputs):
+        """Map from the input space to the recurrent state space"""
+        x, resets = inputs
         gate_in = self.gate_in(x)
         pre = self.pre(x)
         gated_x = pre * gate_in
-        scan_input = jnp.repeat(jnp.expand_dims(gated_x, 2), self.context_size, axis=2)
-        return scan_input
+        # We also need relative timesteps, i.e., each observation is 1 timestep newer than the previous
+        ts = jnp.ones(x.shape[0], dtype=jnp.int32)
+        z = jnp.repeat(jnp.expand_dims(gated_x, 2), self.context_size, axis=2)
+        return (z, ts), resets
 
     def map_from_h(self, recurrent_state, x):
+        """Map from the recurrent space to the Markov space"""
+        (state, ts), reset = recurrent_state
         z_in = jnp.concatenate(
-            [jnp.real(recurrent_state), jnp.imag(recurrent_state)], axis=-1
-        ).reshape(recurrent_state.shape[0], -1)
+            [jnp.real(state), jnp.imag(state)], axis=-1
+        ).reshape(state.shape[0], -1)
         z = self.mix(z_in)
         gate_out = self.gate_out(x)
         skip = self.skip(x)
@@ -157,15 +162,16 @@ class FFM(nn.Module):
         return out
 
     def __call__(self, recurrent_state, inputs):
-        x, resets = inputs
-        z = self.map_to_h(x)
-        # Relative timestep
-        ts = jnp.ones(x.shape[0], dtype=jnp.int32)
-        recurrent_state = self.scan(recurrent_state, ((z, ts), resets))
+        # Recurrent state should be ((state, timestep), reset)
+        # Inputs should be (x, reset)
+        h = self.map_to_h(inputs)
+        recurrent_state = self.scan(recurrent_state, h)
         # recurrent_state is ((state, timestep), reset)
-        out = self.map_from_h(recurrent_state[0][0], x)
-        final_state = recurrent_state[-1:]
-        return final_state, out
+        out = self.map_from_h(recurrent_state, x)
+
+        # TODO: Remove this when we want to return all recurrent states instead of just the last one
+        final_recurrent_state = jax.tree.map(lambda x: x[-1:], recurrent_state)
+        return final_recurrent_state, out
 
     def initialize_carry(self, batch_size: int = None):
         return self.cell.initialize_carry(batch_size)
