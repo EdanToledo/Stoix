@@ -19,6 +19,7 @@ numpy
 omegaconf
 optax @ git+https://github.com/google-deepmind/optax.git
 pgx
+popjym @ git+https://github.com/FLAIROx/popjym.git
 protobuf==3.20.2
 rlax
 tensorboard_logger
