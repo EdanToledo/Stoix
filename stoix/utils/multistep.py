@@ -1,4 +1,4 @@
-from typing import Tuple, Union
+from typing import Optional, Tuple, Union
 
 import chex
 import jax
@@ -16,6 +16,8 @@ def batch_truncated_generalized_advantage_estimation(
     values: chex.Array,
     stop_target_gradients: bool = True,
     time_major: bool = False,
+    standardize_advantages: bool = False,
+    truncation_flags: Optional[chex.Array] = None,
 ) -> Tuple[chex.Array, chex.Array]:
     """Computes truncated generalized advantage estimates for a sequence length k.
 
@@ -39,50 +41,67 @@ def batch_truncated_generalized_advantage_estimation(
         to targets.
         time_major: If True, the first dimension of the input tensors is the time
         dimension.
+        standardize_advantages: If True, standardize the advantages.
+        truncation_flags: Optional sequence of truncation flags at times [1, k].
 
     Returns:
         Multistep truncated generalized advantage estimation at times [0, k-1].
         The target values at times [0, k-1] are also returned.
     """
+
+    if truncation_flags is None:
+        truncation_flags = jnp.zeros_like(r_t)
+
+    truncation_mask = 1.0 - truncation_flags
+
     # Swap axes to make time axis the first dimension
     if not time_major:
         batch_size = r_t.shape[0]
-        r_t, discount_t, values = jax.tree_map(
-            lambda x: jnp.swapaxes(x, 0, 1), (r_t, discount_t, values)
+        r_t, discount_t, values, truncation_mask = jax.tree_util.tree_map(
+            lambda x: jnp.swapaxes(x, 0, 1), (r_t, discount_t, values, truncation_mask)
         )
     else:
         batch_size = r_t.shape[1]
 
-    chex.assert_type([r_t, values, discount_t], float)
+    chex.assert_type([r_t, values, discount_t, truncation_mask], float)
 
     lambda_ = jnp.ones_like(discount_t) * lambda_  # If scalar, make into vector.
 
     delta_t = r_t + discount_t * values[1:] - values[:-1]
+    delta_t *= truncation_mask
 
     # Iterate backwards to calculate advantages.
     def _body(
-        acc: chex.Array, xs: Tuple[chex.Array, chex.Array, chex.Array]
+        acc: chex.Array, xs: Tuple[chex.Array, chex.Array, chex.Array, chex.Array]
     ) -> Tuple[chex.Array, chex.Array]:
-        deltas, discounts, lambda_ = xs
-        acc = deltas + discounts * lambda_ * acc
+        deltas, discounts, lambda_, trunc_mask = xs
+        acc = deltas + discounts * lambda_ * trunc_mask * acc
         return acc, acc
 
     _, advantage_t = jax.lax.scan(
-        _body, jnp.zeros(batch_size), (delta_t, discount_t, lambda_), reverse=True, unroll=16
+        _body,
+        jnp.zeros(batch_size),
+        (delta_t, discount_t, lambda_, truncation_mask),
+        reverse=True,
+        unroll=16,
     )
 
     target_values = values[:-1] + advantage_t
+    advantage_t *= truncation_mask
 
     if not time_major:
         # Swap axes back to original shape
-        advantage_t, target_values = jax.tree_map(
+        advantage_t, target_values = jax.tree_util.tree_map(
             lambda x: jnp.swapaxes(x, 0, 1), (advantage_t, target_values)
         )
 
     if stop_target_gradients:
-        advantage_t, target_values = jax.tree_map(
+        advantage_t, target_values = jax.tree_util.tree_map(
             lambda x: jax.lax.stop_gradient(x), (advantage_t, target_values)
         )
+
+    if standardize_advantages:
+        advantage_t = jax.nn.standardize(advantage_t, axis=(0, 1))
 
     return advantage_t, target_values
 
@@ -118,7 +137,9 @@ def batch_n_step_bootstrapped_returns(
         estimated bootstrapped returns at times B x [0, ...., T-1]
     """
     # swap axes to make time axis the first dimension
-    r_t, discount_t, v_t = jax.tree_map(lambda x: jnp.swapaxes(x, 0, 1), (r_t, discount_t, v_t))
+    r_t, discount_t, v_t = jax.tree_util.tree_map(
+        lambda x: jnp.swapaxes(x, 0, 1), (r_t, discount_t, v_t)
+    )
     seq_len = r_t.shape[0]
     batch_size = r_t.shape[1]
 
@@ -187,7 +208,7 @@ def batch_general_off_policy_returns_from_q_and_v(
       Off-policy estimates of the generalized returns from states visited at times
       [0, ..., K - 1].
     """
-    q_t, v_t, r_t, discount_t, c_t = jax.tree_map(
+    q_t, v_t, r_t, discount_t, c_t = jax.tree_util.tree_map(
         lambda x: jnp.swapaxes(x, 0, 1), (q_t, v_t, r_t, discount_t, c_t)
     )
 
@@ -251,3 +272,143 @@ def batch_retrace_continuous(
         stop_target_gradients, jax.lax.stop_gradient(target_tm1), target_tm1
     )
     return target_tm1 - q_tm1
+
+
+def batch_lambda_returns(
+    r_t: chex.Array,
+    discount_t: chex.Array,
+    v_t: chex.Array,
+    lambda_: chex.Numeric = 1.0,
+    stop_target_gradients: bool = False,
+    time_major: bool = False,
+) -> chex.Array:
+    """Estimates a multistep truncated lambda return from a trajectory.
+
+    Given a a trajectory of length `T+1`, generated under some policy π, for each
+    time-step `t` we can estimate a target return `G_t`, by combining rewards,
+    discounts, and state values, according to a mixing parameter `lambda`.
+
+    The parameter `lambda_`  mixes the different multi-step bootstrapped returns,
+    corresponding to accumulating `k` rewards and then bootstrapping using `v_t`.
+
+        rₜ₊₁ + γₜ₊₁ vₜ₊₁
+        rₜ₊₁ + γₜ₊₁ rₜ₊₂ + γₜ₊₁ γₜ₊₂ vₜ₊₂
+        rₜ₊₁ + γₜ₊₁ rₜ₊₂ + γₜ₊₁ γₜ₊₂ rₜ₊₂ + γₜ₊₁ γₜ₊₂ γₜ₊₃ vₜ₊₃
+
+    The returns are computed recursively, from `G_{T-1}` to `G_0`, according to:
+
+        Gₜ = rₜ₊₁ + γₜ₊₁ [(1 - λₜ₊₁) vₜ₊₁ + λₜ₊₁ Gₜ₊₁].
+
+    In the `on-policy` case, we estimate a return target `G_t` for the same
+    policy π that was used to generate the trajectory. In this setting the
+    parameter `lambda_` is typically a fixed scalar factor. Depending
+    on how values `v_t` are computed, this function can be used to construct
+    targets for different multistep reinforcement learning updates:
+
+        TD(λ):  `v_t` contains the state value estimates for each state under π.
+        Q(λ):  `v_t = max(q_t, axis=-1)`, where `q_t` estimates the action values.
+        Sarsa(λ):  `v_t = q_t[..., a_t]`, where `q_t` estimates the action values.
+
+    In the `off-policy` case, the mixing factor is a function of state, and
+    different definitions of `lambda` implement different off-policy corrections:
+
+        Per-decision importance sampling:  λₜ = λ ρₜ = λ [π(aₜ|sₜ) / μ(aₜ|sₜ)]
+        V-trace, as instantiated in IMPALA:  λₜ = min(1, ρₜ)
+
+    Note that the second option is equivalent to applying per-decision importance
+    sampling, but using an adaptive λ(ρₜ) = min(1/ρₜ, 1), such that the effective
+    bootstrap parameter at time t becomes λₜ = λ(ρₜ) * ρₜ = min(1, ρₜ).
+    This is the interpretation used in the ABQ(ζ) algorithm (Mahmood 2017).
+
+    Of course this can be augmented to include an additional factor λ.  For
+    instance we could use V-trace with a fixed additional parameter λ = 0.9, by
+    setting λₜ = 0.9 * min(1, ρₜ) or, alternatively (but not equivalently),
+    λₜ = min(0.9, ρₜ).
+
+    Estimated return are then often used to define a td error, e.g.:  ρₜ(Gₜ - vₜ).
+
+    See "Reinforcement Learning: An Introduction" by Sutton and Barto.
+    (http://incompleteideas.net/sutton/book/ebook/node74.html).
+
+    Args:
+        r_t: sequence of rewards rₜ for timesteps t in B x [1, T].
+        discount_t: sequence of discounts γₜ for timesteps t in B x [1, T].
+        v_t: sequence of state values estimates under π for timesteps t in B x [1, T].
+        lambda_: mixing parameter; a scalar or a vector for timesteps t in B x [1, T].
+        stop_target_gradients: bool indicating whether or not to apply stop gradient
+        to targets.
+        time_major: If True, the first dimension of the input tensors is the time
+        dimension.
+
+    Returns:
+        Multistep lambda returns.
+    """
+
+    chex.assert_rank([r_t, discount_t, v_t, lambda_], [2, 2, 2, {0, 1, 2}])
+    chex.assert_type([r_t, discount_t, v_t, lambda_], float)
+    chex.assert_equal_shape([r_t, discount_t, v_t])
+
+    # Swap axes to make time axis the first dimension
+    if not time_major:
+        r_t, discount_t, v_t = jax.tree_util.tree_map(
+            lambda x: jnp.swapaxes(x, 0, 1), (r_t, discount_t, v_t)
+        )
+
+    # If scalar make into vector.
+    lambda_ = jnp.ones_like(discount_t) * lambda_
+
+    # Work backwards to compute `G_{T-1}`, ..., `G_0`.
+    def _body(
+        acc: chex.Array, xs: Tuple[chex.Array, chex.Array, chex.Array, chex.Array]
+    ) -> Tuple[chex.Array, chex.Array]:
+        returns, discounts, values, lambda_ = xs
+        acc = returns + discounts * ((1 - lambda_) * values + lambda_ * acc)
+        return acc, acc
+
+    _, returns = jax.lax.scan(_body, v_t[-1], (r_t, discount_t, v_t, lambda_), reverse=True)
+
+    if not time_major:
+        returns = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), returns)
+
+    return jax.lax.select(stop_target_gradients, jax.lax.stop_gradient(returns), returns)
+
+
+def batch_discounted_returns(
+    r_t: chex.Array,
+    discount_t: chex.Array,
+    v_t: chex.Array,
+    stop_target_gradients: bool = False,
+    time_major: bool = False,
+) -> chex.Array:
+    """Calculates a discounted return from a trajectory.
+
+    The returns are computed recursively, from `G_{T-1}` to `G_0`, according to:
+
+        Gₜ = rₜ₊₁ + γₜ₊₁ Gₜ₊₁.
+
+    See "Reinforcement Learning: An Introduction" by Sutton and Barto.
+    (http://incompleteideas.net/sutton/book/ebook/node61.html).
+
+    Args:
+        r_t: reward sequence at time t.
+        discount_t: discount sequence at time t.
+        v_t: value sequence or scalar at time t.
+        stop_target_gradients: bool indicating whether or not to apply stop gradient
+        to targets.
+
+    Returns:
+        Discounted returns.
+    """
+    chex.assert_rank([r_t, discount_t, v_t], [2, 2, {0, 1, 2}])
+    chex.assert_type([r_t, discount_t, v_t], float)
+
+    # If scalar make into vector.
+    bootstrapped_v = jnp.ones_like(discount_t) * v_t
+    return batch_lambda_returns(
+        r_t,
+        discount_t,
+        bootstrapped_v,
+        lambda_=1.0,
+        stop_target_gradients=stop_target_gradients,
+        time_major=time_major,
+    )

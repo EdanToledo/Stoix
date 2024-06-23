@@ -1,7 +1,6 @@
 # ---Environment Configs---
 env_name: jumanji
 observation_attribute : grid
-flatten_observation: True
 multi_agent : False
 
 scenario:
@@ -9,3 +8,12 @@ scenario:
   task_name: sokoban
 
 kwargs: {}
+
+# Defines the metric that will be used to evaluate the performance of the agent.
+# This metric is returned at the end of an experiment and can be used for hyperparameter tuning.
+eval_metric: episode_return
+
+
+# Optional wrapper to flatten the observation space.
+# wrapper:
+#   _target_: stoix.wrappers.transforms.FlattenObservationWrapper

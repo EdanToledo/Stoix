@@ -8,8 +8,7 @@ from jumanji.types import TimeStep
 from optax import OptState
 from typing_extensions import NamedTuple
 
-from stoix.base_types import Action, Done, Observation, Value
-from stoix.systems.ppo.ppo_types import ActorCriticParams
+from stoix.base_types import Action, ActorCriticParams, Done, Observation, Value
 
 SearchApply = Callable[[FrozenDict, chex.PRNGKey, mctx.RootFnOutput], mctx.PolicyOutput]
 RootFnApply = Callable[[FrozenDict, Observation, chex.ArrayTree, chex.PRNGKey], mctx.RootFnOutput]
@@ -40,14 +39,9 @@ class SampledExItTransition(NamedTuple):
     info: Dict
 
 
-class WorldModelParams(NamedTuple):
-    representation_params: FrozenDict
-    dynamics_params: FrozenDict
-
-
 class MZParams(NamedTuple):
     prediction_params: ActorCriticParams
-    world_model_params: WorldModelParams
+    world_model_params: FrozenDict
 
 
 class ZLearnerState(NamedTuple):

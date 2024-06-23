@@ -1,0 +1,26 @@
+# Example of a hyperparameter sweep configuration file
+
+defaults:
+  - logger: base_logger
+  - arch: anakin
+  - system: ff_ppo
+  - network: mlp
+  - env: gymnax/cartpole
+  - override hydra/sweeper: optuna
+  - override hydra/sweeper/sampler: tpe
+  - _self_
+
+hydra:
+  mode: MULTIRUN
+  sweeper:
+    direction: maximize
+    study_name: ${system.system_name}_${env.scenario.task_name}_sweep
+    storage: null
+    n_trials: 5
+    n_jobs: 1
+    sampler:
+      seed: ${arch.seed}
+    params:
+      system.clip_eps: range(0.1, 0.3, step=0.1)
+      system.gae_lambda: range(0, 1, step=0.05)
+      system.epochs: range(1, 10, step=1)

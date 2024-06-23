@@ -17,10 +17,11 @@
 <a  href="http://mypy-lang.org/">
     <img src="https://www.mypy-lang.org/static/mypy_badge.svg" alt="MyPy" />
 </a>
+<a href="https://zenodo.org/doi/10.5281/zenodo.10916257"><img src="https://zenodo.org/badge/758685996.svg" alt="DOI"></a>
 </div>
 
 <h2 align="center">
-    <p>Distributed Single-Agent Reinforcement Learning in JAX</p>
+    <p>Distributed Single-Agent Reinforcement Learning End-to-End in JAX</p>
 </h2>
 
 <div align="center">
@@ -43,6 +44,13 @@ The current code in Stoix was initially **largely** taken and subsequently adapt
 
 ## Overview 🦜
 
+### Stoix TLDR
+1. **Algorithms:** Stoix offers easily hackable, single-file implementations of popular algorithms in pure JAX. You can vectorize algorithm training on a single device using `vmap` as well as distribute training across multiple devices with `pmap` (or both). Multi-host support (i.e., vmap/pmap over multiple devices **and** machines) is coming soon! All implementations include checkpointing to save and resume parameters and training runs.
+
+2. **Hydra Config System:** Leverage the Hydra configuration system for efficient and consistent management of experiments, network architectures, and environments. Hydra facilitates the easy addition of new hyperparameters and supports multi-runs and Optuna hyperparameter optimization. No more need to create large bash scripts to run a series of experiments with differing hyperparameters, network architectures or environments.
+
+3. **Advanced Logging:** Stoix features advanced and configurable logging, ready for output to the terminal, TensorBoard, and other ML tracking dashboards (WandB and Neptune). It also supports logging experiments in JSON format ready for statistical tests and generating RLiable plots (see the plotting notebook). This enables statistically confident comparisons of algorithms natively.
+
 Stoix currently offers the following building blocks for Single-Agent RL research:
 
 ### Implementations of Algorithms 🥑
@@ -54,6 +62,7 @@ Stoix currently offers the following building blocks for Single-Agent RL researc
 - **Munchausen DQN (M-DQN)** [Paper](https://arxiv.org/abs/2007.14430)
 - **Quantile Regression DQN (QR-DQN)** - [Paper](https://arxiv.org/abs/1710.10044)
 - **DQN with Regularized Q-learning (DQN-Reg)** [Paper](https://arxiv.org/abs/2101.03958)
+- **Rainbow** - [Paper](https://arxiv.org/abs/1710.02298)
 - **REINFORCE With Baseline** - [Paper](https://people.cs.umass.edu/~barto/courses/cs687/williams92simple.pdf)
 - **Deep Deterministic Policy Gradient (DDPG)** - [Paper](https://arxiv.org/abs/1509.02971)
 - **Twin Delayed DDPG (TD3)** - [Paper](https://arxiv.org/abs/1802.09477)
@@ -62,6 +71,7 @@ Stoix currently offers the following building blocks for Single-Agent RL researc
 - **Proximal Policy Optimization (PPO)** - [Paper](https://arxiv.org/abs/1707.06347)
 - **Discovered Policy Optimization (DPO)** [Paper](https://arxiv.org/abs/2210.05639)
 - **Maximum a Posteriori Policy Optimisation (MPO)** - [Paper](https://arxiv.org/abs/1806.06920)
+- **On-Policy Maximum a Posteriori Policy Optimisation (V-MPO)** - [Paper](https://arxiv.org/abs/1909.12238)
 - **Advantage-Weighted Regression (AWR)** - [Paper](https://arxiv.org/abs/1910.00177)
 - **AlphaZero** - [Paper](https://arxiv.org/abs/1712.01815)
 - **MuZero** - [Paper](https://arxiv.org/abs/1911.08265)
@@ -118,6 +128,18 @@ Stoix makes use of Hydra for config management. In order to see our default syst
 python stoix/systems/ppo/ff_ppo.py env=gymnax/cartpole
 ```
 
+Additionally, certain implementations such as Dueling DQN are decided by the network architecture but the underlying algorithm stays the same. For example, if you wanted to run Dueling DQN you would simply do:
+
+```bash
+python stoix/systems/q_learning/ff_dqn.py network=mlp_dueling_dqn
+```
+
+or if you wanted to do dueling C51, you could do:
+
+```bash
+python stoix/systems/q_learning/ff_c51.py network=mlp_dueling_c51
+```
+
 ## Contributing 🤝
 
 Please read our [contributing docs](docs/CONTRIBUTING.md) for details on how to submit pull requests, our Contributor License Agreement and community guidelines.
@@ -136,7 +158,6 @@ We plan to iteratively expand Stoix in the following increments:
     - [ ] Muesli - [Paper](https://arxiv.org/abs/2104.06159)
     - [ ] DreamerV3 - [Paper](https://arxiv.org/abs/2301.04104)
     - [ ] R2D2 - [Paper](https://openreview.net/pdf?id=r1lyTjAqYX)
-    - [ ] Rainbow - [Paper](https://arxiv.org/abs/1710.02298)
 - 🎮 Self-play 2-player Systems for board games.
 
 Please do follow along as we develop this next phase!
@@ -146,17 +167,20 @@ Please do follow along as we develop this next phase!
 If you use Stoix in your work, please cite us:
 
 ```bibtex
-@misc{toledo2024stoix,
-    title={Stoix: Distributed Single-Agent Reinforcement Learning in JAX},
-    author={Edan Toledo},
-    year={2024},
-    url={https://github.com/EdanToledo/Stoix/},
+@software{toledo2024stoix,
+author = {Toledo, Edan},
+doi = {10.5281/zenodo.10916258},
+month = apr,
+title = {{Stoix: Distributed Single-Agent Reinforcement Learning End-to-End in JAX}},
+url = {https://github.com/EdanToledo/Stoix},
+version = {v0.0.1},
+year = {2024}
 }
 ```
 
 ## Acknowledgements 🙏
 
-We would like to thank the authors and developers of [Mava](mava) as this was essentially a port of their repo at the time of creation.
+We would like to thank the authors and developers of [Mava](mava) as this was essentially a port of their repo at the time of creation. This helped set up a lot of the infracstructure of logging, evaluation and other utilities.
 
 ## See Also 🔎
 

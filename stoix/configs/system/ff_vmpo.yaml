@@ -1,0 +1,22 @@
+# --- Defaults FF-VMPO Discrete---
+
+system_name: ff_vmpo # Name of the system.
+
+# --- RL hyperparameters ---
+rollout_length: 32 # Number of environment steps per vectorised environment.
+epochs: 16 # Number of sgd steps per rollout.
+actor_lr: 3e-4  # the learning rate of the policy network optimizer
+critic_lr: 3e-4  # the learning rate of the critic network network optimizer
+dual_lr: 1e-2  # the learning rate of the alpha optimizer
+actor_target_period: 50 # number of online network updates before updating the target network
+gamma: 0.99  # discount factor
+max_grad_norm: 1.0 # Maximum norm of the gradients for a weight update.
+decay_learning_rates: False # Whether learning rates should be linearly decayed during training.
+max_abs_reward : 20_000  # maximum absolute reward value
+epsilon: 0.5 # KL constraint on the non-parametric auxiliary policy, the one associated with the dual variable called temperature.
+epsilon_policy : 0.001 #  KL constraint on the categorical policy, the one associated with the dual variable called alpha.
+init_log_temperature: 3. # initial value for the temperature in log-space, note a softplus (rather than an exp) will be used to transform this.
+init_log_alpha: 3. # initial value for the alpha value in log-space, note a softplus (rather than an exp) will be used to transform this.
+use_n_step_bootstrap : False # whether to use n-step bootstrapping for the value function targets.
+n_step_for_sequence_bootstrap : 5 # the number of steps to use for the sequence bootstrap. This is only used if use_n_step_bootstrap is True.
+gae_lambda : 0.95 # the GAE lambda parameter. This is only used if use_n_step_bootstrap is False.

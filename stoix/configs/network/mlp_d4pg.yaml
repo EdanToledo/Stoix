@@ -4,7 +4,7 @@ actor_network:
     _target_: stoix.networks.torso.MLPTorso
     layer_sizes: [256, 256, 256]
     use_layer_norm: False
-    activation: relu
+    activation: silu
   action_head:
     _target_: stoix.networks.heads.DeterministicHead
   post_processor:
@@ -17,6 +17,9 @@ q_network:
     _target_: stoix.networks.torso.MLPTorso
     layer_sizes: [256, 256, 256]
     use_layer_norm: False
-    activation: relu
+    activation: silu
   critic_head:
     _target_: stoix.networks.heads.DistributionalContinuousQNetwork
+    vmin: ${system.vmin}
+    vmax: ${system.vmax}
+    num_atoms: ${system.num_atoms}

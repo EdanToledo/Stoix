@@ -23,6 +23,8 @@ from rich.pretty import pprint
 
 from stoix.base_types import (
     ActorApply,
+    ActorCriticOptStates,
+    ActorCriticParams,
     CriticApply,
     ExperimentOutput,
     LearnerFn,
@@ -30,7 +32,6 @@ from stoix.base_types import (
 )
 from stoix.networks.base import FeedForwardActor as Actor
 from stoix.networks.base import FeedForwardCritic as Critic
-from stoix.systems.ppo.ppo_types import ActorCriticOptStates, ActorCriticParams
 from stoix.systems.search.evaluator import search_evaluator_setup
 from stoix.systems.search.search_types import (
     EnvironmentStep,
@@ -158,7 +159,7 @@ def get_warmup_fn(
 
         # Add the trajectory to the buffer.
         # Swap the batch and time axes.
-        traj_batch = jax.tree_map(lambda x: jnp.swapaxes(x, 0, 1), traj_batch)
+        traj_batch = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), traj_batch)
         buffer_states = buffer_add_fn(buffer_states, traj_batch)
 
         return env_states, timesteps, keys, buffer_states
@@ -228,7 +229,7 @@ def get_learner_fn(
 
         # Add the trajectory to the buffer.
         # Swap the batch and time axes.
-        traj_batch = jax.tree_map(lambda x: jnp.swapaxes(x, 0, 1), traj_batch)
+        traj_batch = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), traj_batch)
         buffer_state = buffer_add_fn(buffer_state, traj_batch)
 
         def _update_epoch(update_state: Tuple, _: Any) -> Tuple:
@@ -249,7 +250,11 @@ def get_learner_fn(
                 entropy = actor_policy.entropy().mean()
 
                 total_loss_actor = actor_loss - config.system.ent_coef * entropy
-                return total_loss_actor, (actor_loss, entropy)
+                loss_info = {
+                    "actor_loss": actor_loss,
+                    "entropy": entropy,
+                }
+                return total_loss_actor, loss_info
 
             def _critic_loss_fn(
                 critic_params: FrozenDict,
@@ -271,7 +276,10 @@ def get_learner_fn(
                 value_loss = rlax.l2_loss(value, targets).mean()
 
                 critic_total_loss = config.system.vf_coef * value_loss
-                return critic_total_loss, (value_loss)
+                loss_info = {
+                    "value_loss": value_loss,
+                }
+                return critic_total_loss, loss_info
 
             params, opt_states, buffer_state, key = update_state
 
@@ -282,12 +290,12 @@ def get_learner_fn(
             sequence: ExItTransition = sequence_sample.experience
 
             # CALCULATE ACTOR LOSS
-            actor_grad_fn = jax.value_and_grad(_actor_loss_fn, has_aux=True)
-            actor_loss_info, actor_grads = actor_grad_fn(params.actor_params, sequence)
+            actor_grad_fn = jax.grad(_actor_loss_fn, has_aux=True)
+            actor_grads, actor_loss_info = actor_grad_fn(params.actor_params, sequence)
 
             # CALCULATE CRITIC LOSS
-            critic_grad_fn = jax.value_and_grad(_critic_loss_fn, has_aux=True)
-            critic_loss_info, critic_grads = critic_grad_fn(params.critic_params, sequence)
+            critic_grad_fn = jax.grad(_critic_loss_fn, has_aux=True)
+            critic_grads, critic_loss_info = critic_grad_fn(params.critic_params, sequence)
 
             # Compute the parallel mean (pmean) over the batch.
             # This calculation is inspired by the Anakin architecture demo notebook.
@@ -326,15 +334,9 @@ def get_learner_fn(
             new_opt_state = ActorCriticOptStates(actor_new_opt_state, critic_new_opt_state)
 
             # PACK LOSS INFO
-            total_loss = actor_loss_info[0] + critic_loss_info[0]
-            value_loss = critic_loss_info[1]
-            actor_loss = actor_loss_info[1][0]
-            entropy = actor_loss_info[1][1]
             loss_info = {
-                "total_loss": total_loss,
-                "value_loss": value_loss,
-                "actor_loss": actor_loss,
-                "entropy": entropy,
+                **actor_loss_info,
+                **critic_loss_info,
             }
             return (new_params, new_opt_state, buffer_state, key), loss_info
 
@@ -478,6 +480,20 @@ def learner_setup(
         info={"episode_return": 0.0, "episode_length": 0, "is_terminal_step": False},
     )
 
+    assert config.system.total_buffer_size % n_devices == 0, (
+        f"{Fore.RED}{Style.BRIGHT}The total buffer size should be divisible "
+        + "by the number of devices!{Style.RESET_ALL}"
+    )
+    assert config.system.total_batch_size % n_devices == 0, (
+        f"{Fore.RED}{Style.BRIGHT}The total batch size should be divisible "
+        + "by the number of devices!{Style.RESET_ALL}"
+    )
+    config.system.buffer_size = config.system.total_buffer_size // (
+        n_devices * config.arch.update_batch_size
+    )
+    config.system.batch_size = config.system.total_batch_size // (
+        n_devices * config.arch.update_batch_size
+    )
     buffer_fn = fbx.make_trajectory_buffer(
         max_size=config.system.buffer_size,
         min_length_time_axis=config.system.sample_sequence_length,
@@ -498,17 +514,17 @@ def learner_setup(
 
     # Initialise environment states and timesteps: across devices and batches.
     key, *env_keys = jax.random.split(
-        key, n_devices * config.system.update_batch_size * config.arch.num_envs + 1
+        key, n_devices * config.arch.update_batch_size * config.arch.num_envs + 1
     )
     env_states, timesteps = jax.vmap(env.reset, in_axes=(0))(
         jnp.stack(env_keys),
     )
     reshape_states = lambda x: x.reshape(
-        (n_devices, config.system.update_batch_size, config.arch.num_envs) + x.shape[1:]
+        (n_devices, config.arch.update_batch_size, config.arch.num_envs) + x.shape[1:]
     )
     # (devices, update batch size, num_envs, ...)
-    env_states = jax.tree_map(reshape_states, env_states)
-    timesteps = jax.tree_map(reshape_states, timesteps)
+    env_states = jax.tree_util.tree_map(reshape_states, env_states)
+    timesteps = jax.tree_util.tree_map(reshape_states, timesteps)
 
     # Load model from checkpoint if specified.
     if config.logger.checkpointing.load_model:
@@ -522,19 +538,24 @@ def learner_setup(
         params = restored_params
 
     # Define params to be replicated across devices and batches.
-    key, step_keys, warmup_keys = jax.random.split(key, num=3)
+    key, step_key, warmup_key = jax.random.split(key, num=3)
+    step_keys = jax.random.split(step_key, n_devices * config.arch.update_batch_size)
+    warmup_keys = jax.random.split(warmup_key, n_devices * config.arch.update_batch_size)
+    reshape_keys = lambda x: x.reshape((n_devices, config.arch.update_batch_size) + x.shape[1:])
+    step_keys = reshape_keys(jnp.stack(step_keys))
+    warmup_keys = reshape_keys(jnp.stack(warmup_keys))
     opt_states = ActorCriticOptStates(actor_opt_state, critic_opt_state)
-    replicate_learner = (params, opt_states, buffer_states, step_keys, warmup_keys)
+    replicate_learner = (params, opt_states, buffer_states)
 
     # Duplicate learner for update_batch_size.
-    broadcast = lambda x: jnp.broadcast_to(x, (config.system.update_batch_size,) + x.shape)
-    replicate_learner = jax.tree_map(broadcast, replicate_learner)
+    broadcast = lambda x: jnp.broadcast_to(x, (config.arch.update_batch_size,) + x.shape)
+    replicate_learner = jax.tree_util.tree_map(broadcast, replicate_learner)
 
     # Duplicate learner across devices.
     replicate_learner = flax.jax_utils.replicate(replicate_learner, devices=jax.devices())
 
     # Initialise learner state.
-    params, opt_states, buffer_states, step_keys, warmup_keys = replicate_learner
+    params, opt_states, buffer_states = replicate_learner
     # Warmup the buffer.
     env_states, timesteps, keys, buffer_states = warmup(
         env_states, timesteps, buffer_states, warmup_keys
@@ -546,12 +567,13 @@ def learner_setup(
     return learn, root_fn, search_apply_fn, init_learner_state
 
 
-def run_experiment(_config: DictConfig) -> None:
+def run_experiment(_config: DictConfig) -> float:
     """Runs experiment."""
     config = copy.deepcopy(_config)
 
     # Calculate total timesteps.
     n_devices = len(jax.devices())
+    config.num_devices = n_devices
     config = check_total_timesteps(config)
     assert (
         config.arch.num_updates > config.arch.num_evaluation
@@ -586,7 +608,7 @@ def run_experiment(_config: DictConfig) -> None:
         n_devices
         * config.arch.num_updates_per_eval
         * config.system.rollout_length
-        * config.system.update_batch_size
+        * config.arch.update_batch_size
         * config.arch.num_envs
     )
 
@@ -682,18 +704,23 @@ def run_experiment(_config: DictConfig) -> None:
 
     # Stop the logger.
     logger.stop()
+    # Record the performance for the final evaluation run. If the absolute metric is not
+    # calculated, this will be the final evaluation run.
+    eval_performance = float(jnp.mean(evaluator_output.episode_metrics[config.env.eval_metric]))
+    return eval_performance
 
 
 @hydra.main(config_path="../../configs", config_name="default_ff_az.yaml", version_base="1.2")
-def hydra_entry_point(cfg: DictConfig) -> None:
+def hydra_entry_point(cfg: DictConfig) -> float:
     """Experiment entry point."""
     # Allow dynamic attributes.
     OmegaConf.set_struct(cfg, False)
 
     # Run experiment.
-    run_experiment(cfg)
+    eval_performance = run_experiment(cfg)
 
     print(f"{Fore.CYAN}{Style.BRIGHT}AlphaZero experiment completed{Style.RESET_ALL}")
+    return eval_performance
 
 
 if __name__ == "__main__":

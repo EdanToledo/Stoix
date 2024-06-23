@@ -2,7 +2,7 @@ import copy
 import time
 from typing import TYPE_CHECKING, Any, Callable, Dict, Tuple
 
-from stoix.systems.q_learning.dqn_types import DQNLearnerState, QsAndTarget, Transition
+from stoix.systems.q_learning.dqn_types import Transition
 from stoix.utils.checkpointing import Checkpointer
 from stoix.utils.jax_utils import unreplicate_batch_dim, unreplicate_n_dims
 from stoix.utils.loss import categorical_double_q_learning
@@ -36,6 +36,8 @@ from stoix.base_types import (
     LearnerFn,
     LogEnvState,
     Observation,
+    OffPolicyLearnerState,
+    OnlineAndTarget,
 )
 from stoix.evaluator import evaluator_setup, get_distribution_act_fn
 from stoix.networks.base import FeedForwardActor as Actor
@@ -71,10 +73,10 @@ def get_warmup_fn(
             # LOG EPISODE METRICS
             done = timestep.last().reshape(-1)
             info = timestep.extras["episode_metrics"]
-            real_next_obs = timestep.extras["real_next_obs"]
+            next_obs = timestep.extras["next_obs"]
 
             transition = Transition(
-                last_timestep.observation, action, timestep.reward, done, real_next_obs, info
+                last_timestep.observation, action, timestep.reward, done, next_obs, info
             )
 
             return (env_state, timestep, key), transition
@@ -102,13 +104,17 @@ def get_learner_fn(
     q_update_fn: optax.TransformUpdateFn,
     buffer_fns: Tuple[Callable, Callable],
     config: DictConfig,
-) -> LearnerFn[DQNLearnerState]:
+) -> LearnerFn[OffPolicyLearnerState]:
     """Get the learner function."""
 
     buffer_add_fn, buffer_sample_fn = buffer_fns
 
-    def _update_step(learner_state: DQNLearnerState, _: Any) -> Tuple[DQNLearnerState, Tuple]:
-        def _env_step(learner_state: DQNLearnerState, _: Any) -> Tuple[DQNLearnerState, Transition]:
+    def _update_step(
+        learner_state: OffPolicyLearnerState, _: Any
+    ) -> Tuple[OffPolicyLearnerState, Tuple]:
+        def _env_step(
+            learner_state: OffPolicyLearnerState, _: Any
+        ) -> Tuple[OffPolicyLearnerState, Transition]:
             """Step the environment."""
             q_params, opt_states, buffer_state, key, env_state, last_timestep = learner_state
 
@@ -123,13 +129,13 @@ def get_learner_fn(
             # LOG EPISODE METRICS
             done = timestep.last().reshape(-1)
             info = timestep.extras["episode_metrics"]
-            real_next_obs = timestep.extras["real_next_obs"]
+            next_obs = timestep.extras["next_obs"]
 
             transition = Transition(
-                last_timestep.observation, action, timestep.reward, done, real_next_obs, info
+                last_timestep.observation, action, timestep.reward, done, next_obs, info
             )
 
-            learner_state = DQNLearnerState(
+            learner_state = OffPolicyLearnerState(
                 q_params, opt_states, buffer_state, key, env_state, timestep
             )
             return learner_state, transition
@@ -170,6 +176,8 @@ def get_learner_fn(
                     q_logits_tm1, q_atoms_tm1, a_tm1, r_t, d_t, q_logits_t, q_atoms_t, q_t_selector
                 )
 
+                q_loss = jnp.mean(q_loss)
+
                 loss_info = {
                     "q_loss": q_loss,
                 }
@@ -206,7 +214,7 @@ def get_learner_fn(
             new_target_q_params = optax.incremental_update(
                 q_new_online_params, params.target, config.system.tau
             )
-            q_new_params = QsAndTarget(q_new_online_params, new_target_q_params)
+            q_new_params = OnlineAndTarget(q_new_online_params, new_target_q_params)
 
             # PACK NEW PARAMS AND OPTIMISER STATE
             new_params = q_new_params
@@ -214,7 +222,7 @@ def get_learner_fn(
 
             # PACK LOSS INFO
             loss_info = {
-                "total_loss": q_loss_info["q_loss"],
+                **q_loss_info,
             }
             return (new_params, new_opt_state, buffer_state, key), loss_info
 
@@ -226,13 +234,13 @@ def get_learner_fn(
         )
 
         params, opt_states, buffer_state, key = update_state
-        learner_state = DQNLearnerState(
+        learner_state = OffPolicyLearnerState(
             params, opt_states, buffer_state, key, env_state, last_timestep
         )
         metric = traj_batch.info
         return learner_state, (metric, loss_info)
 
-    def learner_fn(learner_state: DQNLearnerState) -> ExperimentOutput[DQNLearnerState]:
+    def learner_fn(learner_state: OffPolicyLearnerState) -> ExperimentOutput[OffPolicyLearnerState]:
         """Learner function.
 
         This function represents the learner, it updates the network parameters
@@ -264,7 +272,7 @@ class EvalActorWrapper:
 
 def learner_setup(
     env: Environment, keys: chex.Array, config: DictConfig
-) -> Tuple[LearnerFn[DQNLearnerState], EvalActorWrapper, DQNLearnerState]:
+) -> Tuple[LearnerFn[OffPolicyLearnerState], EvalActorWrapper, OffPolicyLearnerState]:
     """Initialise learner_fn, network, optimiser, environment and states."""
     # Get available TPU cores.
     n_devices = len(jax.devices())
@@ -282,9 +290,6 @@ def learner_setup(
         config.network.actor_network.action_head,
         action_dim=action_dim,
         epsilon=config.system.training_epsilon,
-        num_atoms=config.system.num_atoms,
-        v_min=config.system.v_min,
-        v_max=config.system.v_max,
     )
 
     q_network = Actor(torso=q_network_torso, action_head=q_network_action_head)
@@ -293,9 +298,6 @@ def learner_setup(
         config.network.actor_network.action_head,
         action_dim=action_dim,
         epsilon=config.system.evaluation_epsilon,
-        num_atoms=config.system.num_atoms,
-        v_min=config.system.v_min,
-        v_max=config.system.v_max,
     )
     eval_q_network = Actor(torso=q_network_torso, action_head=eval_q_network_action_head)
     eval_q_network = EvalActorWrapper(actor=eval_q_network)
@@ -315,7 +317,7 @@ def learner_setup(
     q_target_params = q_online_params
     q_opt_state = q_optim.init(q_online_params)
 
-    params = QsAndTarget(q_online_params, q_target_params)
+    params = OnlineAndTarget(q_online_params, q_target_params)
     opt_states = q_opt_state
 
     q_network_apply_fn = q_network.apply
@@ -334,6 +336,20 @@ def learner_setup(
         info={"episode_return": 0.0, "episode_length": 0, "is_terminal_step": False},
     )
 
+    assert config.system.total_buffer_size % n_devices == 0, (
+        f"{Fore.RED}{Style.BRIGHT}The total buffer size should be divisible "
+        + "by the number of devices!{Style.RESET_ALL}"
+    )
+    assert config.system.total_batch_size % n_devices == 0, (
+        f"{Fore.RED}{Style.BRIGHT}The total batch size should be divisible "
+        + "by the number of devices!{Style.RESET_ALL}"
+    )
+    config.system.buffer_size = config.system.total_buffer_size // (
+        n_devices * config.arch.update_batch_size
+    )
+    config.system.batch_size = config.system.total_batch_size // (
+        n_devices * config.arch.update_batch_size
+    )
     buffer_fn = fbx.make_item_buffer(
         max_length=config.system.buffer_size,
         min_length=config.system.batch_size,
@@ -353,17 +369,17 @@ def learner_setup(
 
     # Initialise environment states and timesteps: across devices and batches.
     key, *env_keys = jax.random.split(
-        key, n_devices * config.system.update_batch_size * config.arch.num_envs + 1
+        key, n_devices * config.arch.update_batch_size * config.arch.num_envs + 1
     )
     env_states, timesteps = jax.vmap(env.reset, in_axes=(0))(
         jnp.stack(env_keys),
     )
     reshape_states = lambda x: x.reshape(
-        (n_devices, config.system.update_batch_size, config.arch.num_envs) + x.shape[1:]
+        (n_devices, config.arch.update_batch_size, config.arch.num_envs) + x.shape[1:]
     )
     # (devices, update batch size, num_envs, ...)
-    env_states = jax.tree_map(reshape_states, env_states)
-    timesteps = jax.tree_map(reshape_states, timesteps)
+    env_states = jax.tree_util.tree_map(reshape_states, env_states)
+    timesteps = jax.tree_util.tree_map(reshape_states, timesteps)
 
     # Load model from checkpoint if specified.
     if config.logger.checkpointing.load_model:
@@ -372,41 +388,47 @@ def learner_setup(
             **config.logger.checkpointing.load_args,  # Other checkpoint args
         )
         # Restore the learner state from the checkpoint
-        restored_params, _ = loaded_checkpoint.restore_params(TParams=QsAndTarget)
+        restored_params, _ = loaded_checkpoint.restore_params(TParams=OnlineAndTarget)
         # Update the params
         params = restored_params
 
     # Define params to be replicated across devices and batches.
-    key, step_keys, warmup_keys = jax.random.split(key, num=3)
+    key, step_key, warmup_key = jax.random.split(key, num=3)
+    step_keys = jax.random.split(step_key, n_devices * config.arch.update_batch_size)
+    warmup_keys = jax.random.split(warmup_key, n_devices * config.arch.update_batch_size)
+    reshape_keys = lambda x: x.reshape((n_devices, config.arch.update_batch_size) + x.shape[1:])
+    step_keys = reshape_keys(jnp.stack(step_keys))
+    warmup_keys = reshape_keys(jnp.stack(warmup_keys))
 
-    replicate_learner = (params, opt_states, buffer_states, step_keys, warmup_keys)
+    replicate_learner = (params, opt_states, buffer_states)
 
     # Duplicate learner for update_batch_size.
-    broadcast = lambda x: jnp.broadcast_to(x, (config.system.update_batch_size,) + x.shape)
-    replicate_learner = jax.tree_map(broadcast, replicate_learner)
+    broadcast = lambda x: jnp.broadcast_to(x, (config.arch.update_batch_size,) + x.shape)
+    replicate_learner = jax.tree_util.tree_map(broadcast, replicate_learner)
 
     # Duplicate learner across devices.
     replicate_learner = flax.jax_utils.replicate(replicate_learner, devices=jax.devices())
 
     # Initialise learner state.
-    params, opt_states, buffer_states, step_keys, warmup_keys = replicate_learner
+    params, opt_states, buffer_states = replicate_learner
     # Warmup the buffer.
     env_states, timesteps, keys, buffer_states = warmup(
         env_states, timesteps, buffer_states, warmup_keys
     )
-    init_learner_state = DQNLearnerState(
+    init_learner_state = OffPolicyLearnerState(
         params, opt_states, buffer_states, step_keys, env_states, timesteps
     )
 
     return learn, eval_q_network, init_learner_state
 
 
-def run_experiment(_config: DictConfig) -> None:
+def run_experiment(_config: DictConfig) -> float:
     """Runs experiment."""
     config = copy.deepcopy(_config)
 
     # Calculate total timesteps.
     n_devices = len(jax.devices())
+    config.num_devices = n_devices
     config = check_total_timesteps(config)
     assert (
         config.arch.num_updates > config.arch.num_evaluation
@@ -436,7 +458,7 @@ def run_experiment(_config: DictConfig) -> None:
         n_devices
         * config.arch.num_updates_per_eval
         * config.system.rollout_length
-        * config.system.update_batch_size
+        * config.arch.update_batch_size
         * config.arch.num_envs
     )
 
@@ -531,18 +553,23 @@ def run_experiment(_config: DictConfig) -> None:
 
     # Stop the logger.
     logger.stop()
+    # Record the performance for the final evaluation run. If the absolute metric is not
+    # calculated, this will be the final evaluation run.
+    eval_performance = float(jnp.mean(evaluator_output.episode_metrics[config.env.eval_metric]))
+    return eval_performance
 
 
 @hydra.main(config_path="../../configs", config_name="default_ff_c51.yaml", version_base="1.2")
-def hydra_entry_point(cfg: DictConfig) -> None:
+def hydra_entry_point(cfg: DictConfig) -> float:
     """Experiment entry point."""
     # Allow dynamic attributes.
     OmegaConf.set_struct(cfg, False)
 
     # Run experiment.
-    run_experiment(cfg)
+    eval_performance = run_experiment(cfg)
 
     print(f"{Fore.CYAN}{Style.BRIGHT}C51 experiment completed{Style.RESET_ALL}")
+    return eval_performance
 
 
 if __name__ == "__main__":

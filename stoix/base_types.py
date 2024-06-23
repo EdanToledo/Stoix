@@ -2,8 +2,10 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Generic, Tuple, TypeVar
 
 import chex
 from distrax import DistributionLike
+from flashbax.buffers.trajectory_buffer import BufferState
 from flax.core.frozen_dict import FrozenDict
 from jumanji.types import TimeStep
+from optax import OptState
 from typing_extensions import NamedTuple, TypeAlias
 
 if TYPE_CHECKING:  # https://github.com/python/mypy/issues/6239
@@ -15,10 +17,14 @@ else:
 Action: TypeAlias = chex.Array
 Value: TypeAlias = chex.Array
 Done: TypeAlias = chex.Array
+Truncated: TypeAlias = chex.Array
 First: TypeAlias = chex.Array
 HiddenState: TypeAlias = chex.Array
 # Can't know the exact type of State.
 State: TypeAlias = Any
+Parameters: TypeAlias = Any
+OptStates: TypeAlias = Any
+HiddenStates: TypeAlias = Any
 
 
 class Observation(NamedTuple):
@@ -73,10 +79,68 @@ class RNNEvalState(NamedTuple):
     key: chex.PRNGKey
     env_state: State
     timestep: TimeStep
-    dones: chex.Array
+    dones: Done
     hstate: HiddenState
     step_count: chex.Array
     episode_return: chex.Array
+
+
+class ActorCriticParams(NamedTuple):
+    """Parameters of an actor critic network."""
+
+    actor_params: FrozenDict
+    critic_params: FrozenDict
+
+
+class ActorCriticOptStates(NamedTuple):
+    """OptStates of actor critic learner."""
+
+    actor_opt_state: OptState
+    critic_opt_state: OptState
+
+
+class ActorCriticHiddenStates(NamedTuple):
+    """Hidden states for an actor critic learner."""
+
+    policy_hidden_state: HiddenState
+    critic_hidden_state: HiddenState
+
+
+class LearnerState(NamedTuple):
+    """State of the learner."""
+
+    params: Parameters
+    opt_states: OptStates
+    key: chex.PRNGKey
+    env_state: LogEnvState
+    timestep: TimeStep
+
+
+class RNNLearnerState(NamedTuple):
+    """State of the `Learner` for recurrent architectures."""
+
+    params: Parameters
+    opt_states: OptStates
+    key: chex.PRNGKey
+    env_state: LogEnvState
+    timestep: TimeStep
+    done: Done
+    truncated: Truncated
+    hstates: HiddenStates
+
+
+class OffPolicyLearnerState(NamedTuple):
+    params: Parameters
+    opt_states: OptStates
+    buffer_state: BufferState
+    key: chex.PRNGKey
+    env_state: LogEnvState
+    timestep: TimeStep
+
+
+class OnlineAndTarget(NamedTuple):
+    online: FrozenDict
+    target: FrozenDict
 
 
 StoixState = TypeVar(
@@ -96,10 +160,12 @@ RNNObservation: TypeAlias = Tuple[Observation, Done]
 LearnerFn = Callable[[StoixState], ExperimentOutput[StoixState]]
 EvalFn = Callable[[FrozenDict, chex.PRNGKey], ExperimentOutput[StoixState]]
 
-ActorApply = Callable[[FrozenDict, Observation], DistributionLike]
+ActorApply = Callable[..., DistributionLike]
+
 ActFn = Callable[[FrozenDict, Observation, chex.PRNGKey], chex.Array]
 CriticApply = Callable[[FrozenDict, Observation], Value]
 DistributionCriticApply = Callable[[FrozenDict, Observation], DistributionLike]
+ContinuousQApply = Callable[[FrozenDict, Observation, Action], Value]
 
 RecActorApply = Callable[
     [FrozenDict, HiddenState, RNNObservation], Tuple[HiddenState, DistributionLike]

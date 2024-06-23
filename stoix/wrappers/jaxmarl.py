@@ -156,7 +156,6 @@ class JaxMarlWrapper(Wrapper):
     def __init__(
         self,
         env: MultiAgentEnv,
-        flatten_observation: bool,
         has_global_state: bool,
         add_agent_ids_to_state: bool = False,
         timelimit: int = 1000,
@@ -166,7 +165,6 @@ class JaxMarlWrapper(Wrapper):
 
         Args:
         - env: The JaxMarl environment to wrap.
-        - flatten_observation: Whether to flatten the observation.
         - has_global_state: Whether the environment has global state.
         - add_agent_ids_to_state: Whether to add the agent ids to the global state.
         - timelimit: The time limit for each episode.
@@ -180,7 +178,6 @@ class JaxMarlWrapper(Wrapper):
 
         super().__init__(env)
         self._env: MultiAgentEnv
-        self._flatten_observation = flatten_observation
         self._timelimit = timelimit
         self.agents = self._env.agents
         self.num_agents = self._env.num_agents
@@ -231,8 +228,6 @@ class JaxMarlWrapper(Wrapper):
         """Create an observation from the raw observation and environment state."""
 
         obs = batchify(obs, self.agents)
-        if self._flatten_observation:
-            obs = obs.reshape(-1)
 
         obs_data = {
             "agent_view": obs,
@@ -245,15 +240,14 @@ class JaxMarlWrapper(Wrapper):
 
         if self.has_global_state:
             obs_data["global_state"] = self.get_global_state(wrapped_env_state, obs)
-            if self._flatten_observation:
-                obs_data["global_state"] = obs_data["global_state"].reshape(-1)
+
             return ObservationGlobalState(**obs_data)
         else:
             return Observation(**obs_data)
 
     def observation_spec(self) -> specs.Spec:
         agent_view = jaxmarl_space_to_jumanji_spec(
-            merge_space(self._env.observation_spaces, self._flatten_observation),
+            merge_space(self._env.observation_spaces),
         )
 
         action_mask = specs.BoundedArray(
@@ -265,8 +259,7 @@ class JaxMarlWrapper(Wrapper):
 
         if self.has_global_state:
             global_state_shape: Sequence[int] = (self.num_agents, self.state_size)
-            if self._flatten_observation:
-                global_state_shape = (self.num_agents * self.state_size,)
+
             global_state = specs.Array(
                 global_state_shape,
                 agent_view.dtype,
@@ -330,14 +323,11 @@ class SmaxWrapper(JaxMarlWrapper):
     def __init__(
         self,
         env: MultiAgentEnv,
-        flatten_observation: bool = True,
         has_global_state: bool = False,
         timelimit: int = 500,
         add_agent_ids_to_state: bool = False,
     ):
-        super().__init__(
-            env, flatten_observation, has_global_state, add_agent_ids_to_state, timelimit
-        )
+        super().__init__(env, has_global_state, add_agent_ids_to_state, timelimit)
         self._env: SMAX
 
     @cached_property
@@ -367,14 +357,11 @@ class MabraxWrapper(JaxMarlWrapper):
     def __init__(
         self,
         env: MABraxEnv,
-        flatten_observation: bool = True,
         has_global_state: bool = False,
         timelimit: int = 1000,
         add_agent_ids_to_state: bool = False,
     ):
-        super().__init__(
-            env, flatten_observation, has_global_state, add_agent_ids_to_state, timelimit
-        )
+        super().__init__(env, has_global_state, add_agent_ids_to_state, timelimit)
         self._env: MABraxEnv
 
     @cached_property

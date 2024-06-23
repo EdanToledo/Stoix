@@ -8,7 +8,7 @@ flax
 gymnax>=0.0.6
 huggingface_hub
 hydra-core==1.3.2
-id-marl-eval @ git+https://github.com/instadeepai/marl-eval
+id-marl-eval @ git+https://github.com/EdanToledo/marl-eval
 jax>=0.4.10
 jaxlib
 jaxmarl
@@ -17,12 +17,13 @@ mctx
 neptune
 numpy
 omegaconf
-optax
+optax @ git+https://github.com/google-deepmind/optax.git
 pgx
-popjym @ git+https://github.com/EdanToledo/popjym.git
-protobuf==3.20.3
+protobuf==3.20.2
+popjym @ git+https://github.com/FLAIROx/popjym.git
 rlax
-tdqm
 tensorboard_logger
 tensorflow_probability
+tqdm
+wandb
 xminigrid @ git+https://github.com/corl-team/xland-minigrid.git@main

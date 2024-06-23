@@ -1,8 +1,11 @@
+from typing import Tuple
+
 import chex
 import jax
 import jax.numpy as jnp
 import rlax
 import tensorflow_probability.substrates.jax as tfp
+from tensorflow_probability.substrates.jax.distributions import Distribution
 
 tfd = tfp.distributions
 
@@ -11,11 +14,10 @@ tfd = tfp.distributions
 # which is much slower.
 
 
-def ppo_loss(
+def ppo_clip_loss(
     pi_log_prob_t: chex.Array, b_pi_log_prob_t: chex.Array, gae_t: chex.Array, epsilon: float
 ) -> chex.Array:
     ratio = jnp.exp(pi_log_prob_t - b_pi_log_prob_t)
-    gae_t = (gae_t - gae_t.mean()) / (gae_t.std() + 1e-8)
     loss_actor1 = ratio * gae_t
     loss_actor2 = (
         jnp.clip(
@@ -30,6 +32,21 @@ def ppo_loss(
     return loss_actor
 
 
+def ppo_penalty_loss(
+    pi_log_prob_t: chex.Array,
+    b_pi_log_prob_t: chex.Array,
+    gae_t: chex.Array,
+    beta: float,
+    pi: Distribution,
+    b_pi: Distribution,
+) -> Tuple[chex.Array, chex.Array]:
+    ratio = jnp.exp(pi_log_prob_t - b_pi_log_prob_t)
+    kl_div = b_pi.kl_divergence(pi).mean()
+    objective = ratio * gae_t - beta * kl_div
+    loss_actor = -objective.mean()
+    return loss_actor, kl_div
+
+
 def dpo_loss(
     pi_log_prob_t: chex.Array,
     b_pi_log_prob_t: chex.Array,
@@ -38,7 +55,6 @@ def dpo_loss(
     beta: float,
 ) -> chex.Array:
     log_diff = pi_log_prob_t - b_pi_log_prob_t
-    gae_t = (gae_t - gae_t.mean()) / (gae_t.std() + 1e-8)
     ratio = jnp.exp(log_diff)
     is_pos = (gae_t >= 0.0).astype(jnp.float32)
     r1 = ratio - 1.0
@@ -83,9 +99,8 @@ def categorical_double_q_learning(
     # Compute loss (i.e. temporal difference error).
     logit_qa_tm1 = q_logits_tm1[batch_indices, a_tm1]
     td_error = tfd.Categorical(probs=target).cross_entropy(tfd.Categorical(logits=logit_qa_tm1))
-    q_loss = jnp.mean(td_error)
 
-    return q_loss
+    return td_error
 
 
 def q_learning(
@@ -101,7 +116,10 @@ def q_learning(
     # Compute Q-learning n-step TD-error.
     target_tm1 = r_t + d_t * jnp.max(q_t, axis=-1)
     td_error = target_tm1 - q_tm1[batch_indices, a_tm1]
-    batch_loss = rlax.huber_loss(td_error, huber_loss_parameter)
+    if huber_loss_parameter > 0.0:
+        batch_loss = rlax.huber_loss(td_error, huber_loss_parameter)
+    else:
+        batch_loss = rlax.l2_loss(td_error)
 
     return jnp.mean(batch_loss)
 
@@ -120,7 +138,10 @@ def double_q_learning(
     # Compute double Q-learning n-step TD-error.
     target_tm1 = r_t + d_t * q_t_value[batch_indices, q_t_selector.argmax(-1)]
     td_error = target_tm1 - q_tm1[batch_indices, a_tm1]
-    batch_loss = rlax.huber_loss(td_error, huber_loss_parameter)
+    if huber_loss_parameter > 0.0:
+        batch_loss = rlax.huber_loss(td_error, huber_loss_parameter)
+    else:
+        batch_loss = rlax.l2_loss(td_error)
 
     return jnp.mean(batch_loss)
 
@@ -134,7 +155,11 @@ def td_learning(
 ) -> chex.Array:
     """Calculates the temporal difference error. Each input is a batch."""
     target_tm1 = r_t + discount_t * v_t
-    batch_loss = rlax.huber_loss(target_tm1 - v_tm1, huber_loss_parameter)
+    td_errors = target_tm1 - v_tm1
+    if huber_loss_parameter > 0.0:
+        batch_loss = rlax.huber_loss(td_errors, huber_loss_parameter)
+    else:
+        batch_loss = rlax.l2_loss(td_errors)
     return jnp.mean(batch_loss)
 
 
@@ -189,8 +214,11 @@ def munchausen_q_learning(
     target_q = jax.lax.stop_gradient(
         r_t + munchausen_coefficient * munchausen_term_a + d_t * next_v
     )
-
-    batch_loss = rlax.huber_loss(target_q - q_tm1_a, huber_loss_parameter)
+    td_error = target_q - q_tm1_a
+    if huber_loss_parameter > 0.0:
+        batch_loss = rlax.huber_loss(td_error, huber_loss_parameter)
+    else:
+        batch_loss = rlax.l2_loss(td_error)
     batch_loss = jnp.mean(batch_loss)
     return batch_loss
 

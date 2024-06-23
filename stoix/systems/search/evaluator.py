@@ -17,6 +17,7 @@ def get_search_evaluator_fn(
     search_apply_fn: SearchApply,
     root_fn: RootFnApply,
     config: DictConfig,
+    log_solve_rate: bool = False,
     eval_multiplier: int = 1,
 ) -> EvalFn:
     """Get the evaluator function for search-based agents."""
@@ -31,7 +32,7 @@ def get_search_evaluator_fn(
 
             # Select action.
             key, root_key, policy_key = jax.random.split(key, num=3)
-            obs, model_env_state = jax.tree_map(
+            obs, model_env_state = jax.tree_util.tree_map(
                 lambda x: x[jnp.newaxis, ...], (last_timestep.observation, env_state)
             )
             root = root_fn(params, obs, model_env_state, root_key)
@@ -59,6 +60,11 @@ def get_search_evaluator_fn(
             "episode_return": final_state.episode_return,
             "episode_length": final_state.step_count,
         }
+        # Log solve episode if solve rate is required.
+        if log_solve_rate:
+            eval_metrics["solve_episode"] = jnp.all(
+                final_state.episode_return >= config.env.solved_return_threshold
+            ).astype(int)
 
         return eval_metrics
 
@@ -113,15 +119,20 @@ def search_evaluator_setup(
     """Initialise evaluator_fn."""
     # Get available TPU cores.
     n_devices = len(jax.devices())
-    # Check if win rate is required for evaluation.
+    # Check if solve rate is required for evaluation.
+    if hasattr(config.env, "solved_return_threshold"):
+        log_solve_rate = True
+    else:
+        log_solve_rate = False
 
     eval_apply_fn = search_apply_fn
-    evaluator = get_search_evaluator_fn(eval_env, eval_apply_fn, root_fn, config)
+    evaluator = get_search_evaluator_fn(eval_env, eval_apply_fn, root_fn, config, log_solve_rate)
     absolute_metric_evaluator = get_search_evaluator_fn(
         eval_env,
         eval_apply_fn,
         root_fn,
         config,
+        log_solve_rate,
         10,
     )
 

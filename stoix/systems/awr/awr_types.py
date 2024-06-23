@@ -5,8 +5,13 @@ from flashbax.buffers.trajectory_buffer import BufferState
 from jumanji.types import TimeStep
 from typing_extensions import NamedTuple
 
-from stoix.base_types import LogEnvState
-from stoix.systems.ppo.ppo_types import ActorCriticOptStates, ActorCriticParams
+from stoix.base_types import (
+    ActorCriticOptStates,
+    ActorCriticParams,
+    Done,
+    LogEnvState,
+    Truncated,
+)
 
 
 class AWRLearnerState(NamedTuple):
@@ -22,5 +27,6 @@ class SequenceStep(NamedTuple):
     obs: chex.ArrayTree
     action: chex.Array
     reward: chex.Array
-    done: chex.Array
+    done: Done
+    truncated: Truncated
     info: Dict

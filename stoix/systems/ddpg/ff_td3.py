@@ -20,24 +20,21 @@ from rich.pretty import pprint
 
 from stoix.base_types import (
     ActorApply,
+    ContinuousQApply,
     ExperimentOutput,
     LearnerFn,
     LogEnvState,
     Observation,
+    OffPolicyLearnerState,
+    OnlineAndTarget,
 )
 from stoix.evaluator import evaluator_setup, get_distribution_act_fn
 from stoix.networks.base import CompositeNetwork
 from stoix.networks.base import FeedForwardActor as Actor
 from stoix.networks.base import MultiNetwork
 from stoix.networks.postprocessors import tanh_to_spec
-from stoix.systems.ddpg.ddpg_types import (
-    ActorAndTarget,
-    DDPGLearnerState,
-    DDPGOptStates,
-    DDPGParams,
-)
-from stoix.systems.q_learning.dqn_types import QsAndTarget, Transition
-from stoix.systems.sac.sac_types import ContinuousQApply
+from stoix.systems.ddpg.ddpg_types import DDPGOptStates, DDPGParams
+from stoix.systems.q_learning.dqn_types import Transition
 from stoix.utils import make_env as environments
 from stoix.utils.checkpointing import Checkpointer
 from stoix.utils.jax_utils import unreplicate_batch_dim, unreplicate_n_dims
@@ -52,8 +49,11 @@ def get_default_behavior_policy(config: DictConfig, actor_apply_fn: ActorApply) 
         params: DDPGParams, observation: Observation, key: chex.PRNGKey
     ) -> chex.Array:
         action = actor_apply_fn(params, observation).mode()
-        if config.system.exploration_sigma != 0:
-            action = rlax.add_gaussian_noise(key, action, config.system.exploration_sigma)
+        action_scale = (config.system.action_maximum - config.system.action_minimum) / 2
+        if config.system.exploration_noise != 0:
+            action = rlax.add_gaussian_noise(
+                key, action, config.system.exploration_noise * action_scale
+            ).clip(config.system.action_minimum, config.system.action_maximum)
         return action
 
     return behavior_policy
@@ -90,10 +90,10 @@ def get_warmup_fn(
             # LOG EPISODE METRICS
             done = timestep.last().reshape(-1)
             info = timestep.extras["episode_metrics"]
-            real_next_obs = timestep.extras["real_next_obs"]
+            next_obs = timestep.extras["next_obs"]
 
             transition = Transition(
-                last_timestep.observation, action, timestep.reward, done, real_next_obs, info
+                last_timestep.observation, action, timestep.reward, done, next_obs, info
             )
 
             return (env_state, timestep, key), transition
@@ -121,7 +121,7 @@ def get_learner_fn(
     update_fns: Tuple[optax.TransformUpdateFn, optax.TransformUpdateFn],
     buffer_fns: Tuple[Callable, Callable],
     config: DictConfig,
-) -> LearnerFn[DDPGLearnerState]:
+) -> LearnerFn[OffPolicyLearnerState]:
     """Get the learner function."""
 
     # Get apply and update functions for actor and critic networks.
@@ -130,10 +130,12 @@ def get_learner_fn(
     buffer_add_fn, buffer_sample_fn = buffer_fns
     exploratory_actor_apply = get_default_behavior_policy(config, actor_apply_fn)
 
-    def _update_step(learner_state: DDPGLearnerState, _: Any) -> Tuple[DDPGLearnerState, Tuple]:
+    def _update_step(
+        learner_state: OffPolicyLearnerState, _: Any
+    ) -> Tuple[OffPolicyLearnerState, Tuple]:
         def _env_step(
-            learner_state: DDPGLearnerState, _: Any
-        ) -> Tuple[DDPGLearnerState, Transition]:
+            learner_state: OffPolicyLearnerState, _: Any
+        ) -> Tuple[OffPolicyLearnerState, Transition]:
             """Step the environment."""
             params, opt_states, buffer_state, key, env_state, last_timestep = learner_state
 
@@ -149,13 +151,13 @@ def get_learner_fn(
             # LOG EPISODE METRICS
             done = timestep.last().reshape(-1)
             info = timestep.extras["episode_metrics"]
-            real_next_obs = timestep.extras["real_next_obs"]
+            next_obs = timestep.extras["next_obs"]
 
             transition = Transition(
-                last_timestep.observation, action, timestep.reward, done, real_next_obs, info
+                last_timestep.observation, action, timestep.reward, done, next_obs, info
             )
 
-            learner_state = DDPGLearnerState(
+            learner_state = OffPolicyLearnerState(
                 params, opt_states, buffer_state, key, env_state, timestep
             )
             return learner_state, transition
@@ -182,19 +184,21 @@ def get_learner_fn(
             ) -> jnp.ndarray:
 
                 q_tm1 = q_apply_fn(q_params, transitions.obs, transitions.action)
-
-                clipped_noise = jnp.clip(
-                    (
-                        jax.random.normal(rng_key, transitions.action.shape)
-                        * config.system.policy_noise
-                    ),
-                    -config.system.noise_clip,
-                    config.system.noise_clip,
+                action_scale = (config.system.action_maximum - config.system.action_minimum) / 2
+                noise = (
+                    jax.random.normal(rng_key, transitions.action.shape)
+                    * config.system.policy_noise
+                )
+                clipped_noise = (
+                    jnp.clip(noise, -config.system.noise_clip, config.system.noise_clip)
+                    * action_scale
                 )
                 next_action = (
                     actor_apply_fn(target_actor_params, transitions.next_obs).mode() + clipped_noise
                 )
-                next_action = jnp.clip(next_action, -1.0, 1.0)
+                next_action = jnp.clip(
+                    next_action, config.system.action_minimum, config.system.action_maximum
+                )
                 q_t = q_apply_fn(target_q_params, transitions.next_obs, next_action)
                 next_v = jnp.min(q_t, axis=-1)
 
@@ -211,6 +215,8 @@ def get_learner_fn(
 
                 loss_info = {
                     "q_loss": q_loss,
+                    "q1_pred": jnp.mean(q_t[..., 0]),
+                    "q2_pred": jnp.mean(q_t[..., 1]),
                 }
 
                 return q_loss, loss_info
@@ -221,7 +227,11 @@ def get_learner_fn(
                 transitions: Transition,
             ) -> chex.Array:
                 o_t = transitions.obs
-                a_t = actor_apply_fn(actor_params, o_t).mode()
+                a_t = (
+                    actor_apply_fn(actor_params, o_t)
+                    .mode()
+                    .clip(config.system.action_minimum, config.system.action_maximum)
+                )
                 q_value = q_apply_fn(q_params, o_t, a_t)
 
                 actor_loss = -jnp.mean(q_value)
@@ -231,7 +241,7 @@ def get_learner_fn(
                 }
                 return actor_loss, loss_info
 
-            params, opt_states, buffer_state, key, epoch_counter = update_state
+            params, opt_states, buffer_state, key = update_state
 
             key, sample_key = jax.random.split(key, num=2)
 
@@ -289,42 +299,35 @@ def get_learner_fn(
                 config.system.tau,
             )
 
-            actor_new_params = ActorAndTarget(actor_new_online_params, new_target_actor_params)
-            q_new_params = QsAndTarget(q_new_online_params, new_target_q_params)
+            actor_new_params = OnlineAndTarget(actor_new_online_params, new_target_actor_params)
+            q_new_params = OnlineAndTarget(q_new_online_params, new_target_q_params)
 
             # PACK NEW PARAMS AND OPTIMISER STATE
-            # Delayed policy updates
-            time_to_update = jnp.mod(epoch_counter, config.system.policy_frequency) == 0
-            actor_new_params = jax.lax.cond(
-                time_to_update, lambda _: actor_new_params, lambda _: params.actor_params, None
-            )
             new_params = DDPGParams(actor_new_params, q_new_params)
             new_opt_state = DDPGOptStates(actor_new_opt_state, q_new_opt_state)
 
             # PACK LOSS INFO
             loss_info = {
-                "total_loss": actor_loss_info["actor_loss"] + q_loss_info["q_loss"],
-                "value_loss": q_loss_info["q_loss"],
-                "actor_loss": actor_loss_info["actor_loss"],
+                **actor_loss_info,
+                **q_loss_info,
             }
-            return (new_params, new_opt_state, buffer_state, key, epoch_counter + 1), loss_info
+            return (new_params, new_opt_state, buffer_state, key), loss_info
 
-        epoch_counter = jnp.array(0)
-        update_state = (params, opt_states, buffer_state, key, epoch_counter)
+        update_state = (params, opt_states, buffer_state, key)
 
         # UPDATE EPOCHS
         update_state, loss_info = jax.lax.scan(
             _update_epoch, update_state, None, config.system.epochs
         )
 
-        params, opt_states, buffer_state, key, epoch_counter = update_state
-        learner_state = DDPGLearnerState(
+        params, opt_states, buffer_state, key = update_state
+        learner_state = OffPolicyLearnerState(
             params, opt_states, buffer_state, key, env_state, last_timestep
         )
         metric = traj_batch.info
         return learner_state, (metric, loss_info)
 
-    def learner_fn(learner_state: DDPGLearnerState) -> ExperimentOutput[DDPGLearnerState]:
+    def learner_fn(learner_state: OffPolicyLearnerState) -> ExperimentOutput[OffPolicyLearnerState]:
         """Learner function.
 
         This function represents the learner, it updates the network parameters
@@ -349,7 +352,7 @@ def get_learner_fn(
 
 def learner_setup(
     env: Environment, keys: chex.Array, config: DictConfig
-) -> Tuple[LearnerFn[DDPGLearnerState], Actor, DDPGLearnerState]:
+) -> Tuple[LearnerFn[OffPolicyLearnerState], Actor, OffPolicyLearnerState]:
     """Initialise learner_fn, network, optimiser, environment and states."""
     # Get available TPU cores.
     n_devices = len(jax.devices())
@@ -357,6 +360,8 @@ def learner_setup(
     # Get number of actions.
     action_dim = int(env.action_spec().shape[-1])
     config.system.action_dim = action_dim
+    config.system.action_minimum = float(env.action_spec().minimum)
+    config.system.action_maximum = float(env.action_spec().maximum)
 
     # PRNG keys.
     key, actor_net_key, q_net_key = keys
@@ -368,25 +373,34 @@ def learner_setup(
     )
     action_head_post_processor = hydra.utils.instantiate(
         config.network.actor_network.post_processor,
-        minimum=env.action_spec().minimum,
-        maximum=env.action_spec().maximum,
+        minimum=config.system.action_minimum,
+        maximum=config.system.action_maximum,
         scale_fn=tanh_to_spec,
     )
     actor_action_head = CompositeNetwork([actor_action_head, action_head_post_processor])
     actor_network = Actor(torso=actor_torso, action_head=actor_action_head)
 
-    q_network_input = hydra.utils.instantiate(config.network.q_network.input_layer)
-    q_network_torso = hydra.utils.instantiate(config.network.q_network.pre_torso)
-    q_network_head = hydra.utils.instantiate(config.network.q_network.critic_head)
-    single_q_network = CompositeNetwork([q_network_input, q_network_torso, q_network_head])
-    double_q_network = MultiNetwork([single_q_network, single_q_network])
+    def create_q_network(cfg: DictConfig) -> CompositeNetwork:
+        q_network_input = hydra.utils.instantiate(cfg.network.q_network.input_layer)
+        q_network_torso = hydra.utils.instantiate(cfg.network.q_network.pre_torso)
+        q_network_head = hydra.utils.instantiate(cfg.network.q_network.critic_head)
+        return CompositeNetwork([q_network_input, q_network_torso, q_network_head])
+
+    double_q_network = MultiNetwork([create_q_network(config), create_q_network(config)])
 
     actor_lr = make_learning_rate(config.system.actor_lr, config, config.system.epochs)
     q_lr = make_learning_rate(config.system.q_lr, config, config.system.epochs)
 
-    actor_optim = optax.chain(
-        optax.clip_by_global_norm(config.system.max_grad_norm),
-        optax.adam(actor_lr, eps=1e-5),
+    def delayed_policy_update(step_count: int) -> bool:
+        should_update: bool = jnp.mod(step_count, config.system.policy_frequency) == 0
+        return should_update
+
+    actor_optim = optax.conditionally_mask(
+        optax.chain(
+            optax.clip_by_global_norm(config.system.max_grad_norm),
+            optax.adam(actor_lr, eps=1e-5),
+        ),
+        should_transform_fn=delayed_policy_update,
     )
     q_optim = optax.chain(
         optax.clip_by_global_norm(config.system.max_grad_norm),
@@ -403,13 +417,13 @@ def learner_setup(
     actor_target_params = actor_online_params
     actor_opt_state = actor_optim.init(actor_online_params)
 
-    actor_params = ActorAndTarget(actor_online_params, actor_target_params)
+    actor_params = OnlineAndTarget(actor_online_params, actor_target_params)
 
     # Initialise critic params and optimiser state.
     q_online_params = double_q_network.init(q_net_key, init_x, init_a)
     q_target_params = q_online_params
 
-    q_params = QsAndTarget(q_online_params, q_target_params)
+    q_params = OnlineAndTarget(q_online_params, q_target_params)
 
     q_opt_state = q_optim.init(q_online_params)
 
@@ -433,6 +447,20 @@ def learner_setup(
         info={"episode_return": 0.0, "episode_length": 0, "is_terminal_step": False},
     )
 
+    assert config.system.total_buffer_size % n_devices == 0, (
+        f"{Fore.RED}{Style.BRIGHT}The total buffer size should be divisible "
+        + "by the number of devices!{Style.RESET_ALL}"
+    )
+    assert config.system.total_batch_size % n_devices == 0, (
+        f"{Fore.RED}{Style.BRIGHT}The total batch size should be divisible "
+        + "by the number of devices!{Style.RESET_ALL}"
+    )
+    config.system.buffer_size = config.system.total_buffer_size // (
+        n_devices * config.arch.update_batch_size
+    )
+    config.system.batch_size = config.system.total_batch_size // (
+        n_devices * config.arch.update_batch_size
+    )
     buffer_fn = fbx.make_item_buffer(
         max_length=config.system.buffer_size,
         min_length=config.system.batch_size,
@@ -452,17 +480,17 @@ def learner_setup(
 
     # Initialise environment states and timesteps: across devices and batches.
     key, *env_keys = jax.random.split(
-        key, n_devices * config.system.update_batch_size * config.arch.num_envs + 1
+        key, n_devices * config.arch.update_batch_size * config.arch.num_envs + 1
     )
     env_states, timesteps = jax.vmap(env.reset, in_axes=(0))(
         jnp.stack(env_keys),
     )
     reshape_states = lambda x: x.reshape(
-        (n_devices, config.system.update_batch_size, config.arch.num_envs) + x.shape[1:]
+        (n_devices, config.arch.update_batch_size, config.arch.num_envs) + x.shape[1:]
     )
     # (devices, update batch size, num_envs, ...)
-    env_states = jax.tree_map(reshape_states, env_states)
-    timesteps = jax.tree_map(reshape_states, timesteps)
+    env_states = jax.tree_util.tree_map(reshape_states, env_states)
+    timesteps = jax.tree_util.tree_map(reshape_states, timesteps)
 
     # Load model from checkpoint if specified.
     if config.logger.checkpointing.load_model:
@@ -476,36 +504,42 @@ def learner_setup(
         params = restored_params
 
     # Define params to be replicated across devices and batches.
-    key, step_keys, warmup_keys = jax.random.split(key, num=3)
+    key, step_key, warmup_key = jax.random.split(key, num=3)
+    step_keys = jax.random.split(step_key, n_devices * config.arch.update_batch_size)
+    warmup_keys = jax.random.split(warmup_key, n_devices * config.arch.update_batch_size)
+    reshape_keys = lambda x: x.reshape((n_devices, config.arch.update_batch_size) + x.shape[1:])
+    step_keys = reshape_keys(jnp.stack(step_keys))
+    warmup_keys = reshape_keys(jnp.stack(warmup_keys))
 
-    replicate_learner = (params, opt_states, buffer_states, step_keys, warmup_keys)
+    replicate_learner = (params, opt_states, buffer_states)
 
     # Duplicate learner for update_batch_size.
-    broadcast = lambda x: jnp.broadcast_to(x, (config.system.update_batch_size,) + x.shape)
-    replicate_learner = jax.tree_map(broadcast, replicate_learner)
+    broadcast = lambda x: jnp.broadcast_to(x, (config.arch.update_batch_size,) + x.shape)
+    replicate_learner = jax.tree_util.tree_map(broadcast, replicate_learner)
 
     # Duplicate learner across devices.
     replicate_learner = flax.jax_utils.replicate(replicate_learner, devices=jax.devices())
 
     # Initialise learner state.
-    params, opt_states, buffer_states, step_keys, warmup_keys = replicate_learner
+    params, opt_states, buffer_states = replicate_learner
     # Warmup the buffer.
     env_states, timesteps, keys, buffer_states = warmup(
         env_states, timesteps, buffer_states, warmup_keys
     )
-    init_learner_state = DDPGLearnerState(
+    init_learner_state = OffPolicyLearnerState(
         params, opt_states, buffer_states, step_keys, env_states, timesteps
     )
 
     return learn, actor_network, init_learner_state
 
 
-def run_experiment(_config: DictConfig) -> None:
+def run_experiment(_config: DictConfig) -> float:
     """Runs experiment."""
     config = copy.deepcopy(_config)
 
     # Calculate total timesteps.
     n_devices = len(jax.devices())
+    config.num_devices = n_devices
     config = check_total_timesteps(config)
     assert (
         config.arch.num_updates > config.arch.num_evaluation
@@ -539,7 +573,7 @@ def run_experiment(_config: DictConfig) -> None:
         n_devices
         * config.arch.num_updates_per_eval
         * config.system.rollout_length
-        * config.system.update_batch_size
+        * config.arch.update_batch_size
         * config.arch.num_envs
     )
 
@@ -634,18 +668,23 @@ def run_experiment(_config: DictConfig) -> None:
 
     # Stop the logger.
     logger.stop()
+    # Record the performance for the final evaluation run. If the absolute metric is not
+    # calculated, this will be the final evaluation run.
+    eval_performance = float(jnp.mean(evaluator_output.episode_metrics[config.env.eval_metric]))
+    return eval_performance
 
 
 @hydra.main(config_path="../../configs", config_name="default_ff_td3.yaml", version_base="1.2")
-def hydra_entry_point(cfg: DictConfig) -> None:
+def hydra_entry_point(cfg: DictConfig) -> float:
     """Experiment entry point."""
     # Allow dynamic attributes.
     OmegaConf.set_struct(cfg, False)
 
     # Run experiment.
-    run_experiment(cfg)
+    eval_performance = run_experiment(cfg)
 
     print(f"{Fore.CYAN}{Style.BRIGHT}TD3 experiment completed{Style.RESET_ALL}")
+    return eval_performance
 
 
 if __name__ == "__main__":

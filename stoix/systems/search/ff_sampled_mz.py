@@ -22,6 +22,7 @@ from rich.pretty import pprint
 
 from stoix.base_types import (
     ActorApply,
+    ActorCriticParams,
     CriticApply,
     DistributionCriticApply,
     ExperimentOutput,
@@ -31,8 +32,6 @@ from stoix.base_types import (
 from stoix.networks.base import FeedForwardActor as Actor
 from stoix.networks.base import FeedForwardCritic as Critic
 from stoix.networks.inputs import EmbeddingInput
-from stoix.networks.model_based import Dynamics, Representation
-from stoix.systems.ppo.ppo_types import ActorCriticParams
 from stoix.systems.search.evaluator import search_evaluator_setup
 from stoix.systems.search.search_types import (
     DynamicsApply,
@@ -41,7 +40,6 @@ from stoix.systems.search.search_types import (
     RootFnApply,
     SampledExItTransition,
     SearchApply,
-    WorldModelParams,
     ZLearnerState,
 )
 from stoix.utils import make_env as environments
@@ -62,6 +60,31 @@ tfd = tfp.distributions
 # This implementation of Sampled MuZero is designed for a Gaussian policy.
 
 
+def add_gaussian_noise(
+    key: chex.PRNGKey,
+    action: chex.Array,
+    exploration_fraction: float,
+    action_min: float,
+    action_max: float,
+) -> chex.Array:
+    """Returns continuous action with noise drawn from a Gaussian distribution.
+
+    Args:
+        key: a key from `jax.random`.
+        action: continuous action scalar or vector.
+        exploration_fraction: scale of the noise.
+        action_min: minimum value of the action.
+        action_max: maximum value of the action.
+
+    Returns:
+        noisy action, of the same shape as input action.
+    """
+    shape = action.shape
+    noise = jax.random.truncated_normal(key, action_min, action_max, shape=shape)
+    action = (1 - exploration_fraction) * action + exploration_fraction * noise
+    return jnp.clip(action, action_min, action_max)
+
+
 def make_root_fn(
     representation_apply_fn: RepresentationApply,
     actor_apply_fn: ActorApply,
@@ -78,9 +101,7 @@ def make_root_fn(
 
         sample_key, noise_key = jax.random.split(rng_key, 2)
 
-        observation_embedding = representation_apply_fn(
-            params.world_model_params.representation_params, observation
-        )
+        observation_embedding = representation_apply_fn(params.world_model_params, observation)
 
         pi = actor_apply_fn(params.prediction_params.actor_params, observation_embedding)
         value_dist = critic_apply_fn(params.prediction_params.critic_params, observation_embedding)
@@ -97,9 +118,13 @@ def make_root_fn(
             sampled_actions, (batch_size, config.system.num_samples, config.system.action_dim)
         )
         # Add noise to the root sampled actions.
-        if config.system.root_exploration_sigma != 0:
-            sampled_actions = rlax.add_gaussian_noise(
-                noise_key, sampled_actions, config.system.root_exploration_sigma
+        if config.system.root_exploration_fraction != 0:
+            sampled_actions = add_gaussian_noise(
+                noise_key,
+                sampled_actions,
+                config.system.root_exploration_fraction,
+                config.system.action_minimum,
+                config.system.action_maximum,
             )
         # Due to sampling from a gaussian, set all actions to have a uniform prior.
         selection_logits = jnp.ones((batch_size, config.system.num_samples))
@@ -141,7 +166,7 @@ def make_recurrent_fn(
         action = search_tree_state["sampled_actions"][batch_indices, action_index]
 
         next_state_embedding, next_reward_dist = dynamics_apply_fn(
-            params.world_model_params.dynamics_params, state_embedding, action
+            params.world_model_params, state_embedding, action
         )
         next_reward = reward_tx_pair.apply_inv(next_reward_dist.probs)
 
@@ -268,7 +293,7 @@ def get_warmup_fn(
 
         # Add the trajectory to the buffer.
         # Swap the batch and time axes.
-        traj_batch = jax.tree_map(lambda x: jnp.swapaxes(x, 0, 1), traj_batch)
+        traj_batch = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), traj_batch)
         buffer_states = buffer_add_fn(buffer_states, traj_batch)
 
         return env_states, timesteps, keys, buffer_states
@@ -355,7 +380,7 @@ def get_learner_fn(
 
         # Add the trajectory to the buffer.
         # Swap the batch and time axes.
-        traj_batch = jax.tree_map(lambda x: jnp.swapaxes(x, 0, 1), traj_batch)
+        traj_batch = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), traj_batch)
         buffer_state = buffer_add_fn(buffer_state, traj_batch)
 
         def _update_epoch(update_state: Tuple, _: Any) -> Tuple:
@@ -379,7 +404,7 @@ def get_learner_fn(
 
                 # Get the state embedding of the first observation of each sequence
                 state_embedding = representation_apply_fn(
-                    muzero_params.world_model_params.representation_params, sequence.obs
+                    muzero_params.world_model_params, sequence.obs
                 )[
                     :, 0
                 ]  # B, T=0
@@ -408,7 +433,7 @@ def get_learner_fn(
                     )
                     state_embedding = scale_gradient(state_embedding, 0.5)
                     next_state_embedding, predicted_reward = dynamics_apply_fn(
-                        muzero_params.world_model_params.dynamics_params, state_embedding, action
+                        muzero_params.world_model_params, state_embedding, action
                     )
 
                     # CALCULATE ACTOR LOSS
@@ -445,13 +470,15 @@ def get_learner_fn(
                     )
 
                     curr_loss = {
-                        "actor": actor_loss,
-                        "value": value_loss,
-                        "reward": reward_loss,
-                        "entropy": entropy_loss,
+                        "actor_loss": actor_loss,
+                        "value_loss": value_loss,
+                        "reward_loss": reward_loss,
+                        "entropy_loss": entropy_loss,
                     }
                     # UPDATE LOSS
-                    total_loss = jax.tree_map(lambda x, y: x + y.mean(), total_loss, curr_loss)
+                    total_loss = jax.tree_util.tree_map(
+                        lambda x, y: x + y.mean(), total_loss, curr_loss
+                    )
                     # Update the mask - This is to ensure that the loss is
                     # not updated for any steps after the episode is done
                     mask = mask * (1.0 - done.astype(jnp.float32))
@@ -466,12 +493,12 @@ def get_learner_fn(
                     sequence.sampled_actions[:, :-1],
                 )  # B, T
 
-                targets = jax.tree_map(lambda x: jnp.swapaxes(x, 0, 1), targets)  # T, B
+                targets = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), targets)  # T, B
                 init_total_loss = {
-                    "actor": jnp.array(0.0),
-                    "value": jnp.array(0.0),
-                    "reward": jnp.array(0.0),
-                    "entropy": jnp.array(0.0),
+                    "actor_loss": jnp.array(0.0),
+                    "value_loss": jnp.array(0.0),
+                    "reward_loss": jnp.array(0.0),
+                    "entropy_loss": jnp.array(0.0),
                 }
                 init_mask = jnp.ones((config.system.batch_size,))
                 (losses, _, _, _, _), _ = jax.lax.scan(
@@ -481,15 +508,18 @@ def get_learner_fn(
                 )
                 # Divide by the number of unrolled steps to ensure a consistent scale
                 # across different unroll lengths
-                losses = jax.tree_map(
+                losses = jax.tree_util.tree_map(
                     lambda x: x / (config.system.sample_sequence_length - 1), losses
                 )
 
                 total_loss = (
-                    losses["actor"] + losses["value"] + losses["reward"] - losses["entropy"]
+                    losses["actor_loss"]
+                    + losses["value_loss"]
+                    + losses["reward_loss"]
+                    - losses["entropy_loss"]
                 )
 
-                return total_loss, (losses)
+                return total_loss, losses
 
             params, opt_state, buffer_state, key = update_state
 
@@ -500,8 +530,8 @@ def get_learner_fn(
             sequence: SampledExItTransition = sequence_sample.experience
 
             # CALCULATE LOSS
-            grad_fn = jax.value_and_grad(_loss_fn, has_aux=True)
-            loss_info, grads = grad_fn(params, sequence, loss_key)
+            grad_fn = jax.grad(_loss_fn, has_aux=True)
+            grads, loss_info = grad_fn(params, sequence, loss_key)
 
             # Compute the parallel mean (pmean) over the batch.
             # This calculation is inspired by the Anakin architecture demo notebook.
@@ -515,19 +545,6 @@ def get_learner_fn(
             updates, new_opt_state = update_fn(grads, opt_state)
             new_params = optax.apply_updates(params, updates)
 
-            # PACK LOSS INFO
-            total_loss = loss_info[0]
-            actor_loss = loss_info[1]["actor"]
-            value_loss = loss_info[1]["value"]
-            entropy = loss_info[1]["entropy"]
-            reward_loss = loss_info[1]["reward"]
-            loss_info = {
-                "total_loss": total_loss,
-                "value_loss": value_loss,
-                "actor_loss": actor_loss,
-                "entropy": entropy,
-                "reward_loss": reward_loss,
-            }
             return (new_params, new_opt_state, buffer_state, key), loss_info
 
         update_state = (params, opt_state, buffer_state, key)
@@ -564,8 +581,7 @@ def get_learner_fn(
 def parse_search_method(config: DictConfig) -> Any:
     """Parse search method from config."""
     if config.system.search_method.lower() == "muzero":
-        # We turn off the dirichlet noise for the Sampled MuZero search method
-        search_method = functools.partial(mctx.muzero_policy, dirichlet_fraction=0.0)
+        search_method = mctx.muzero_policy
     elif config.system.search_method.lower() == "gumbel":
         search_method = mctx.gumbel_muzero_policy
     else:
@@ -590,22 +606,19 @@ def learner_setup(
     config.system.action_maximum = float(env.action_spec().maximum)
 
     # PRNG keys.
-    key, representation_net_key, dynamics_net_key, actor_net_key, critic_net_key = keys
+    key, wm_network_key, actor_net_key, critic_net_key = keys
 
     # Define network and optimiser.
     actor_torso = hydra.utils.instantiate(config.network.actor_network.pre_torso)
     actor_action_head = hydra.utils.instantiate(
         config.network.actor_network.action_head,
         action_dim=action_dim,
-        minimum=env.action_spec().minimum,
-        maximum=env.action_spec().maximum,
+        minimum=config.system.action_minimum,
+        maximum=config.system.action_maximum,
     )
     critic_torso = hydra.utils.instantiate(config.network.critic_network.pre_torso)
     critic_head = hydra.utils.instantiate(
         config.network.critic_network.critic_head,
-        num_atoms=config.system.critic_num_atoms,
-        vmin=config.system.critic_vmin,
-        vmax=config.system.critic_vmax,
     )
 
     actor_network = Actor(
@@ -615,31 +628,8 @@ def learner_setup(
         torso=critic_torso, critic_head=critic_head, input_layer=EmbeddingInput()
     )
 
-    representation_network_torso = hydra.utils.instantiate(
-        config.network.representation_network.torso
-    )
-    representation_embedding_head = hydra.utils.instantiate(
-        config.network.representation_network.embedding_head
-    )
-    representation_network = Representation(
-        torso=representation_network_torso, embedding_head=representation_embedding_head
-    )
-    dynamics_network_torso = hydra.utils.instantiate(config.network.dynamics_network.torso)
-    embedding_head = hydra.utils.instantiate(config.network.dynamics_network.embedding_head)
-    reward_head = hydra.utils.instantiate(
-        config.network.dynamics_network.reward_head,
-        num_atoms=config.system.reward_num_atoms,
-        vmin=config.system.reward_vmin,
-        vmax=config.system.reward_vmax,
-    )
-    dynamics_input_layer = hydra.utils.instantiate(
-        config.network.dynamics_network.input_layer, action_dim=action_dim
-    )
-    dynamics_network = Dynamics(
-        torso=dynamics_network_torso,
-        embedding_head=embedding_head,
-        reward_head=reward_head,
-        input_layer=dynamics_input_layer,
+    wm_network = hydra.utils.instantiate(
+        config.network.wm_network, action_dim=config.system.action_dim
     )
 
     lr = make_learning_rate(
@@ -660,12 +650,10 @@ def learner_setup(
     init_a = jax.tree_util.tree_map(lambda x: x[None, ...], init_a)
 
     # Initialise params params and optimiser state.
-    representation_params = representation_network.init(representation_net_key, init_x)
-    state_embedding = representation_network.apply(representation_params, init_x)
-    dynamics_params = dynamics_network.init(dynamics_net_key, state_embedding, init_a)
-    world_model_params = WorldModelParams(representation_params, dynamics_params)
-    actor_params = actor_network.init(actor_net_key, state_embedding)
-    critic_params = critic_network.init(critic_net_key, state_embedding)
+    world_model_params = wm_network.init(wm_network_key, init_x, init_a)
+    hidden_state_embedding, _ = wm_network.apply(world_model_params, init_x, init_a)
+    actor_params = actor_network.init(actor_net_key, hidden_state_embedding)
+    critic_params = critic_network.init(critic_net_key, hidden_state_embedding)
 
     # Pack params.
     prediction_params = ActorCriticParams(actor_params, critic_params)
@@ -674,8 +662,13 @@ def learner_setup(
     # Initialise optimiser state.
     opt_state = optim.init(params)
 
-    representation_network_apply_fn = representation_network.apply
-    dynamics_network_apply_fn = dynamics_network.apply
+    # Define apply functions.
+    representation_network_apply_fn = functools.partial(
+        wm_network.apply, method=wm_network.initial_inference
+    )
+    dynamics_network_apply_fn = functools.partial(
+        wm_network.apply, method=wm_network.recurrent_inference
+    )
     actor_network_apply_fn = actor_network.apply
     critic_network_apply_fn = critic_network.apply
 
@@ -734,6 +727,20 @@ def learner_setup(
         info={"episode_return": 0.0, "episode_length": 0, "is_terminal_step": False},
     )
 
+    assert config.system.total_buffer_size % n_devices == 0, (
+        f"{Fore.RED}{Style.BRIGHT}The total buffer size should be divisible "
+        + "by the number of devices!{Style.RESET_ALL}"
+    )
+    assert config.system.total_batch_size % n_devices == 0, (
+        f"{Fore.RED}{Style.BRIGHT}The total batch size should be divisible "
+        + "by the number of devices!{Style.RESET_ALL}"
+    )
+    config.system.buffer_size = config.system.total_buffer_size // (
+        n_devices * config.arch.update_batch_size
+    )
+    config.system.batch_size = config.system.total_batch_size // (
+        n_devices * config.arch.update_batch_size
+    )
     buffer_fn = fbx.make_trajectory_buffer(
         max_size=config.system.buffer_size,
         min_length_time_axis=config.system.sample_sequence_length,
@@ -754,17 +761,17 @@ def learner_setup(
 
     # Initialise environment states and timesteps: across devices and batches.
     key, *env_keys = jax.random.split(
-        key, n_devices * config.system.update_batch_size * config.arch.num_envs + 1
+        key, n_devices * config.arch.update_batch_size * config.arch.num_envs + 1
     )
     env_states, timesteps = jax.vmap(env.reset, in_axes=(0))(
         jnp.stack(env_keys),
     )
     reshape_states = lambda x: x.reshape(
-        (n_devices, config.system.update_batch_size, config.arch.num_envs) + x.shape[1:]
+        (n_devices, config.arch.update_batch_size, config.arch.num_envs) + x.shape[1:]
     )
     # (devices, update batch size, num_envs, ...)
-    env_states = jax.tree_map(reshape_states, env_states)
-    timesteps = jax.tree_map(reshape_states, timesteps)
+    env_states = jax.tree_util.tree_map(reshape_states, env_states)
+    timesteps = jax.tree_util.tree_map(reshape_states, timesteps)
 
     # Load model from checkpoint if specified.
     if config.logger.checkpointing.load_model:
@@ -773,24 +780,29 @@ def learner_setup(
             **config.logger.checkpointing.load_args,  # Other checkpoint args
         )
         # Restore the learner state from the checkpoint
-        restored_params, _ = loaded_checkpoint.restore_params()
+        restored_params, _ = loaded_checkpoint.restore_params(TParams=MZParams)
         # Update the params
         params = restored_params
 
     # Define params to be replicated across devices and batches.
-    key, step_keys, warmup_keys = jax.random.split(key, num=3)
+    key, step_key, warmup_key = jax.random.split(key, num=3)
+    step_keys = jax.random.split(step_key, n_devices * config.arch.update_batch_size)
+    warmup_keys = jax.random.split(warmup_key, n_devices * config.arch.update_batch_size)
+    reshape_keys = lambda x: x.reshape((n_devices, config.arch.update_batch_size) + x.shape[1:])
+    step_keys = reshape_keys(jnp.stack(step_keys))
+    warmup_keys = reshape_keys(jnp.stack(warmup_keys))
 
-    replicate_learner = (params, opt_state, buffer_states, step_keys, warmup_keys)
+    replicate_learner = (params, opt_state, buffer_states)
 
     # Duplicate learner for update_batch_size.
-    broadcast = lambda x: jnp.broadcast_to(x, (config.system.update_batch_size,) + x.shape)
-    replicate_learner = jax.tree_map(broadcast, replicate_learner)
+    broadcast = lambda x: jnp.broadcast_to(x, (config.arch.update_batch_size,) + x.shape)
+    replicate_learner = jax.tree_util.tree_map(broadcast, replicate_learner)
 
     # Duplicate learner across devices.
     replicate_learner = flax.jax_utils.replicate(replicate_learner, devices=jax.devices())
 
     # Initialise learner state.
-    params, opt_state, buffer_states, step_keys, warmup_keys = replicate_learner
+    params, opt_state, buffer_states = replicate_learner
     # Warmup the buffer.
     env_states, timesteps, keys, buffer_states = warmup(
         env_states, timesteps, buffer_states, warmup_keys
@@ -802,12 +814,13 @@ def learner_setup(
     return learn, root_fn, search_apply_fn, init_learner_state
 
 
-def run_experiment(_config: DictConfig) -> None:
+def run_experiment(_config: DictConfig) -> float:
     """Runs experiment."""
     config = copy.deepcopy(_config)
 
     # Calculate total timesteps.
     n_devices = len(jax.devices())
+    config.num_devices = n_devices
     config = check_total_timesteps(config)
     assert (
         config.arch.num_updates > config.arch.num_evaluation
@@ -817,13 +830,13 @@ def run_experiment(_config: DictConfig) -> None:
     env, eval_env = environments.make(config=config)
 
     # PRNG keys.
-    key, key_e, representation_key, dynamics_key, actor_net_key, critic_net_key = jax.random.split(
-        jax.random.PRNGKey(config.arch.seed), num=6
+    key, key_e, wm_key, actor_net_key, critic_net_key = jax.random.split(
+        jax.random.PRNGKey(config.arch.seed), num=5
     )
 
     # Setup learner.
     learn, root_fn, search_apply_fn, learner_state = learner_setup(
-        env, (key, representation_key, dynamics_key, actor_net_key, critic_net_key), config
+        env, (key, wm_key, actor_net_key, critic_net_key), config
     )
 
     # Setup evaluator.
@@ -842,7 +855,7 @@ def run_experiment(_config: DictConfig) -> None:
         n_devices
         * config.arch.num_updates_per_eval
         * config.system.rollout_length
-        * config.system.update_batch_size
+        * config.arch.update_batch_size
         * config.arch.num_envs
     )
 
@@ -938,20 +951,25 @@ def run_experiment(_config: DictConfig) -> None:
 
     # Stop the logger.
     logger.stop()
+    # Record the performance for the final evaluation run. If the absolute metric is not
+    # calculated, this will be the final evaluation run.
+    eval_performance = float(jnp.mean(evaluator_output.episode_metrics[config.env.eval_metric]))
+    return eval_performance
 
 
 @hydra.main(
     config_path="../../configs", config_name="default_ff_sampled_mz.yaml", version_base="1.2"
 )
-def hydra_entry_point(cfg: DictConfig) -> None:
+def hydra_entry_point(cfg: DictConfig) -> float:
     """Experiment entry point."""
     # Allow dynamic attributes.
     OmegaConf.set_struct(cfg, False)
 
     # Run experiment.
-    run_experiment(cfg)
+    eval_performance = run_experiment(cfg)
 
     print(f"{Fore.CYAN}{Style.BRIGHT}Sampled MuZero experiment completed{Style.RESET_ALL}")
+    return eval_performance
 
 
 if __name__ == "__main__":

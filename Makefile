@@ -13,7 +13,7 @@ PWD := $(CURDIR)
 endif
 
 # Set flag for docker run command
-BASE_FLAGS=-it --rm  -v ${PWD}:/home/app/stoix -w /home/app/stoix
+BASE_FLAGS=-it --rm  --shm-size=1g -v ${PWD}:/home/app/stoix -w /home/app/stoix
 RUN_FLAGS=$(GPUS) $(BASE_FLAGS)
 
 DOCKER_IMAGE_NAME = stoix

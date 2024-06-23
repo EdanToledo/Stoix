@@ -1,0 +1,17 @@
+# ---MLP Dueling DQN Networks---
+actor_network:
+  pre_torso:
+    _target_: stoix.networks.torso.NoisyMLPTorso
+    layer_sizes: [256, 256]
+    use_layer_norm: False
+    activation: silu
+    sigma_zero: ${system.sigma_zero}
+  action_head:
+    _target_: stoix.networks.dueling.NoisyDistributionalDuelingQNetwork
+    layer_sizes: [512]
+    use_layer_norm: False
+    activation: silu
+    vmin: ${system.vmin}
+    vmax: ${system.vmax}
+    num_atoms: ${system.num_atoms}
+    sigma_zero: ${system.sigma_zero}
