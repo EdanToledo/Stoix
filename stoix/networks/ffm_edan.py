@@ -1,5 +1,5 @@
 from functools import partial
-from typing import Tuple
+from typing import Optional, Tuple
 
 import chex
 import flax.linen as nn
@@ -11,6 +11,7 @@ Carry = chex.ArrayTree
 
 def debug_shape(x):
     return jax.tree.map(lambda x: x.shape, x)
+
 
 class MemoroidCellBase(nn.Module):
     """Memoroid cell base class."""
@@ -24,13 +25,14 @@ class MemoroidCellBase(nn.Module):
         raise NotImplementedError
 
     @nn.nowrap
-    def initialize_carry(self, rng: chex.PRNGKey, batch_shape: Tuple[int, ...]) -> Carry:
+    def initialize_carry(
+        self, batch_size: Optional[int] = None, rng: Optional[chex.PRNGKey] = None
+    ) -> Carry:
         """Initialize the Memoroid cell carry.
 
         Args:
-        rng: random number generator passed to the init_fn.
-        batch_shape: a tuple providing the shape of the input to the cell, 
-            excluding any time or feature dimension(s).
+            batch_size: the batch size of the carry.
+            rng: random number generator passed to the init_fn.
 
         Returns:
         An initialized carry for the given RNN cell.
@@ -70,9 +72,7 @@ def recurrent_associative_scan(
     # We just use it to ensure continuity
     # We do not actually want to use these values, so slice them away
     return jax.tree.map(
-        lambda x: jax.lax.slice_in_dim(
-            x, start_index=1, limit_index=None, axis=axis
-        ), new_state
+        lambda x: jax.lax.slice_in_dim(x, start_index=1, limit_index=None, axis=axis), new_state
     )
 
 
@@ -159,12 +159,17 @@ class FFMCell(MemoroidCellBase):
         return jnp.exp(self.log_gamma(t))
 
     @nn.nowrap
-    def initialize_carry(self, rng: chex.PRNGKey, batch_shape: Tuple[int, ...]) -> Carry:
+    def initialize_carry(
+        self, batch_size: Optional[int] = None, rng: Optional[chex.PRNGKey] = None
+    ) -> Carry:
         # inputs should be of shape [*batch, time, feature]
         # recurrent states should be of shape [*batch, 1, feature]
-        return jnp.zeros(
-            (*batch_shape, 1, self.trace_size, self.context_size), dtype=jnp.complex64
-        ), jnp.ones((*batch_shape, 1), dtype=jnp.int32)
+        carry_shape = (1, self.trace_size, self.context_size)
+        t_shape = (1,)
+        if batch_size is not None:
+            carry_shape = (carry_shape[0], batch_size, *carry_shape[1:])
+            t_shape = (*t_shape, batch_size)
+        return jnp.zeros(carry_shape, dtype=jnp.complex64), jnp.ones(t_shape, dtype=jnp.int32)
 
     def __call__(self, carry, incoming):
         (
@@ -194,7 +199,7 @@ class MemoroidResetWrapper(MemoroidCellBase):
             return out
 
         # Add an extra dim, as start will be [Batch] while intialize carry expects [Batch, Feature]
-        initial_states = self.cell.initialize_carry(rng, ())
+        initial_states = self.cell.initialize_carry(rng)
         states = jax.tree.map(partial(reset_state, start), states, initial_states)
         out = self.cell(states, xs)
         start_carry = jnp.logical_or(start, prev_start)
@@ -208,10 +213,15 @@ class MemoroidResetWrapper(MemoroidCellBase):
         return self.cell.map_from_h(recurrent_state, x)
 
     @nn.nowrap
-    def initialize_carry(self, rng: chex.PRNGKey, batch_shape: Tuple[int, ...]) -> Carry:
+    def initialize_carry(
+        self, batch_size: Optional[int] = None, rng: Optional[chex.PRNGKey] = None
+    ) -> Carry:
         # inputs should be of shape [*batch, time, feature]
         # recurrent states should be of shape [*batch, 1, feature]
-        return self.cell.initialize_carry(rng, batch_shape), jnp.zeros((*batch_shape, 1), dtype=bool)
+        start_shape = (1,)
+        if batch_size is not None:
+            start_shape = (*start_shape, batch_size)
+        return self.cell.initialize_carry(batch_size, rng), jnp.zeros(start_shape, dtype=bool)
 
 
 class ScannedMemoroid(nn.Module):
@@ -221,6 +231,7 @@ class ScannedMemoroid(nn.Module):
     def __call__(self, recurrent_state, inputs):
         # Recurrent state should be ((state, timestep), reset)
         # Inputs should be (x, reset)
+        x, _ = inputs
         h = self.cell.map_to_h(inputs)
         recurrent_state = recurrent_associative_scan(self.cell, recurrent_state, h)
         # recurrent_state is ((state, timestep), reset)
@@ -231,35 +242,43 @@ class ScannedMemoroid(nn.Module):
         return final_recurrent_state, out
 
     @nn.nowrap
-    def initialize_carry(self, rng: chex.PRNGKey, batch_shape: Tuple[int, ...]) -> Carry:
-        return self.cell.initialize_carry(rng, batch_shape)
+    def initialize_carry(
+        self, batch_size: Optional[int] = None, rng: Optional[chex.PRNGKey] = None
+    ) -> Carry:
+        return self.cell.initialize_carry(batch_size, rng)
 
 
 if __name__ == "__main__":
     m = ScannedMemoroid(
         cell=MemoroidResetWrapper(cell=FFMCell(output_size=4, trace_size=5, context_size=6))
     )
-    x = jnp.ones((10, 2))
-    s = m.initialize_carry(None, ())
+    y = jnp.ones((10, 2))
+    s = m.initialize_carry(None)
     start = jnp.zeros(10, dtype=bool)
-    params = m.init(jax.random.PRNGKey(0), s, (x, start))
-    out_state, out = m.apply(params, s, (x, start))
+    params = m.init(jax.random.PRNGKey(0), s, (y, start))
+    out_state, out = m.apply(params, s, (y, start))
 
     print(out)
 
     BatchFFM = nn.vmap(
-        ScannedMemoroid, in_axes=0, out_axes=0, variable_axes={"params": None}, split_rngs={"params": False}
+        ScannedMemoroid,
+        in_axes=1,
+        out_axes=1,
+        variable_axes={"params": None},
+        split_rngs={"params": False},
     )
 
     m = BatchFFM(
         cell=MemoroidResetWrapper(cell=FFMCell(output_size=4, trace_size=5, context_size=6))
     )
 
-    x = jnp.ones((8, 10, 2))
-    s = m.initialize_carry(None, (8,))
-    start = jnp.zeros((8, 10), dtype=bool)
-    params = m.init(jax.random.PRNGKey(0), s, (x, start))
-    out_state, out = m.apply(params, s, (x, start))
+    y = jnp.ones((10, 8, 2))
+    s = m.initialize_carry(8)
+    start = jnp.zeros((10, 8), dtype=bool)
+    params = m.init(jax.random.PRNGKey(0), s, (y, start))
+    out_state, out = m.apply(params, s, (y, start))
 
-    print(out.shape)
+    out = jnp.swapaxes(out, 0, 1)
+
+    print(out)
     print(debug_shape(out_state))
