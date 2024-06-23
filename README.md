@@ -78,7 +78,7 @@ Stoix currently offers the following building blocks for Single-Agent RL researc
 - **Sampled Alpha/Mu-Zero** - [Paper](https://arxiv.org/abs/2104.06303)
 
 ### Environment Wrappers 🍬
-Stoix offers wrappers for [Gymnax][gymnax], [Jumanji][jumanji], [Brax][brax], [XMinigrid][xminigrid], [Craftax][craftax] and even [JAXMarl][jaxmarl] (although using Centralised Controllers).
+Stoix offers wrappers for [Gymnax][gymnax], [Jumanji][jumanji], [Brax][brax], [XMinigrid][xminigrid], [Craftax][craftax], [POPJym][popjym] and even [JAXMarl][jaxmarl] (although using Centralised Controllers).
 
 ### Statistically Robust Evaluation 🧪
 Stoix natively supports logging to json files which adhere to the standard suggested by [Gorsane et al. (2022)][toward_standard_eval]. This enables easy downstream experiment plotting and aggregation using the tools found in the [MARL-eval][marl_eval] library.
@@ -209,5 +209,6 @@ We would like to thank the authors and developers of [Mava](mava) as this was es
 [brax]: https://github.com/google/brax
 [xminigrid]: https://github.com/corl-team/xland-minigrid/
 [craftax]: https://github.com/MichaelTMatthews/Craftax
+[popjym]: https://github.com/FLAIROx/popjym
 
 Disclaimer: This is not an official InstaDeep product nor is any of the work putforward associated with InstaDeep in any official capacity.
