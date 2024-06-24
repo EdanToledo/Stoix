@@ -301,12 +301,14 @@ def test_reset_wrapper():
     params = m.init(jax.random.PRNGKey(0), batched_s, (x_batched, batched_starts))
 
 
-    (batched_out_state, _), _ = m.apply(params, batched_s, (x_batched, batched_starts))
-    (contig_out_state, _), _ = m.apply(params, contig_s, (x_contig, contig_starts))
+    (batched_out_state, _), batched_out = m.apply(params, batched_s, (x_batched, batched_starts))
+    (contig_out_state, _), contig_out = m.apply(params, contig_s, (x_contig, contig_starts))
 
     # This should be nearly zero (1e-10 or something)
-    error = jnp.linalg.norm(contig_out_state - batched_out_state[-1])
-    print(error)
+    state_error = jnp.linalg.norm(contig_out_state - batched_out_state[-1], axis=-1).sum()
+    print("state error", state_error)
+    state_error = jnp.linalg.norm(batched_out - jnp.swapaxes(contig_out.reshape(batch_size, time_steps, -1), 1, 0), axis=-1).sum()
+    print("state error", state_error)
 
 
 if __name__ == "__main__":
