@@ -129,7 +129,7 @@ def get_learner_fn(
                 timestep.reward,
                 log_prob,
                 last_timestep.observation,
-                jax.tree.map(lambda x: x.squeeze(0), hstates),
+                hstates,
                 info,
             )
             learner_state = RNNLearnerState(
@@ -216,7 +216,7 @@ def get_learner_fn(
 
                     obs_and_done = (traj_batch.obs, traj_batch.done)
                     policy_hidden_state = jax.tree_util.tree_map(
-                        lambda x: x[0][jnp.newaxis, ...], traj_batch.hstates.policy_hidden_state
+                        lambda x: x[0], traj_batch.hstates.policy_hidden_state
                     )
                     _, actor_policy = actor_apply_fn(
                         actor_params, policy_hidden_state, obs_and_done
@@ -244,7 +244,7 @@ def get_learner_fn(
                     # RERUN NETWORK
                     obs_and_done = (traj_batch.obs, traj_batch.done)
                     critic_hidden_state = jax.tree_util.tree_map(
-                        lambda x: x[0][jnp.newaxis, ...], traj_batch.hstates.critic_hidden_state
+                        lambda x: x[0], traj_batch.hstates.critic_hidden_state
                     )
                     _, value = critic_apply_fn(critic_params, critic_hidden_state, obs_and_done)
 
@@ -450,8 +450,8 @@ def learner_setup(
     context_size = 64
     BatchFFM = flax.linen.vmap(
         ScannedMemoroid,
-        in_axes=1,
-        out_axes=1,
+        in_axes=(((0, 0), 0), 1),
+        out_axes=(((0, 0), 0), 1),
         variable_axes={"params": None},
         split_rngs={"params": False},
     )
@@ -694,66 +694,64 @@ def run_experiment(_config: DictConfig) -> float:
             logger.log(episode_metrics, t, eval_step, LogEvent.ACT)
         logger.log(learner_output.train_metrics, t, eval_step, LogEvent.TRAIN)
 
-        # EVALUATION DOESNT CURRENTLY WORK YET...
-
         # Prepare for evaluation.
-        # start_time = time.time()
-        # trained_params = unreplicate_batch_dim(learner_output.learner_state.params.actor_params)
-        # key_e, *eval_keys = jax.random.split(key_e, n_devices + 1)
-        # eval_keys = jnp.stack(eval_keys)
-        # eval_keys = eval_keys.reshape(n_devices, -1)
+        start_time = time.time()
+        trained_params = unreplicate_batch_dim(learner_output.learner_state.params.actor_params)
+        key_e, *eval_keys = jax.random.split(key_e, n_devices + 1)
+        eval_keys = jnp.stack(eval_keys)
+        eval_keys = eval_keys.reshape(n_devices, -1)
 
-        # # Evaluate.
-        # evaluator_output = evaluator(trained_params, eval_keys)
-        # jax.block_until_ready(evaluator_output)
+        # Evaluate.
+        evaluator_output = evaluator(trained_params, eval_keys)
+        jax.block_until_ready(evaluator_output)
 
-        # # Log the results of the evaluation.
-        # elapsed_time = time.time() - start_time
-        # episode_return = jnp.mean(evaluator_output.episode_metrics["episode_return"])
+        # Log the results of the evaluation.
+        elapsed_time = time.time() - start_time
+        episode_return = jnp.mean(evaluator_output.episode_metrics["episode_return"])
 
-        # steps_per_eval = int(jnp.sum(evaluator_output.episode_metrics["episode_length"]))
-        # evaluator_output.episode_metrics["steps_per_second"] = steps_per_eval / elapsed_time
-        # logger.log(evaluator_output.episode_metrics, t, eval_step, LogEvent.EVAL)
+        steps_per_eval = int(jnp.sum(evaluator_output.episode_metrics["episode_length"]))
+        evaluator_output.episode_metrics["steps_per_second"] = steps_per_eval / elapsed_time
+        logger.log(evaluator_output.episode_metrics, t, eval_step, LogEvent.EVAL)
 
-        # if save_checkpoint:
-        #     # Save checkpoint of learner state
-        #     checkpointer.save(
-        #         timestep=int(steps_per_rollout * (eval_step + 1)),
-        #         unreplicated_learner_state=unreplicate_n_dims(learner_output.learner_state),
-        #         episode_return=episode_return,
-        #     )
+        if save_checkpoint:
+            # Save checkpoint of learner state
+            checkpointer.save(
+                timestep=int(steps_per_rollout * (eval_step + 1)),
+                unreplicated_learner_state=unreplicate_n_dims(learner_output.learner_state),
+                episode_return=episode_return,
+            )
 
-        # if config.arch.absolute_metric and max_episode_return <= episode_return:
-        #     best_params = copy.deepcopy(trained_params)
-        #     max_episode_return = episode_return
+        if config.arch.absolute_metric and max_episode_return <= episode_return:
+            best_params = copy.deepcopy(trained_params)
+            max_episode_return = episode_return
 
         # Update runner state to continue training.
         learner_state = learner_output.learner_state
 
     # Measure absolute metric.
-    # if config.arch.absolute_metric:
-    #     start_time = time.time()
+    if config.arch.absolute_metric:
+        start_time = time.time()
 
-    #     key_e, *eval_keys = jax.random.split(key_e, n_devices + 1)
-    #     eval_keys = jnp.stack(eval_keys)
-    #     eval_keys = eval_keys.reshape(n_devices, -1)
+        key_e, *eval_keys = jax.random.split(key_e, n_devices + 1)
+        eval_keys = jnp.stack(eval_keys)
+        eval_keys = eval_keys.reshape(n_devices, -1)
 
-    #     evaluator_output = absolute_metric_evaluator(best_params, eval_keys)
-    #     jax.block_until_ready(evaluator_output)
+        evaluator_output = absolute_metric_evaluator(best_params, eval_keys)
+        jax.block_until_ready(evaluator_output)
 
-    #     elapsed_time = time.time() - start_time
+        elapsed_time = time.time() - start_time
 
-    #     t = int(steps_per_rollout * (eval_step + 1))
-    #     steps_per_eval = int(jnp.sum(evaluator_output.episode_metrics["episode_length"]))
-    #     evaluator_output.episode_metrics["steps_per_second"] = steps_per_eval / elapsed_time
-    #     logger.log(evaluator_output.episode_metrics, t, eval_step, LogEvent.ABSOLUTE)
+        t = int(steps_per_rollout * (eval_step + 1))
+        steps_per_eval = int(jnp.sum(evaluator_output.episode_metrics["episode_length"]))
+        evaluator_output.episode_metrics["steps_per_second"] = steps_per_eval / elapsed_time
+        logger.log(evaluator_output.episode_metrics, t, eval_step, LogEvent.ABSOLUTE)
 
     # Stop the logger.
     logger.stop()
     # Record the performance for the final evaluation run. If the absolute metric is not
     # calculated, this will be the final evaluation run.
-    # eval_performance = float(jnp.mean(evaluator_output.episode_metrics[config.env.eval_metric]))
-    # return eval_performance
+    eval_performance = float(jnp.mean(evaluator_output.episode_metrics[config.env.eval_metric]))
+    return eval_performance
 
 
 @hydra.main(config_path="../../configs", config_name="default_rec_ppo.yaml", version_base="1.2")

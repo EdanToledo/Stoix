@@ -231,6 +231,10 @@ class ScannedMemoroid(nn.Module):
     def __call__(self, recurrent_state, inputs):
         # Recurrent state should be ((state, timestep), reset)
         # Inputs should be (x, reset)
+
+        # Unsqueeze the recurrent state to add the sequence dimension of size 1
+        recurrent_state = jax.tree.map(lambda x: jnp.expand_dims(x, 0), recurrent_state)
+
         x, _ = inputs
         h = self.cell.map_to_h(inputs)
         recurrent_state = recurrent_associative_scan(self.cell, recurrent_state, h)
@@ -239,13 +243,18 @@ class ScannedMemoroid(nn.Module):
 
         # TODO: Remove this when we want to return all recurrent states instead of just the last one
         final_recurrent_state = jax.tree.map(lambda x: x[-1:], recurrent_state)
+
+        # Squeeze the sequence dimension of 1 out
+        final_recurrent_state = jax.tree.map(lambda x: jnp.squeeze(x, 0), final_recurrent_state)
+
         return final_recurrent_state, out
 
     @nn.nowrap
     def initialize_carry(
         self, batch_size: Optional[int] = None, rng: Optional[chex.PRNGKey] = None
     ) -> Carry:
-        return self.cell.initialize_carry(batch_size, rng)
+        # We squeeze the sequence dim of 1 out.
+        return jax.tree.map(lambda x: x.squeeze(0), self.cell.initialize_carry(batch_size, rng))
 
 
 if __name__ == "__main__":
@@ -262,8 +271,8 @@ if __name__ == "__main__":
 
     BatchFFM = nn.vmap(
         ScannedMemoroid,
-        in_axes=1,
-        out_axes=1,
+        in_axes=(((0, 0), 0), 1),
+        out_axes=(((0, 0), 0), 1),
         variable_axes={"params": None},
         split_rngs={"params": False},
     )
