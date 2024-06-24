@@ -6,7 +6,15 @@ import flax.linen as nn
 import jax
 import jax.numpy as jnp
 
+# Typing aliases
 Carry = chex.ArrayTree
+Timestep = chex.Array
+MemoroidRecurrentState = Tuple[Tuple[chex.Array, chex.Array], chex.Array]
+Inputs = Tuple[chex.Array, chex.Array]
+Outputs = Tuple[chex.Array, chex.Array]
+RecurrentState = Tuple[chex.Array, chex.Array]
+CarryState = Tuple[RecurrentState, chex.Array]
+ScanInputs = Tuple[RecurrentState, Inputs]
 
 
 def debug_shape(x):
@@ -47,8 +55,8 @@ class MemoroidCellBase(nn.Module):
 
 def recurrent_associative_scan(
     cell: nn.Module,
-    state: jax.Array,
-    inputs: jax.Array,
+    state: chex.Array,
+    inputs: chex.Array,
     axis: int = 0,
 ) -> jax.Array:
     """Execute the associative scan to update the recurrent state.
@@ -132,15 +140,15 @@ class FFMCell(MemoroidCellBase):
         pre = self.pre(x)
         gated_x = pre * gate_in
         # We also need relative timesteps, i.e., each observation is 1 timestep newer than the previous
-        ts = jnp.ones(x.shape[0], dtype=jnp.int32)
-        z = jnp.repeat(jnp.expand_dims(gated_x, 2), self.context_size, axis=2)
+        ts = jnp.ones(x.shape[0:2], dtype=jnp.int32)
+        z = jnp.repeat(jnp.expand_dims(gated_x, 3), self.context_size, axis=3)
         return (z, ts), resets
 
     def map_from_h(self, recurrent_state, x):
         """Map from the recurrent space to the Markov space"""
         (state, ts), reset = recurrent_state
         z_in = jnp.concatenate([jnp.real(state), jnp.imag(state)], axis=-1).reshape(
-            state.shape[0], -1
+            state.shape[0], state.shape[1], -1
         )
         z = self.mix(z_in)
         gate_out = self.gate_out(x)
@@ -150,10 +158,10 @@ class FFMCell(MemoroidCellBase):
 
     def log_gamma(self, t: jax.Array) -> jax.Array:
         a, b = self.params
-        a = -jnp.abs(a).reshape((1, self.trace_size, 1))
-        b = b.reshape(1, 1, self.context_size)
+        a = -jnp.abs(a).reshape((1, 1, self.trace_size, 1))
+        b = b.reshape(1, 1, 1, self.context_size)
         ab = jax.lax.complex(a, b)
-        return ab * t.reshape(t.shape[0], 1, 1)
+        return ab * t.reshape(t.shape[0], t.shape[1], 1, 1)
 
     def gamma(self, t: jax.Array) -> jax.Array:
         return jnp.exp(self.log_gamma(t))
@@ -192,14 +200,14 @@ class MemoroidResetWrapper(MemoroidCellBase):
         xs, start = incoming
 
         def reset_state(start, current_state, initial_state):
-            # Expand to reset all dims of state: [B, 1, 1, ...]
+            # Expand to reset all dims of state: [1, B, 1, ...]
             assert initial_state.ndim == current_state.ndim
-            expanded_start = start.reshape(-1, *([1] * (current_state.ndim - 1)))
+            expanded_start = start.reshape(-1, start.shape[1], *([1] * (current_state.ndim - 2)))
             out = current_state * jnp.logical_not(expanded_start) + initial_state
             return out
 
         # Add an extra dim, as start will be [Batch] while intialize carry expects [Batch, Feature]
-        initial_states = self.cell.initialize_carry(rng)
+        initial_states = self.cell.initialize_carry(rng=rng, batch_size=start.shape[1])
         states = jax.tree.map(partial(reset_state, start), states, initial_states)
         out = self.cell(states, xs)
         start_carry = jnp.logical_or(start, prev_start)
@@ -229,6 +237,9 @@ class ScannedMemoroid(nn.Module):
 
     @nn.compact
     def __call__(self, recurrent_state, inputs):
+        """Apply the ScannedMemoroid.
+        This takes in a sequence of batched states and inputs.
+        The recurrent state that is used requires no sequence dimension but does require a batch dimension."""
         # Recurrent state should be ((state, timestep), reset)
         # Inputs should be (x, reset)
 
@@ -253,37 +264,24 @@ class ScannedMemoroid(nn.Module):
     def initialize_carry(
         self, batch_size: Optional[int] = None, rng: Optional[chex.PRNGKey] = None
     ) -> Carry:
+        """Initialize the carry for the ScannedMemoroid. This returns the carry in the shape [Batch, ...] i.e. it contains no sequence dimension"""
         # We squeeze the sequence dim of 1 out.
         return jax.tree.map(lambda x: x.squeeze(0), self.cell.initialize_carry(batch_size, rng))
 
 
 if __name__ == "__main__":
-    m = ScannedMemoroid(
-        cell=MemoroidResetWrapper(cell=FFMCell(output_size=4, trace_size=5, context_size=6))
-    )
-    y = jnp.ones((10, 2))
-    s = m.initialize_carry(None)
-    start = jnp.zeros(10, dtype=bool)
-    params = m.init(jax.random.PRNGKey(0), s, (y, start))
-    out_state, out = m.apply(params, s, (y, start))
-
-    print(out)
-
-    BatchFFM = nn.vmap(
-        ScannedMemoroid,
-        in_axes=(((0, 0), 0), 1),
-        out_axes=(((0, 0), 0), 1),
-        variable_axes={"params": None},
-        split_rngs={"params": False},
-    )
+    BatchFFM = ScannedMemoroid
 
     m = BatchFFM(
         cell=MemoroidResetWrapper(cell=FFMCell(output_size=4, trace_size=5, context_size=6))
     )
 
-    y = jnp.ones((10, 8, 2))
-    s = m.initialize_carry(8)
-    start = jnp.zeros((10, 8), dtype=bool)
+    batch_size = 8
+    time_steps = 10
+
+    y = jnp.ones((time_steps, batch_size, 2))
+    s = m.initialize_carry(batch_size)
+    start = jnp.zeros((time_steps, batch_size), dtype=bool)
     params = m.init(jax.random.PRNGKey(0), s, (y, start))
     out_state, out = m.apply(params, s, (y, start))
 
