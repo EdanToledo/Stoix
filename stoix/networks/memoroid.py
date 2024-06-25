@@ -71,19 +71,12 @@ def recurrent_associative_scan(
     # Concatenate the previous state to the inputs and scan over the result
     # This ensures the previous recurrent state contributes to the current batch
 
-    # We need to add a dummy start signal to the inputs
-    dummy_start = jnp.zeros(inputs[-1].shape[1:], dtype=bool)[jnp.newaxis, ...]
-    # Add it to the state i.e. (state, timestep) -> ((state, time), reset)
-    state = (state, dummy_start)
     scan_inputs = jax.tree.map(lambda s, x: jnp.concatenate([s, x], axis=axis), state, inputs)
     new_state = jax.lax.associative_scan(
         cell,
         scan_inputs,
         axis=axis,
     )
-
-    # Get rid of the reset signal i.e. ((state, time), reset) -> (state, time)
-    new_state, _ = new_state
 
     # The zeroth index corresponds to the previous recurrent state
     # We just use it to ensure continuity
@@ -154,7 +147,7 @@ class FFMCell(MemoroidCellBase):
 
     def map_from_h(self, recurrent_state: RecurrentState, x: InputEmbedding) -> HiddenState:
         """Map from the recurrent space to the Markov space"""
-        state, _ = recurrent_state
+        (state, _), _ = recurrent_state
         z_in = jnp.concatenate([jnp.real(state), jnp.imag(state)], axis=-1).reshape(
             state.shape[0], state.shape[1], -1
         )
@@ -185,6 +178,7 @@ class FFMCell(MemoroidCellBase):
         if batch_size is not None:
             carry_shape = (carry_shape[0], batch_size, *carry_shape[1:])
             t_shape = (*t_shape, batch_size)
+        
         return jnp.zeros(carry_shape, dtype=jnp.complex64), jnp.zeros(t_shape, dtype=jnp.int32)
 
     def __call__(self, carry: RecurrentState, incoming):
@@ -232,7 +226,7 @@ class MemoroidResetWrapper(MemoroidCellBase):
     def initialize_carry(
         self, batch_size: Optional[int] = None, rng: Optional[chex.PRNGKey] = None
     ) -> RecurrentState:
-        return self.cell.initialize_carry(batch_size, rng)
+        return self.cell.initialize_carry(batch_size, rng), jnp.zeros((1, batch_size), dtype=bool)
 
 
 class ScannedMemoroid(nn.Module):
@@ -301,35 +295,60 @@ def test_reset_wrapper():
     params = m.init(jax.random.PRNGKey(0), batched_s, (x_batched, batched_starts))
 
 
-    (batched_out_state, _), batched_out = m.apply(params, batched_s, (x_batched, batched_starts))
-    (contig_out_state, _), contig_out = m.apply(params, contig_s, (x_contig, contig_starts))
+    (batched_out_state, batched_ts), batched_out = m.apply(params, batched_s, (x_batched, batched_starts))
+    (contig_out_state, contig_ts), contig_out = m.apply(params, contig_s, (x_contig, contig_starts))
 
     # This should be nearly zero (1e-10 or something)
     state_error = jnp.linalg.norm(contig_out_state - batched_out_state[-1], axis=-1).sum()
     print("state error", state_error)
-    state_error = jnp.linalg.norm(batched_out - jnp.swapaxes(contig_out.reshape(batch_size, time_steps, -1), 1, 0), axis=-1).sum()
-    print("state error", state_error)
+    out_error = jnp.linalg.norm(batched_out - jnp.swapaxes(contig_out.reshape(batch_size, time_steps, -1), 1, 0), axis=-1).sum()
+    print("out error", out_error)
 
-
-if __name__ == "__main__":
+def test_reset_wrapper_ts():
     BatchFFM = ScannedMemoroid
 
     m = BatchFFM(
-        cell=MemoroidResetWrapper(cell=FFMCell(output_size=4, trace_size=5, context_size=6))
+        cell=MemoroidResetWrapper(cell=FFMCell(output_size=2, trace_size=2, context_size=3))
     )
 
-    batch_size = 8
+    batch_size = 2 
     time_steps = 10
+    # Have a batched version with one episode per batch
+    # and collapse it into a single episode with a single batch (but same start/resets)
+    # results should be identical
+    batched_starts = jnp.array([
+        [False, False, True, False, False, True, True, False, False, False],
+        [False, False, True, False, False, True, True, False, False, False],
+    ]).T
 
-    y = jnp.ones((time_steps, batch_size, 2))
-    s = m.initialize_carry(batch_size)
-    start = jnp.zeros((time_steps, batch_size), dtype=bool)
-    params = m.init(jax.random.PRNGKey(0), s, (y, start))
-    out_state, out = m.apply(params, s, (y, start))
+    x_batched = jnp.arange(time_steps * batch_size * 2).reshape((time_steps, batch_size, 2)).astype(jnp.float32)
+    batched_s = m.initialize_carry(batch_size)
+    params = m.init(jax.random.PRNGKey(0), batched_s, (x_batched, batched_starts))
 
-    out = jnp.swapaxes(out, 0, 1)
 
-    print(out)
-    print(debug_shape(out_state))
+    ((batched_out_state, batched_ts), batched_reset), batched_out = m.apply(params, batched_s, (x_batched, batched_starts))
 
-    test_reset_wrapper()
+
+if __name__ == "__main__":
+    # BatchFFM = ScannedMemoroid
+
+    # m = BatchFFM(
+    #     cell=MemoroidResetWrapper(cell=FFMCell(output_size=4, trace_size=5, context_size=6))
+    # )
+
+    # batch_size = 8
+    # time_steps = 10
+
+    # y = jnp.ones((time_steps, batch_size, 2))
+    # s = m.initialize_carry(batch_size)
+    # start = jnp.zeros((time_steps, batch_size), dtype=bool)
+    # params = m.init(jax.random.PRNGKey(0), s, (y, start))
+    # out_state, out = m.apply(params, s, (y, start))
+
+    # out = jnp.swapaxes(out, 0, 1)
+
+    # print(out)
+    # print(debug_shape(out_state))
+
+    #test_reset_wrapper()
+    test_reset_wrapper_ts()
