@@ -350,7 +350,7 @@ def train_memorize():
 
     batch_size = 1
     rem_ts = 10
-    time_steps = rem_ts * 5
+    time_steps = rem_ts * 10
     obs_space = 2
     rng = jax.random.PRNGKey(0)
     x = jax.random.randint(rng, (time_steps, batch_size), 0, obs_space).reshape(-1, 1, 1)
@@ -365,6 +365,7 @@ def train_memorize():
     def error(params, x, start, key):
         s = m.initialize_carry(batch_size)
         x = jax.random.randint(key, (time_steps, batch_size), 0, obs_space).reshape(-1, 1, 1)
+        y = jnp.repeat(x[::rem_ts], x.shape[0] // x[::rem_ts].shape[0]).reshape(-1, 1)
         out_state, y_hat = m.apply(params, s, (x, start))
         return jnp.mean((y - y_hat) ** 2)
 
