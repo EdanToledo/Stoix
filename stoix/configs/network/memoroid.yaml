@@ -3,45 +3,45 @@
 actor_network:
   pre_torso:
     _target_: stoix.networks.torso.MLPTorso
-    layer_sizes: [256]
-    use_layer_norm: False
-    activation: silu
+    layer_sizes: [128]
+    use_layer_norm: True
+    activation: leaky_relu
   rnn_layer:
     _target_: stoix.networks.memoroid.ScannedMemoroid
     cell:
       _target_: stoix.networks.memoroid.MemoroidResetWrapper
       cell:
         _target_: stoix.networks.memoroid.FFMCell
-        trace_size: 64
+        trace_size: 32
         context_size: 4
-        output_size: 256
+        output_size: 128
   post_torso:
     _target_: stoix.networks.torso.MLPTorso
-    layer_sizes: [256]
-    use_layer_norm: False
-    activation: silu
+    layer_sizes: [128, 128]
+    use_layer_norm: True
+    activation: leaky_relu
   action_head:
     _target_: stoix.networks.heads.CategoricalHead
 
 critic_network:
   pre_torso:
     _target_: stoix.networks.torso.MLPTorso
-    layer_sizes: [256]
-    use_layer_norm: False
-    activation: silu
+    layer_sizes: [128]
+    use_layer_norm: True
+    activation: leaky_relu
   rnn_layer:
     _target_: stoix.networks.memoroid.ScannedMemoroid
     cell:
       _target_: stoix.networks.memoroid.MemoroidResetWrapper
       cell:
         _target_: stoix.networks.memoroid.FFMCell
-        trace_size: 64
+        trace_size: 32
         context_size: 4
-        output_size: 256
+        output_size: 128
   post_torso:
     _target_: stoix.networks.torso.MLPTorso
-    layer_sizes: [256]
-    use_layer_norm: False
-    activation: silu
+    layer_sizes: [128, 128]
+    use_layer_norm: True
+    activation: leaky_relu
   critic_head:
     _target_: stoix.networks.heads.ScalarCriticHead
