@@ -282,10 +282,12 @@ def test_reset_wrapper():
     # and collapse it into a single episode with a single batch (but same start/resets)
     # results should be identical
     batched_starts = jnp.ones([batch_size], dtype=bool)
-    batched_starts = jnp.concatenate([
-        batched_starts.reshape(1, -1),
-        jnp.zeros([time_steps - 1, batch_size], dtype=bool)
-    ], axis=0)
+    # batched_starts = jnp.concatenate([
+    #     jnp.zeros([time_steps // 2, batch_size], dtype=bool),
+    #     batched_starts.reshape(1, -1),
+    #     jnp.zeros([time_steps // 2 - 1, batch_size], dtype=bool)
+    # ], axis=0)
+    batched_starts = jax.random.uniform(jax.random.PRNGKey(0), (time_steps, batch_size)) < 0.1
     contig_starts = jnp.swapaxes(batched_starts, 1, 0).reshape(-1, 1)
 
     x_batched = jnp.arange(time_steps * batch_size * 2).reshape((time_steps, batch_size, 2))
@@ -295,14 +297,15 @@ def test_reset_wrapper():
     params = m.init(jax.random.PRNGKey(0), batched_s, (x_batched, batched_starts))
 
 
-    (batched_out_state, batched_ts), batched_out = m.apply(params, batched_s, (x_batched, batched_starts))
-    (contig_out_state, contig_ts), contig_out = m.apply(params, contig_s, (x_contig, contig_starts))
+    ((batched_out_state, batched_ts), batched_reset), batched_out = m.apply(params, batched_s, (x_batched, batched_starts))
+    ((contig_out_state, contig_ts), contig_reset), contig_out = m.apply(params, contig_s, (x_contig, contig_starts))
 
     # This should be nearly zero (1e-10 or something)
     state_error = jnp.linalg.norm(contig_out_state - batched_out_state[-1], axis=-1).sum()
     print("state error", state_error)
     out_error = jnp.linalg.norm(batched_out - jnp.swapaxes(contig_out.reshape(batch_size, time_steps, -1), 1, 0), axis=-1).sum()
     print("out error", out_error)
+    print(batched_ts, contig_ts)
 
 def test_reset_wrapper_ts():
     BatchFFM = ScannedMemoroid
@@ -327,6 +330,7 @@ def test_reset_wrapper_ts():
 
 
     ((batched_out_state, batched_ts), batched_reset), batched_out = m.apply(params, batched_s, (x_batched, batched_starts))
+    print(batched_ts == 4)
 
 
 if __name__ == "__main__":
@@ -350,5 +354,5 @@ if __name__ == "__main__":
     # print(out)
     # print(debug_shape(out_state))
 
-    #test_reset_wrapper()
+    test_reset_wrapper()
     test_reset_wrapper_ts()
