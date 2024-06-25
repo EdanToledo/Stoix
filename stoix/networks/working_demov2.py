@@ -1,17 +1,22 @@
-from functools import partial
-from typing import Any, Dict, Tuple
+from typing import Tuple
 
 import chex
 import jax
 import optax
 from flax import linen as nn
 from jax import numpy as jnp
-from jax import vmap
+
+RecurrentState = chex.Array
+Reset = chex.Array
+Timestep = chex.Array
+InputEmbedding = chex.Array
+Inputs = Tuple[InputEmbedding, Reset]
+ScanInput = chex.Array
 
 
 def init_deterministic(
     memory_size: int, context_size: int, min_period: int = 1, max_period: int = 1_000
-) -> Tuple[jax.Array, jax.Array]:
+) -> Tuple[chex.Array, chex.Array]:
     a_low = 1e-6
     a_high = 0.5
     a = jnp.linspace(a_low, a_high, memory_size)
@@ -33,50 +38,51 @@ class FFM(nn.Module):
     output_size: int
 
     def setup(self) -> None:
+
+        # Create the FFM parameters
+        a, b = init_deterministic(self.trace_size, self.context_size)
         self.a = self.param(
             "ffm_a",
-            lambda key, shape: init_deterministic(self.trace_size, self.context_size)[0],
+            lambda key, shape: a,
             (),
         )
         self.b = self.param(
             "ffm_b",
-            lambda key, shape: init_deterministic(self.trace_size, self.context_size)[1],
+            lambda key, shape: b,
             (),
         )
 
-    @nn.compact
-    def __call__(
-        self, x: jax.Array, state: jax.Array, start: jax.Array
-    ) -> Tuple[jax.Array, jax.Array]:
+        # Create the networks and parameters that are used when
+        # mapping from input space to recurrent state space
+        # This is used in the map_to_h method and is used in the
+        # associative scan outer loop
+        self.pre = nn.Dense(self.trace_size)
+        self.gate_in = Gate(self.trace_size)
+        self.gate_out = Gate(self.output_size)
+        self.skip = nn.Dense(self.output_size)
+        self.mix = nn.Dense(self.output_size)
+        self.ln = nn.LayerNorm(use_scale=False, use_bias=False)
 
-        x = nn.Dense(self.output_size)(x)
-        x = nn.relu(x)
-        x = nn.Dense(self.output_size)(x)
-
-        gate_in = Gate(self.trace_size)(x)
-        pre = Gate(self.trace_size)(x)
+    def map_to_h(self, x: InputEmbedding) -> ScanInput:
+        """Given an input embedding, this will map it to the format required for the associative scan."""
+        gate_in = self.gate_in(x)
+        pre = self.pre(x)
         gated_x = pre * gate_in
         scan_input = jnp.repeat(jnp.expand_dims(gated_x, 3), self.context_size, axis=3)
-        state = self.scan(scan_input, state, start)
+        return scan_input
+
+    def map_from_h(self, state: RecurrentState, x: InputEmbedding) -> chex.Array:
+        """Given the recurrent state and the input embedding, this will map the recurrent state back to the output space."""
         T = state.shape[0]
         B = state.shape[1]
         z_in = jnp.concatenate([jnp.real(state), jnp.imag(state)], axis=-1).reshape(T, B, -1)
-        z = nn.Dense(self.output_size)(z_in)
-        gate_out = Gate(self.output_size)(x)
-        skip = nn.Dense(self.output_size)(x)
-        out = nn.LayerNorm(use_scale=False, use_bias=False)(z * gate_out) + skip * (1 - gate_out)
-        final_state = state[-1:]
+        z = self.mix(z_in)
+        gate_out = self.gate_out(x)
+        skip = self.skip(x)
+        out = self.ln(z * gate_out) + skip * (1 - gate_out)
+        return out
 
-        out = nn.Dense(self.output_size)(out)
-        out = nn.relu(out)
-        out = nn.Dense(1)(out)
-
-        return out, final_state
-
-    def initial_state(self, batch_size: int) -> jax.Array:
-        return jnp.zeros((1, batch_size, self.trace_size, self.context_size), dtype=jnp.complex64)
-
-    def log_gamma(self, t: jax.Array) -> jax.Array:
+    def log_gamma(self, t: Timestep) -> chex.Array:
         T = t.shape[0]
         B = t.shape[1]
         a = self.a
@@ -86,14 +92,14 @@ class FFM(nn.Module):
         ab = jax.lax.complex(a, b)
         return ab * t.reshape(T, B, 1, 1)
 
-    def gamma(self, t: jax.Array) -> jax.Array:
+    def gamma(self, t: Timestep) -> chex.Array:
         return jnp.exp(self.log_gamma(t))
 
     def unwrapped_associative_update(
         self,
-        carry: Tuple[jax.Array, jax.Array, jax.Array],
-        incoming: Tuple[jax.Array, jax.Array, jax.Array],
-    ) -> Tuple[jax.Array, jax.Array, jax.Array]:
+        carry: Tuple[RecurrentState, Timestep],
+        incoming: Tuple[InputEmbedding, Timestep],
+    ) -> Tuple[RecurrentState, Timestep]:
         (
             state,
             i,
@@ -102,7 +108,11 @@ class FFM(nn.Module):
         state = state * self.gamma(j) + x
         return state, j + i
 
-    def wrapped_associative_update(self, carry, incoming):
+    def wrapped_associative_update(
+        self,
+        carry: Tuple[Reset, RecurrentState, Timestep],
+        incoming: Tuple[Reset, InputEmbedding, Timestep],
+    ) -> Tuple[Reset, RecurrentState, Timestep]:
         prev_start, state, i = carry
         start, x, j = incoming
         # Reset all elements in the carry if we are starting a new episode
@@ -116,14 +126,14 @@ class FFM(nn.Module):
 
     def scan(
         self,
-        x: jax.Array,
-        state: jax.Array,
-        start: jax.Array,
-    ) -> jax.Array:
+        x: InputEmbedding,
+        state: RecurrentState,
+        start: Reset,
+    ) -> RecurrentState:
         """Given an input and recurrent state, this will update the recurrent state. This is equivalent
         to the inner-function g in the paper."""
-        # x: [T, memory_size]
-        # memory: [1, memory_size, context_size]
+        # x: [T, B, memory_size]
+        # memory: [1, B, memory_size, context_size]
         T = x.shape[0]
         B = x.shape[1]
         timestep = jnp.ones((T + 1, B), dtype=jnp.int32).reshape(T + 1, B, 1, 1)
@@ -142,10 +152,46 @@ class FFM(nn.Module):
         )
         return new_state[1:]
 
+    @nn.compact
+    def __call__(self, state: RecurrentState, inputs: Inputs) -> Tuple[RecurrentState, chex.Array]:
+
+        # Add a sequence dimension to the recurrent state.
+        state = jnp.expand_dims(state, 0)
+
+        # Unpack inputs
+        x, start = inputs
+
+        # Map the input embedding to the recurrent state space.
+        # This maps to the format required for the associative scan.
+        scan_input = self.map_to_h(x)
+
+        # Update the recurrent state
+        state = self.scan(scan_input, state, start)
+
+        # Map the recurrent state back to the output space
+        out = self.map_from_h(state, x)
+
+        # Take the final state of the sequence.
+        final_state = state[-1:]
+
+        # TODO: remove this when not running test
+        out = nn.Dense(128)(out)
+        out = nn.relu(out)
+        out = nn.Dense(1)(out)
+
+        # Remove the sequence dimemnsion from the final state.
+        final_state = jnp.squeeze(final_state, 0)
+
+        return final_state, out
+
+    @nn.nowrap
+    def initialize_carry(self, batch_size: int) -> RecurrentState:
+        return jnp.zeros((batch_size, self.trace_size, self.context_size), dtype=jnp.complex64)
+
 
 def train_memorize():
 
-    USE_BATCH_VERSION = True  # required to be true
+    USE_BATCH_VERSION = True  # Required to be true
 
     m = FFM(output_size=128, trace_size=64, context_size=4)
 
@@ -168,12 +214,12 @@ def train_memorize():
 
     start = jnp.zeros([time_steps, batch_size], dtype=bool).at[::rem_ts].set(True)
 
-    s = m.initial_state(batch_size)
+    s = m.initialize_carry(batch_size)
 
-    params = m.init(jax.random.PRNGKey(0), x, s, start)
+    params = m.init(jax.random.PRNGKey(0), s, (x, start))
 
     def error(params, x, start, key):
-        s = m.initial_state(batch_size)
+        s = m.initialize_carry(batch_size)
 
         # For BATCH VERSION
         if USE_BATCH_VERSION:
@@ -188,7 +234,7 @@ def train_memorize():
             x = x.reshape(time_steps, batch_size, 1)
             y = y.reshape(time_steps, batch_size, 1)
 
-        y_hat, final_state = m.apply(params, x, s, start)
+        final_state, y_hat = m.apply(params, s, (x, start))
         y_hat = jnp.squeeze(y_hat)
         y = jnp.squeeze(y)
         accuracy = (jnp.round(y_hat) == y).mean()
@@ -212,7 +258,7 @@ if __name__ == "__main__":
     #     trace_size=5,
     #     context_size=6,
     # )
-    # s = m.initial_state()
+    # s = m.initialize_carry()
     # x = jnp.ones((10, 2))
     # start = jnp.zeros(10, dtype=bool)
     # params = m.init(jax.random.PRNGKey(0), x, s, start)
