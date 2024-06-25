@@ -3,7 +3,9 @@ from typing import Optional, Tuple
 
 import chex
 import flax.linen as nn
+import flax
 import jax
+import optax
 import jax.numpy as jnp
 
 # Typing aliases
@@ -99,7 +101,7 @@ class Gate(nn.Module):
 
 
 def init_deterministic(
-    memory_size: int, context_size: int, min_period: int = 1, max_period: int = 1_000
+    memory_size: int, context_size: int, min_period: int = 1, max_period: int = 1024
 ) -> Tuple[chex.Array, chex.Array]:
     """Deterministic initialization of the FFM parameters."""
     a_low = 1e-6
@@ -247,6 +249,12 @@ class ScannedMemoroid(nn.Module):
 
         x, resets = inputs
         h = self.cell.map_to_h(x)
+        # TODO: In the original implementation, the recurrent timestep is also one
+        # recurrent_state = (
+        #     (recurrent_state[0][0],
+        #     jnp.ones_like(recurrent_state[0][1])),
+        #     recurrent_state[1]
+        # )
         recurrent_state = recurrent_associative_scan(self.cell, recurrent_state, (h, resets))
         # recurrent_state is (state, timestep)
         out = self.cell.map_from_h(recurrent_state, x)
@@ -333,6 +341,45 @@ def test_reset_wrapper_ts():
     print(batched_ts == 4)
 
 
+
+def train_memorize():
+    BatchFFM = ScannedMemoroid
+
+    m = BatchFFM(
+        cell=MemoroidResetWrapper(cell=FFMCell(output_size=128, trace_size=32, context_size=4))
+    )
+
+    batch_size = 1
+    rem_ts = 10
+    time_steps = rem_ts * 5
+    obs_space = 2
+    rng = jax.random.PRNGKey(0)
+    x = jax.random.randint(rng, (time_steps, batch_size), 0, obs_space).reshape(-1, 1, 1)
+    y = jnp.repeat(x[::rem_ts], x.shape[0] // x[::rem_ts].shape[0]).reshape(-1, 1)
+    start = jnp.zeros([time_steps, batch_size], dtype=bool).at[::rem_ts].set(True)
+    #start = jnp.zeros([time_steps, batch_size], dtype=bool)
+    #start = jnp.ones([time_steps, batch_size], dtype=bool)
+
+    s = m.initialize_carry(batch_size)
+    params = m.init(jax.random.PRNGKey(0), s, (x, start))
+
+    def error(params, x, start, key):
+        s = m.initialize_carry(batch_size)
+        x = jax.random.randint(key, (time_steps, batch_size), 0, obs_space).reshape(-1, 1, 1)
+        out_state, y_hat = m.apply(params, s, (x, start))
+        return jnp.mean((y - y_hat) ** 2)
+
+    optimizer = optax.adam(learning_rate=0.002)
+    state = optimizer.init(params)
+    loss_fn = jax.jit(jax.value_and_grad(error))
+    for step in range(10_000):
+        rng = jax.random.split(rng)[0]
+        loss, grads = loss_fn(params, x, start, rng)
+        updates, state = optimizer.update(grads, state)
+        params = optax.apply_updates(params, updates)
+        print(f"Step {step+1}, Loss: {loss}")
+
+
 if __name__ == "__main__":
     # BatchFFM = ScannedMemoroid
 
@@ -354,5 +401,6 @@ if __name__ == "__main__":
     # print(out)
     # print(debug_shape(out_state))
 
-    test_reset_wrapper()
-    test_reset_wrapper_ts()
+    #test_reset_wrapper()
+    #test_reset_wrapper_ts()
+    train_memorize()
