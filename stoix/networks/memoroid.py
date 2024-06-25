@@ -3,7 +3,6 @@ from typing import Optional, Tuple
 
 import chex
 import flax.linen as nn
-import flax
 import jax
 import optax
 import jax.numpy as jnp
@@ -101,7 +100,7 @@ class Gate(nn.Module):
 
 
 def init_deterministic(
-    memory_size: int, context_size: int, min_period: int = 1, max_period: int = 1024
+    memory_size: int, context_size: int, min_period: int = 1, max_period: int = 1000
 ) -> Tuple[chex.Array, chex.Array]:
     """Deterministic initialization of the FFM parameters."""
     a_low = 1e-6
