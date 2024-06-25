@@ -4,8 +4,8 @@ from typing import Optional, Tuple
 import chex
 import flax.linen as nn
 import jax
-import optax
 import jax.numpy as jnp
+import optax
 
 # Typing aliases
 Carry = chex.ArrayTree
@@ -179,7 +179,7 @@ class FFMCell(MemoroidCellBase):
         if batch_size is not None:
             carry_shape = (carry_shape[0], batch_size, *carry_shape[1:])
             t_shape = (*t_shape, batch_size)
-        
+
         return jnp.zeros(carry_shape, dtype=jnp.complex64), jnp.zeros(t_shape, dtype=jnp.int32)
 
     def __call__(self, carry: RecurrentState, incoming):
@@ -283,7 +283,7 @@ def test_reset_wrapper():
         cell=MemoroidResetWrapper(cell=FFMCell(output_size=2, trace_size=2, context_size=3))
     )
 
-    batch_size = 4 
+    batch_size = 4
     time_steps = 100
     # Have a batched version with one episode per batch
     # and collapse it into a single episode with a single batch (but same start/resets)
@@ -303,16 +303,22 @@ def test_reset_wrapper():
     contig_s = m.initialize_carry(1)
     params = m.init(jax.random.PRNGKey(0), batched_s, (x_batched, batched_starts))
 
-
-    ((batched_out_state, batched_ts), batched_reset), batched_out = m.apply(params, batched_s, (x_batched, batched_starts))
-    ((contig_out_state, contig_ts), contig_reset), contig_out = m.apply(params, contig_s, (x_contig, contig_starts))
+    ((batched_out_state, batched_ts), batched_reset), batched_out = m.apply(
+        params, batched_s, (x_batched, batched_starts)
+    )
+    ((contig_out_state, contig_ts), contig_reset), contig_out = m.apply(
+        params, contig_s, (x_contig, contig_starts)
+    )
 
     # This should be nearly zero (1e-10 or something)
     state_error = jnp.linalg.norm(contig_out_state - batched_out_state[-1], axis=-1).sum()
     print("state error", state_error)
-    out_error = jnp.linalg.norm(batched_out - jnp.swapaxes(contig_out.reshape(batch_size, time_steps, -1), 1, 0), axis=-1).sum()
+    out_error = jnp.linalg.norm(
+        batched_out - jnp.swapaxes(contig_out.reshape(batch_size, time_steps, -1), 1, 0), axis=-1
+    ).sum()
     print("out error", out_error)
     print(batched_ts, contig_ts)
+
 
 def test_reset_wrapper_ts():
     BatchFFM = ScannedMemoroid
@@ -321,24 +327,30 @@ def test_reset_wrapper_ts():
         cell=MemoroidResetWrapper(cell=FFMCell(output_size=2, trace_size=2, context_size=3))
     )
 
-    batch_size = 2 
+    batch_size = 2
     time_steps = 10
     # Have a batched version with one episode per batch
     # and collapse it into a single episode with a single batch (but same start/resets)
     # results should be identical
-    batched_starts = jnp.array([
-        [False, False, True, False, False, True, True, False, False, False],
-        [False, False, True, False, False, True, True, False, False, False],
-    ]).T
+    batched_starts = jnp.array(
+        [
+            [False, False, True, False, False, True, True, False, False, False],
+            [False, False, True, False, False, True, True, False, False, False],
+        ]
+    ).T
 
-    x_batched = jnp.arange(time_steps * batch_size * 2).reshape((time_steps, batch_size, 2)).astype(jnp.float32)
+    x_batched = (
+        jnp.arange(time_steps * batch_size * 2)
+        .reshape((time_steps, batch_size, 2))
+        .astype(jnp.float32)
+    )
     batched_s = m.initialize_carry(batch_size)
     params = m.init(jax.random.PRNGKey(0), batched_s, (x_batched, batched_starts))
 
-
-    ((batched_out_state, batched_ts), batched_reset), batched_out = m.apply(params, batched_s, (x_batched, batched_starts))
+    ((batched_out_state, batched_ts), batched_reset), batched_out = m.apply(
+        params, batched_s, (x_batched, batched_starts)
+    )
     print(batched_ts == 4)
-
 
 
 def train_memorize():
@@ -356,8 +368,8 @@ def train_memorize():
     x = jax.random.randint(rng, (time_steps, batch_size), 0, obs_space).reshape(-1, 1, 1)
     y = jnp.repeat(x[::rem_ts], x.shape[0] // x[::rem_ts].shape[0]).reshape(-1, 1)
     start = jnp.zeros([time_steps, batch_size], dtype=bool).at[::rem_ts].set(True)
-    #start = jnp.zeros([time_steps, batch_size], dtype=bool)
-    #start = jnp.ones([time_steps, batch_size], dtype=bool)
+    # start = jnp.zeros([time_steps, batch_size], dtype=bool)
+    # start = jnp.ones([time_steps, batch_size], dtype=bool)
 
     s = m.initialize_carry(batch_size)
     params = m.init(jax.random.PRNGKey(0), s, (x, start))
@@ -401,6 +413,6 @@ if __name__ == "__main__":
     # print(out)
     # print(debug_shape(out_state))
 
-    #test_reset_wrapper()
-    #test_reset_wrapper_ts()
+    # test_reset_wrapper()
+    # test_reset_wrapper_ts()
     train_memorize()
