@@ -8,7 +8,7 @@ actor_network:
     activation: leaky_relu
   rnn_layer:
     _target_: stoix.networks.memoroids.working_demov2.FFM
-    trace_size: 64
+    trace_size: 32
     context_size: 4
     output_size: 256
   post_torso:
@@ -27,7 +27,7 @@ critic_network:
     activation: leaky_relu
   rnn_layer:
     _target_: stoix.networks.memoroids.working_demov2.FFM
-    trace_size: 64
+    trace_size: 32
     context_size: 4
     output_size: 256
   post_torso:
