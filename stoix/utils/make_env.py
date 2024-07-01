@@ -27,7 +27,11 @@ from stoix.wrappers import GymnaxWrapper, JumanjiWrapper, RecordEpisodeMetrics
 from stoix.wrappers.brax import BraxJumanjiWrapper
 from stoix.wrappers.jaxmarl import JaxMarlWrapper, MabraxWrapper, SmaxWrapper
 from stoix.wrappers.pgx import PGXWrapper
-from stoix.wrappers.transforms import MultiBoundedToBounded, MultiDiscreteToDiscrete
+from stoix.wrappers.transforms import (
+    AddStartFlagAndPrevAction,
+    MultiBoundedToBounded,
+    MultiDiscreteToDiscrete,
+)
 from stoix.wrappers.xminigrid import XMiniGridWrapper
 
 
@@ -329,6 +333,9 @@ def make_popjym_env(env_name: str, config: DictConfig) -> Tuple[Environment, Env
 
     env = GymnaxWrapper(env, env_params)
     eval_env = GymnaxWrapper(eval_env, eval_env_params)
+
+    env = AddStartFlagAndPrevAction(env)
+    eval_env = AddStartFlagAndPrevAction(eval_env)
 
     env = AutoResetWrapper(env, next_obs_in_extras=True)
     env = RecordEpisodeMetrics(env)

@@ -30,8 +30,7 @@ wm_network:
     activation: silu
 
   # This can be seen as the dyanmics network.
-  rnn_size: 256
-  num_stacked_rnn_layers: 2
+  rnn_sizes: [256, 256]
   rnn_cell_type: "gru"
   recurrent_activation: "sigmoid"
 

@@ -1,6 +1,7 @@
 from typing import Tuple
 
 import chex
+import jax
 import jax.numpy as jnp
 import numpy as np
 from jumanji import specs
@@ -106,4 +107,59 @@ class MultiBoundedToBounded(Wrapper):
             maximum=original_action_spec.maximum,
             dtype=original_action_spec.dtype,
             name="action",
+        )
+
+
+class AddStartFlagAndPrevAction(Wrapper):
+    """Wrapper that adds a start flag and the previous action to the observation."""
+
+    def __init__(self, env: Environment):
+        super().__init__(env)
+
+        # Get the action dimension
+        if isinstance(self.action_spec(), specs.DiscreteArray):
+            self.action_dim = self.action_spec().num_values
+            self.discrete = True
+        else:
+            self.action_dim = self.action_spec().shape[0]
+            self.discrete = False
+
+        # Check if the observation is flat
+        if not len(self.observation_spec().agent_view.shape) == 1:
+            raise ValueError("The observation must be flat.")
+
+    def reset(self, key: chex.PRNGKey) -> Tuple[State, TimeStep[Observation]]:
+        state, timestep = self._env.reset(key)
+        start_flag = jnp.array(1.0)[jnp.newaxis]
+        prev_action = jnp.zeros(self.action_dim)
+        agent_view = timestep.observation.agent_view
+        new_agent_view = jnp.concatenate([start_flag, prev_action, agent_view])
+        timestep = timestep.replace(
+            observation=timestep.observation._replace(
+                agent_view=new_agent_view,
+            )
+        )
+        return state, timestep
+
+    def step(self, state: State, action: chex.Array) -> Tuple[State, TimeStep[Observation]]:
+        state, timestep = self._env.step(state, action)
+        start_flag = jnp.array(0.0)[jnp.newaxis]
+        prev_action = action
+        if self.discrete:
+            prev_action = jax.nn.one_hot(prev_action, self.action_dim)
+        agent_view = timestep.observation.agent_view
+        new_agent_view = jnp.concatenate([start_flag, prev_action, agent_view])
+        timestep = timestep.replace(
+            observation=timestep.observation._replace(
+                agent_view=new_agent_view,
+            )
+        )
+        return state, timestep
+
+    def observation_spec(self) -> Spec:
+        return self._env.observation_spec().replace(
+            agent_view=Array(
+                shape=(1 + self.action_dim + self._env.observation_spec().agent_view.shape[0],),
+                dtype=jnp.float32,
+            )
         )

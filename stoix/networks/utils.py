@@ -8,6 +8,7 @@ def parse_activation_fn(activation_fn_name: str) -> Callable[[chex.Array], chex.
     """Get the activation function."""
     activation_fns: Dict[str, Callable[[chex.Array], chex.Array]] = {
         "relu": nn.relu,
+        "leaky_relu": nn.leaky_relu,
         "tanh": nn.tanh,
         "silu": nn.silu,
         "elu": nn.elu,

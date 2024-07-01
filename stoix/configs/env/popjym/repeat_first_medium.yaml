@@ -2,8 +2,8 @@
 env_name: popjym
 
 scenario:
-  name: StatelessCartPoleEasy
-  task_name: stateless_cartpole_easy
+  name: RepeatFirstMedium
+  task_name: repeat_first_medium
 
 kwargs: {}
 

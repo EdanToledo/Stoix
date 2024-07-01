@@ -4,12 +4,12 @@ base_exp_path: results # Base path for logging.
 use_console: True # Whether to log to stdout.
 use_tb: False # Whether to use tensorboard logging.
 use_json: False # Whether to log marl-eval style to json files.
-use_neptune: False  # Whether to log to neptune.ai.
+use_neptune: True  # Whether to log to neptune.ai.
 use_wandb: False  # Whether to log to wandb.ai.
 
 # --- Other logger kwargs ---
 kwargs:
-  project: ~  # Project name in neptune.ai or wandb.ai.
+  project: e.toledo/Stoix  # Project name in neptune.ai or wandb.ai.
   tags: [stoix] # Tags to add to the experiment.
   detailed_logging: False  # having mean/std/min/max can clutter neptune/wandb so we make it optional
   json_path: ~ # If set, json files will be logged to a set path so that multiple experiments can

@@ -1,4 +1,4 @@
-from typing import List, Optional, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 import chex
 import jax
@@ -24,19 +24,17 @@ class StackedRNN(nn.Module):
         activation_fn (str): The activation function to use in each RNN cell (default is "tanh").
     """
 
-    rnn_size: int
+    rnn_sizes: Sequence[int]
     rnn_cls: nn.Module
-    num_layers: int
     activation_fn: str = "sigmoid"
 
     def setup(self) -> None:
         """Set up the RNN cells for the stacked RNN."""
         self.cells = [
-            self.rnn_cls(
-                features=self.rnn_size, activation_fn=parse_activation_fn(self.activation_fn)
-            )
-            for _ in range(self.num_layers)
+            self.rnn_cls(features=size, activation_fn=parse_activation_fn(self.activation_fn))
+            for size in self.rnn_sizes
         ]
+        self.num_layers = len(self.cells)
 
     def __call__(
         self, all_rnn_states: List[chex.ArrayTree], x: chex.Array
