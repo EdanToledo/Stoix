@@ -7,7 +7,7 @@ actor_network:
     use_layer_norm: False
     activation: leaky_relu
   rnn_layer:
-    _target_: stoix.networks.s5.StackedEncoderModel
+    _target_: stoix.networks.old_s5.StackedEncoderModel
     ssm_size: 256
     d_model: 256
     n_layers: 1
@@ -26,7 +26,7 @@ critic_network:
     use_layer_norm: False
     activation: leaky_relu
   rnn_layer:
-    _target_: stoix.networks.s5.StackedEncoderModel
+    _target_: stoix.networks.old_s5.StackedEncoderModel
     ssm_size: 256
     d_model: 256
     n_layers: 1
