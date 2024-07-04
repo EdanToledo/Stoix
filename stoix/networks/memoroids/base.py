@@ -94,10 +94,10 @@ class StackedMemoroid(nn.Module):
         assert len(all_states) == len(
             self.cells
         ), f"Expected {len(self.cells)} states, got {len(all_states)}"
-
+        x, starts = inputs
         new_states = []
         for cell, mem_state in zip(self.cells, all_states):
-            new_mem_state, x = cell(mem_state, x)
+            new_mem_state, x = cell(mem_state, (x, starts))
             new_states.append(new_mem_state)
 
         return new_states, x

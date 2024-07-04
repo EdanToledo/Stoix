@@ -7,6 +7,7 @@ from jax import numpy as jnp
 
 from stoix.networks.memoroids.base import (
     InputEmbedding,
+    Inputs,
     RecurrentState,
     Reset,
     ScanInput,
@@ -14,14 +15,26 @@ from stoix.networks.memoroids.base import (
 )
 
 
-def init_deterministic(
-    memory_size: int, context_size: int, min_period: int = 1, max_period: int = 1_000
+def init_deterministic_a(
+    memory_size: int,
 ) -> Tuple[chex.Array, chex.Array]:
-    a_low = 1e-6
-    a_high = 0.5
-    a = jnp.linspace(a_low, a_high, memory_size)
-    b = 2 * jnp.pi / jnp.linspace(min_period, max_period, context_size)
-    return a, b
+    def init(key, shape):
+        a_low = 1e-6
+        a_high = 0.5
+        a = jnp.linspace(a_low, a_high, memory_size)
+        return a
+
+    return init
+
+
+def init_deterministic_b(
+    context_size: int, min_period: int = 1, max_period: int = 1_000
+) -> Tuple[chex.Array, chex.Array]:
+    def init(key, shape):
+        b = 2 * jnp.pi / jnp.linspace(min_period, max_period, context_size)
+        return b
+
+    return init
 
 
 class Gate(nn.Module):
@@ -37,36 +50,10 @@ class FFMCell(nn.Module):
     context_size: int
     output_size: int
 
-    def setup(self) -> None:
-
-        # Create the FFM parameters
-        a, b = init_deterministic(self.trace_size, self.context_size)
-        self.a = self.param(
-            "ffm_a",
-            lambda key, shape: a,
-            (),
-        )
-        self.b = self.param(
-            "ffm_b",
-            lambda key, shape: b,
-            (),
-        )
-
-        # Create the networks and parameters that are used when
-        # mapping from input space to recurrent state space
-        # This is used in the map_to_h method and is used in the
-        # associative scan outer loop
-        self.pre = nn.Dense(self.trace_size)
-        self.gate_in = Gate(self.trace_size)
-        self.gate_out = Gate(self.output_size)
-        self.skip = nn.Dense(self.output_size)
-        self.mix = nn.Dense(self.output_size)
-        self.ln = nn.LayerNorm(use_scale=False, use_bias=False)
-
     def map_to_h(self, x: InputEmbedding) -> ScanInput:
         """Given an input embedding, this will map it to the format required for the associative scan."""
-        gate_in = self.gate_in(x)
-        pre = self.pre(x)
+        gate_in = Gate(self.trace_size)(x)
+        pre = nn.Dense(self.trace_size)(x)
         gated_x = pre * gate_in
         scan_input = jnp.repeat(jnp.expand_dims(gated_x, 3), self.context_size, axis=3)
         return scan_input
@@ -76,17 +63,26 @@ class FFMCell(nn.Module):
         T = state.shape[0]
         B = state.shape[1]
         z_in = jnp.concatenate([jnp.real(state), jnp.imag(state)], axis=-1).reshape(T, B, -1)
-        z = self.mix(z_in)
-        gate_out = self.gate_out(x)
-        skip = self.skip(x)
-        out = self.ln(z * gate_out) + skip * (1 - gate_out)
+        z = nn.Dense(self.output_size)(z_in)
+        gate_out = Gate(self.output_size)(x)
+        skip = nn.Dense(self.output_size)(x)
+        out = nn.LayerNorm(use_scale=False, use_bias=False)(z * gate_out) + skip * (1 - gate_out)
         return out
 
     def log_gamma(self, t: Timestep) -> chex.Array:
         T = t.shape[0]
         B = t.shape[1]
-        a = self.a
-        b = self.b
+
+        a = self.param(
+            "ffm_a",
+            init_deterministic_a(self.trace_size),
+            (),
+        )
+        b = self.param(
+            "ffm_b",
+            init_deterministic_b(self.context_size),
+            (),
+        )
         a = -jnp.abs(a).reshape((1, 1, self.trace_size, 1))
         b = b.reshape(1, 1, 1, self.context_size)
         ab = jax.lax.complex(a, b)
@@ -151,6 +147,33 @@ class FFMCell(nn.Module):
             axis=0,
         )
         return new_state[1:]
+
+    @nn.compact
+    def __call__(self, state: RecurrentState, inputs: Inputs) -> Tuple[RecurrentState, chex.Array]:
+
+        # Add a sequence dimension to the recurrent state.
+        state = jnp.expand_dims(state, 0)
+
+        # Unpack inputs
+        x, start = inputs
+
+        # Map the input embedding to the recurrent state space.
+        # This maps to the format required for the associative scan.
+        scan_input = self.map_to_h(x)
+
+        # Update the recurrent state
+        state = self.scan(scan_input, state, start)
+
+        # Map the recurrent state back to the output space
+        out = self.map_from_h(state, x)
+
+        # Take the final state of the sequence.
+        final_state = state[-1:]
+
+        # Remove the sequence dimemnsion from the final state.
+        final_state = jnp.squeeze(final_state, 0)
+
+        return final_state, out
 
     @nn.nowrap
     def initialize_carry(self, batch_size: int) -> RecurrentState:

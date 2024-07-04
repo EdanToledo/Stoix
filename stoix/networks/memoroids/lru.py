@@ -1,10 +1,11 @@
-from typing import Tuple, Union
+import functools
+from functools import partial
+from typing import Tuple
 
 import chex
 import jax
 import jax.numpy as jnp
 from flax import linen as nn
-from flax.linen.initializers import Initializer
 
 from stoix.networks.memoroids.base import (
     InputEmbedding,
@@ -15,7 +16,6 @@ from stoix.networks.memoroids.base import (
     ScanInput,
 )
 
-# NOT WORKING YET
 
 # Parallel scan operations
 @jax.vmap
@@ -47,46 +47,24 @@ def wrapped_associative_update(carry: chex.Array, incoming: chex.Array) -> Tuple
     return (start_out, *out)
 
 
-def matrix_init(normalization: float = 1.0) -> Initializer:
-    def init(
-        key: chex.PRNGKey, shape: Tuple[int, ...], dtype: jnp.dtype = jnp.float32
-    ) -> jnp.ndarray:
-        return jax.random.normal(key=key, shape=shape, dtype=dtype) / normalization
-
-    return init
+def matrix_init(key, shape, dtype=jnp.float32, normalization=1):
+    return jax.random.normal(key=key, shape=shape, dtype=dtype) / normalization
 
 
-def nu_init(r_min: float, r_max: float) -> Initializer:
-    def init(
-        key: chex.PRNGKey, shape: Tuple[int, ...], dtype: jnp.dtype = jnp.float32
-    ) -> jnp.ndarray:
-        u = jax.random.uniform(key=key, shape=shape, dtype=dtype)
-        return jnp.log(-0.5 * jnp.log(u * (r_max**2 - r_min**2) + r_min**2))
-
-    return init
+def nu_init(key, shape, r_min, r_max, dtype=jnp.float32):
+    u = jax.random.uniform(key=key, shape=shape, dtype=dtype)
+    return jnp.log(-0.5 * jnp.log(u * (r_max**2 - r_min**2) + r_min**2))
 
 
-def theta_init(max_phase: float) -> Initializer:
-    def init(
-        key: chex.PRNGKey, shape: Tuple[int, ...], dtype: jnp.dtype = jnp.float32
-    ) -> jnp.ndarray:
-        u = jax.random.uniform(key, shape=shape, dtype=dtype)
-        return jnp.log(max_phase * u)
-
-    return init
+def theta_init(key, shape, max_phase, dtype=jnp.float32):
+    u = jax.random.uniform(key, shape=shape, dtype=dtype)
+    return jnp.log(max_phase * u)
 
 
-def gamma_log_init(
-    lamb: Tuple[Union[float, jnp.ndarray], Union[float, jnp.ndarray]]
-) -> Initializer:
-    def init(
-        key: chex.PRNGKey, shape: Tuple[int, ...], dtype: jnp.dtype = jnp.float32
-    ) -> jnp.ndarray:
-        nu, theta = lamb
-        diag_lambda = jnp.exp(-jnp.exp(nu) + 1j * jnp.exp(theta))
-        return jnp.log(jnp.sqrt(1 - jnp.abs(diag_lambda) ** 2))
-
-    return init
+def gamma_log_init(key, lamb):
+    nu, theta = lamb
+    diag_lambda = jnp.exp(-jnp.exp(nu) + 1j * jnp.exp(theta))
+    return jnp.log(jnp.sqrt(1 - jnp.abs(diag_lambda) ** 2))
 
 
 class LRUCell(MemoroidCellBase):
@@ -95,53 +73,38 @@ class LRUCell(MemoroidCellBase):
     Implementation following the one of Orvieto et al. 2023.
     """
 
-    d_model: int  # input and output dimensions
-    d_hidden: int  # hidden state dimension
+    hidden_state_dim: int  # hidden state dimension
     r_min: float = 0.0  # smallest lambda norm
     r_max: float = 1.0  # largest lambda norm
     max_phase: float = 6.28  # max phase lambda
 
-    def setup(self):
-
-        self.theta_log = self.param("theta_log", theta_init(self.max_phase), (self.d_hidden,))
-        self.nu_log = self.param("nu_log", nu_init(self.r_min, self.r_max), (self.d_hidden,))
-        self.gamma_log = self.param(
-            "gamma_log", gamma_log_init((self.nu_log, self.theta_log)), (self.d_hidden,)
-        )
-
-        self.B_re = self.param(
-            "B_re",
-            matrix_init(normalization=jnp.sqrt(2 * self.d_model)),
-            (self.d_hidden, self.d_model),
-        )
-        self.B_im = self.param(
-            "B_im",
-            matrix_init(normalization=jnp.sqrt(2 * self.d_model)),
-            (self.d_hidden, self.d_model),
-        )
-        self.C_re = self.param(
-            "C_re",
-            matrix_init(normalization=jnp.sqrt(self.d_hidden)),
-            (self.d_model, self.d_hidden),
-        )
-        self.C_im = self.param(
-            "C_im",
-            matrix_init(normalization=jnp.sqrt(self.d_hidden)),
-            (self.d_model, self.d_hidden),
-        )
-        self.D = self.param("D", matrix_init(normalization=1), (self.d_model,))
-
-        self.normalization = nn.LayerNorm()
-        self.out1 = nn.Dense(self.d_model)
-        self.out2 = nn.Dense(self.d_model)
-
     def map_to_h(self, recurrent_state: RecurrentState, x: InputEmbedding) -> ScanInput:
-        x = self.normalization(x)
-        diag_lambda = jnp.exp(-jnp.exp(self.nu_log) + 1j * jnp.exp(self.theta_log))
-        B_norm = (self.B_re + 1j * self.B_im) * jnp.expand_dims(jnp.exp(self.gamma_log), axis=-1)
+        d_model = x.shape[-1]
+        theta_log = self.param(
+            "theta_log", partial(theta_init, max_phase=self.max_phase), (self.hidden_state_dim,)
+        )
+        nu_log = self.param(
+            "nu_log", partial(nu_init, r_min=self.r_min, r_max=self.r_max), (self.hidden_state_dim,)
+        )
+        gamma_log = self.param("gamma_log", gamma_log_init, (nu_log, theta_log))
+
+        B_re = self.param(
+            "B_re",
+            partial(matrix_init, normalization=jnp.sqrt(2 * d_model)),
+            (self.hidden_state_dim, d_model),
+        )
+
+        B_im = self.param(
+            "B_im",
+            partial(matrix_init, normalization=jnp.sqrt(2 * d_model)),
+            (self.hidden_state_dim, d_model),
+        )
+
+        diag_lambda = jnp.exp(-jnp.exp(nu_log) + 1j * jnp.exp(theta_log))
+        B_norm = (B_re + 1j * B_im) * jnp.expand_dims(jnp.exp(gamma_log), axis=-1)
 
         Lambda_elements = jnp.repeat(diag_lambda[None, ...], x.shape[0], axis=0)
-        Bu_elements = jax.vmap(lambda u: B_norm @ u)(x.astype(jnp.complex64))
+        Bu_elements = jax.vmap(lambda u: B_norm @ u)(x)
 
         Lambda_elements = jnp.concatenate(
             [
@@ -161,60 +124,70 @@ class LRUCell(MemoroidCellBase):
 
     def map_from_h(self, recurrent_states: RecurrentState, x: InputEmbedding) -> chex.Array:
 
+        d_model = x.shape[-1]
+        C_re = self.param(
+            "C_re",
+            partial(matrix_init, normalization=jnp.sqrt(self.hidden_state_dim)),
+            (d_model, self.hidden_state_dim),
+        )
+        C_im = self.param(
+            "C_im",
+            partial(matrix_init, normalization=jnp.sqrt(self.hidden_state_dim)),
+            (d_model, self.hidden_state_dim),
+        )
+        D = self.param("D", matrix_init, (d_model,))
+
         skip = x
 
-        C = self.C_re + 1j * self.C_im
-
         # Use them to compute the output of the module
-        x = jax.vmap(lambda x, u: (C @ x).real + self.D * u)(recurrent_states, x)
+        C = C_re + 1j * C_im
+        x = jax.vmap(lambda h, x: (C @ h).real + D * x)(recurrent_states, x)
 
-        x = jax.nn.gelu(x)
-        o1 = self.out1(x)
-        x = o1 * jax.nn.sigmoid(self.out2(x))  # GLU
+        x = nn.gelu(x)
+        x = nn.Dense(d_model)(x) * jax.nn.sigmoid(nn.Dense(d_model)(x))  # GLU
         return skip + x  # skip connection
 
-    def scan(self, start, Lambda_elements, Bu_elements) -> RecurrentState:
-
+    def scan(
+        self, start: Reset, Lambda_elements: chex.Array, Bu_elements: chex.Array
+    ) -> RecurrentState:
+        start = start.reshape([-1, 1])
+        start = jnp.concatenate([jnp.zeros_like(start[:1]), start], axis=0)
         # Compute hidden states
         _, _, xs = jax.lax.associative_scan(
             wrapped_associative_update, (start, Lambda_elements, Bu_elements)
         )
-
         return xs[1:]
 
-    def __call__(self, recurrent_state: RecurrentState, inputs: Inputs):
+    @functools.partial(
+        nn.vmap,
+        variable_axes={"params": None},
+        in_axes=(0, 1),
+        out_axes=(0, 1),
+        split_rngs={"params": False},
+    )
+    @nn.compact
+    def __call__(
+        self, recurrent_state: RecurrentState, inputs: Inputs
+    ) -> Tuple[RecurrentState, chex.Array]:
         """Forward pass of a LRU: h_t+1 = lambda * h_t + B x_t+1, y_t = Re[C h_t + D x_t]"""
 
-        x, start = inputs
+        # Add a sequence dimension to the recurrent state
+        recurrent_state = jnp.expand_dims(recurrent_state, 0)
+
+        x, starts = inputs
 
         (Lambda_elements, Bu_elements) = self.map_to_h(recurrent_state, x)
 
-        start = start.reshape([-1, 1])
-        start = jnp.concatenate([jnp.zeros_like(start[:1]), start], axis=0)
+        # Compute hidden states
+        hidden_states = self.scan(starts, Lambda_elements, Bu_elements)
 
-        new_recurrent_states = self.scan(start, Lambda_elements, Bu_elements)
+        outputs = self.map_from_h(hidden_states, x)
 
-        outputs = self.map_from_h(new_recurrent_states, x)
+        # Already has sequence dim removed
+        new_hidden_state = hidden_states[-1]
 
-        return new_recurrent_states[None, -1], outputs
+        return new_hidden_state, outputs
 
     @nn.nowrap
     def initialize_carry(self, batch_size: int) -> RecurrentState:
-        return jnp.zeros((1, self.d_hidden), dtype=jnp.complex64)
-
-
-if __name__ == "__main__":
-    LRUModel = LRUCell(d_model=2, d_hidden=4)
-
-    m = LRUModel
-
-    batch_size = 1
-    time_steps = 10
-
-    y = jnp.ones((time_steps, 2))
-    s = m.initialize_carry(batch_size)
-    start = jnp.zeros((time_steps,), dtype=bool)
-    params = m.init(jax.random.PRNGKey(0), s, (y, start))
-    out_state, out = m.apply(params, s, (y, start))
-
-    print(out)
+        return jnp.zeros((batch_size, self.hidden_state_dim), dtype=jnp.complex64)

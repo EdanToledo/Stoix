@@ -9,7 +9,7 @@ total_timesteps: 1e7 # Set the total environment steps.
 num_updates: ~ # Number of updates
 
 # --- Evaluation ---
-evaluation_greedy: False # Evaluate the policy greedily. If True the policy will select
+evaluation_greedy: True # Evaluate the policy greedily. If True the policy will select
   # an action which corresponds to the greatest logit. If false, the policy will sample
   # from the logits.
 num_eval_episodes: 128 # Number of episodes to evaluate per evaluation.

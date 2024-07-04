@@ -4,12 +4,11 @@ actor_network:
   pre_torso:
     _target_: stoix.networks.torso.MLPTorso
     layer_sizes: [256]
-    use_layer_norm: False
+    use_layer_norm: True
     activation: leaky_relu
   rnn_layer:
-    _target_: stoix.networks.memoroids.s5.S5Cell
-    d_model : 256
-    state_size: 256
+    _target_: stoix.networks.memoroids.lru.LRUCell
+    hidden_state_dim: 512
   post_torso:
     _target_: stoix.networks.torso.MLPTorso
     layer_sizes: [256]
@@ -22,12 +21,11 @@ critic_network:
   pre_torso:
     _target_: stoix.networks.torso.MLPTorso
     layer_sizes: [256]
-    use_layer_norm: False
+    use_layer_norm: True
     activation: leaky_relu
   rnn_layer:
-    _target_: stoix.networks.memoroids.s5.S5Cell
-    d_model : 256
-    state_size: 256
+    _target_: stoix.networks.memoroids.lru.LRUCell
+    hidden_state_dim: 512
   post_torso:
     _target_: stoix.networks.torso.MLPTorso
     layer_sizes: [256]
