@@ -576,7 +576,7 @@ def run_experiment(_config: DictConfig) -> float:
     config.num_devices = n_devices
     config = check_total_timesteps(config)
     assert (
-        config.arch.num_updates > config.arch.num_evaluation
+        config.arch.num_updates >= config.arch.num_evaluation
     ), "Number of updates per evaluation must be less than total number of updates."
 
     # Create the environments for train and eval.
