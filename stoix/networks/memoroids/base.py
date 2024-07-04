@@ -45,63 +45,63 @@ class MemoroidCellBase(nn.Module):
         raise NotImplementedError
 
 
-class ScannedMemoroid(nn.Module):
-    cell: MemoroidCellBase
+# class ScannedMemoroid(nn.Module):
+#     cell: MemoroidCellBase
 
-    @nn.compact
-    def __call__(self, state: RecurrentState, inputs: Inputs) -> Tuple[RecurrentState, chex.Array]:
+#     @nn.compact
+#     def __call__(self, state: RecurrentState, inputs: Inputs) -> Tuple[RecurrentState, chex.Array]:
 
-        # Add a sequence dimension to the recurrent state.
-        state = jnp.expand_dims(state, 0)
+#         # Add a sequence dimension to the recurrent state.
+#         state = jnp.expand_dims(state, 0)
 
-        # Unpack inputs
-        x, start = inputs
+#         # Unpack inputs
+#         x, start = inputs
 
-        # Map the input embedding to the recurrent state space.
-        # This maps to the format required for the associative scan.
-        scan_input = self.cell.map_to_h(x)
+#         # Map the input embedding to the recurrent state space.
+#         # This maps to the format required for the associative scan.
+#         scan_input = self.cell.map_to_h(x)
 
-        # Update the recurrent state
-        state = self.cell.scan(scan_input, state, start)
+#         # Update the recurrent state
+#         state = self.cell.scan(scan_input, state, start)
 
-        # Map the recurrent state back to the output space
-        out = self.cell.map_from_h(state, x)
+#         # Map the recurrent state back to the output space
+#         out = self.cell.map_from_h(state, x)
 
-        # Take the final state of the sequence.
-        final_state = state[-1:]
+#         # Take the final state of the sequence.
+#         final_state = state[-1:]
 
-        # Remove the sequence dimemnsion from the final state.
-        final_state = jnp.squeeze(final_state, 0)
+#         # Remove the sequence dimemnsion from the final state.
+#         final_state = jnp.squeeze(final_state, 0)
 
-        return final_state, out
+#         return final_state, out
 
-    @nn.nowrap
-    def initialize_carry(self, batch_size: int) -> RecurrentState:
-        return self.cell.initialize_carry(batch_size)
+#     @nn.nowrap
+#     def initialize_carry(self, batch_size: int) -> RecurrentState:
+#         return self.cell.initialize_carry(batch_size)
 
 
-class StackedMemoroid(nn.Module):
-    cells: Tuple[ScannedMemoroid]
+# class StackedMemoroid(nn.Module):
+#     cells: Tuple[ScannedMemoroid]
 
-    @nn.compact
-    def __call__(
-        self, all_states: List[RecurrentState], inputs: Inputs
-    ) -> Tuple[RecurrentState, chex.Array]:
-        # Ensure all_states is a list
-        if not isinstance(all_states, list):
-            all_states = [all_states]
+#     @nn.compact
+#     def __call__(
+#         self, all_states: List[RecurrentState], inputs: Inputs
+#     ) -> Tuple[RecurrentState, chex.Array]:
+#         # Ensure all_states is a list
+#         if not isinstance(all_states, list):
+#             all_states = [all_states]
 
-        assert len(all_states) == len(
-            self.cells
-        ), f"Expected {len(self.cells)} states, got {len(all_states)}"
-        x, starts = inputs
-        new_states = []
-        for cell, mem_state in zip(self.cells, all_states):
-            new_mem_state, x = cell(mem_state, (x, starts))
-            new_states.append(new_mem_state)
+#         assert len(all_states) == len(
+#             self.cells
+#         ), f"Expected {len(self.cells)} states, got {len(all_states)}"
+#         x, starts = inputs
+#         new_states = []
+#         for cell, mem_state in zip(self.cells, all_states):
+#             new_mem_state, x = cell(mem_state, (x, starts))
+#             new_states.append(new_mem_state)
 
-        return new_states, x
+#         return new_states, x
 
-    @nn.nowrap
-    def initialize_carry(self, batch_size: int) -> List[RecurrentState]:
-        return [cell.initialize_carry(batch_size) for cell in self.cells]
+#     @nn.nowrap
+#     def initialize_carry(self, batch_size: int) -> List[RecurrentState]:
+#         return [cell.initialize_carry(batch_size) for cell in self.cells]
