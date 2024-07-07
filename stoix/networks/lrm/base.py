@@ -1,31 +1,36 @@
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, TypeAlias
 
 import chex
-from flax import linen as nn
+import flax.linen as nn
 
-from stoix.networks.memoroids.ffm import FFMCell
-from stoix.networks.memoroids.lru import LRUCell
-from stoix.networks.memoroids.s5 import S5Cell
-from stoix.networks.memoroids.types import Inputs, RecurrentState
+from stoix.networks.lrm.utils import parse_lrm_cell
 
-
-def parse_lrm_cell(lrm_cell_name: str) -> nn.Module:
-    """Get the lrm cell."""
-    lrm_cells: Dict[str, nn.Module] = {
-        "s5": S5Cell,
-        "ffm": FFMCell,
-        "lru": LRUCell,
-    }
-    return lrm_cells[lrm_cell_name]
+RecurrentState: TypeAlias = chex.Array
+Reset: TypeAlias = chex.Array
+Timestep: TypeAlias = chex.Array
+InputEmbedding: TypeAlias = chex.Array
+Inputs: TypeAlias = Tuple[InputEmbedding, Reset]
+ScanInput: TypeAlias = chex.Array
 
 
-class StackedMemoroid(nn.Module):
-    lrm_cell_type: nn.Module
+class LRMCellBase(nn.Module):
+    def __call__(
+        self, recurrent_state: RecurrentState, inputs: Inputs
+    ) -> Tuple[RecurrentState, chex.Array]:
+        raise NotImplementedError
+
+    @nn.nowrap
+    def initialize_carry(self, batch_size: int) -> RecurrentState:
+        raise NotImplementedError
+
+
+class StackedLRM(nn.Module):
+    lrm_cell_type: LRMCellBase
     cell_kwargs: Dict[str, Any]
     num_cells: int
 
     def setup(self) -> None:
-        """Set up the Memoroid cells for the stacked Memoroid."""
+        """Set up the LRM cells for the stacked LRM."""
 
         cell_cls = parse_lrm_cell(self.lrm_cell_type)
         self.cells = [cell_cls(**self.cell_kwargs) for _ in range(self.num_cells)]

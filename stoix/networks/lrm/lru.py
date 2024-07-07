@@ -1,24 +1,27 @@
+# flake8: noqa
 import functools
 from functools import partial
-from typing import Tuple
+from typing import Sequence, Tuple
 
 import chex
 import jax
 import jax.numpy as jnp
 from flax import linen as nn
 
-from stoix.networks.memoroids.types import (
+from stoix.networks.lrm.base import (
     InputEmbedding,
     Inputs,
+    LRMCellBase,
     RecurrentState,
     Reset,
     ScanInput,
 )
 
+# Taken and modified from https://github.com/proroklab/memory-monoids
 
 # Parallel scan operations
 @jax.vmap
-def binary_operator_diag(q_i, q_j):
+def binary_operator_diag(q_i: chex.Array, q_j: chex.Array) -> Tuple[chex.Array, chex.Array]:
     """Binary operator for parallel scan of linear recurrence"""
     A_i, b_i = q_i
     A_j, b_j = q_j
@@ -46,27 +49,40 @@ def wrapped_associative_update(carry: chex.Array, incoming: chex.Array) -> Tuple
     return (start_out, *out)
 
 
-def matrix_init(key, shape, dtype=jnp.float32, normalization=1):
+def matrix_init(
+    key: chex.PRNGKey,
+    shape: Sequence[int],
+    dtype: jnp.dtype = jnp.float32,
+    normalization: float = 1,
+) -> chex.Array:
     return jax.random.normal(key=key, shape=shape, dtype=dtype) / normalization
 
 
-def nu_init(key, shape, r_min, r_max, dtype=jnp.float32):
+def nu_init(
+    key: chex.PRNGKey,
+    shape: Sequence[int],
+    r_min: float,
+    r_max: float,
+    dtype: jnp.dtype = jnp.float32,
+) -> chex.Array:
     u = jax.random.uniform(key=key, shape=shape, dtype=dtype)
     return jnp.log(-0.5 * jnp.log(u * (r_max**2 - r_min**2) + r_min**2))
 
 
-def theta_init(key, shape, max_phase, dtype=jnp.float32):
+def theta_init(
+    key: chex.PRNGKey, shape: Sequence[int], max_phase: float, dtype: jnp.dtype = jnp.float32
+) -> chex.Array:
     u = jax.random.uniform(key, shape=shape, dtype=dtype)
     return jnp.log(max_phase * u)
 
 
-def gamma_log_init(key, lamb):
+def gamma_log_init(key: chex.PRNGKey, lamb: Tuple[chex.Array, chex.Array]) -> chex.Array:
     nu, theta = lamb
     diag_lambda = jnp.exp(-jnp.exp(nu) + 1j * jnp.exp(theta))
     return jnp.log(jnp.sqrt(1 - jnp.abs(diag_lambda) ** 2))
 
 
-class LRUCell(nn.Module):
+class LRUCell(LRMCellBase):
     """
     LRU module in charge of the recurrent processing.
     Implementation following the one of Orvieto et al. 2023.

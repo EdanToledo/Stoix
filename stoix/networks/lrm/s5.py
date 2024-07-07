@@ -1,27 +1,29 @@
+# flake8: noqa
 import functools
-from functools import partial
-from typing import Tuple
+from typing import Sequence, Tuple
 
 import chex
 import jax
-import jax.numpy as np
 import jax.numpy as jnp
-import optax
 from flax import linen as nn
+from flax.linen.initializers import Initializer
 from jax import random
 from jax.nn.initializers import lecun_normal, normal
 from jax.numpy.linalg import eigh
 
-from stoix.networks.memoroids.types import (
+from stoix.networks.lrm.base import (
     InputEmbedding,
     Inputs,
+    LRMCellBase,
     RecurrentState,
     Reset,
     ScanInput,
 )
 
+# S5 code taken and modified from https://github.com/luchris429/popjaxrl
 
-def log_step_initializer(dt_min=0.001, dt_max=0.1):
+
+def log_step_initializer(dt_min: float = 0.001, dt_max: float = 0.1) -> Initializer:
     """Initialize the learnable timescale Delta by sampling
     uniformly between dt_min and dt_max.
     Args:
@@ -31,7 +33,7 @@ def log_step_initializer(dt_min=0.001, dt_max=0.1):
         init function
     """
 
-    def init(key, shape):
+    def init(key: chex.PRNGKey, shape: Sequence[int]) -> chex.Array:
         """Init function
         Args:
             key: jax random key
@@ -39,12 +41,12 @@ def log_step_initializer(dt_min=0.001, dt_max=0.1):
         Returns:
             sampled log_step (float32)
         """
-        return random.uniform(key, shape) * (np.log(dt_max) - np.log(dt_min)) + np.log(dt_min)
+        return random.uniform(key, shape) * (jnp.log(dt_max) - jnp.log(dt_min)) + jnp.log(dt_min)
 
     return init
 
 
-def init_log_steps(key, input):
+def init_log_steps(key: chex.PRNGKey, input: Tuple[int, float, float]) -> chex.Array:
     """Initialize an array of learnable timescale parameters
     Args:
         key: jax random key
@@ -60,10 +62,12 @@ def init_log_steps(key, input):
         log_step = log_step_initializer(dt_min=dt_min, dt_max=dt_max)(skey, shape=(1,))
         log_steps.append(log_step)
 
-    return np.array(log_steps)
+    return jnp.array(log_steps)
 
 
-def init_VinvB(init_fun, rng, shape, Vinv):
+def init_VinvB(
+    init_fun: Initializer, rng: chex.PRNGKey, shape: Sequence[int], Vinv: chex.Array
+) -> chex.Array:
     """Initialize B_tilde=V^{-1}B. First samples B. Then compute V^{-1}B.
     Note we will parameterize this with two different matrices for complex
     numbers.
@@ -79,10 +83,10 @@ def init_VinvB(init_fun, rng, shape, Vinv):
     VinvB = Vinv @ B
     VinvB_real = VinvB.real
     VinvB_imag = VinvB.imag
-    return np.concatenate((VinvB_real[..., None], VinvB_imag[..., None]), axis=-1)
+    return jnp.concatenate((VinvB_real[..., None], VinvB_imag[..., None]), axis=-1)
 
 
-def trunc_standard_normal(key, shape):
+def trunc_standard_normal(key: chex.PRNGKey, shape: Sequence[int]) -> chex.Array:
     """Sample C with a truncated normal distribution with standard deviation 1.
     Args:
         key: jax random key
@@ -96,10 +100,12 @@ def trunc_standard_normal(key, shape):
         key, skey = random.split(key)
         C = lecun_normal()(skey, shape=(1, P, 2))
         Cs.append(C)
-    return np.array(Cs)[:, 0]
+    return jnp.array(Cs)[:, 0]
 
 
-def init_CV(init_fun, rng, shape, V):
+def init_CV(
+    init_fun: Initializer, rng: chex.PRNGKey, shape: Sequence[int], V: chex.Array
+) -> chex.Array:
     """Initialize C_tilde=CV. First sample C. Then compute CV.
     Note we will parameterize this with two different matrices for complex
     numbers.
@@ -116,11 +122,13 @@ def init_CV(init_fun, rng, shape, V):
     CV = C @ V
     CV_real = CV.real
     CV_imag = CV.imag
-    return np.concatenate((CV_real[..., None], CV_imag[..., None]), axis=-1)
+    return jnp.concatenate((CV_real[..., None], CV_imag[..., None]), axis=-1)
 
 
 # Discretization functions
-def discretize_bilinear(Lambda, B_tilde, Delta):
+def discretize_bilinear(
+    Lambda: chex.Array, B_tilde: chex.Array, Delta: chex.Array
+) -> Tuple[chex.Array, chex.Array]:
     """Discretize a diagonalized, continuous-time linear SSM
     using bilinear transform method.
     Args:
@@ -130,7 +138,7 @@ def discretize_bilinear(Lambda, B_tilde, Delta):
     Returns:
         discretized Lambda_bar (complex64), B_bar (complex64)  (P,), (P,H)
     """
-    Identity = np.ones(Lambda.shape[0])
+    Identity = jnp.ones(Lambda.shape[0])
 
     BL = 1 / (Identity - (Delta / 2.0) * Lambda)
     Lambda_bar = BL * (Identity + (Delta / 2.0) * Lambda)
@@ -138,7 +146,9 @@ def discretize_bilinear(Lambda, B_tilde, Delta):
     return Lambda_bar, B_bar
 
 
-def discretize_zoh(Lambda, B_tilde, Delta):
+def discretize_zoh(
+    Lambda: chex.Array, B_tilde: chex.Array, Delta: chex.Array
+) -> Tuple[chex.Array, chex.Array]:
     """Discretize a diagonalized, continuous-time linear SSM
     using zero-order hold method.
     Args:
@@ -148,15 +158,17 @@ def discretize_zoh(Lambda, B_tilde, Delta):
     Returns:
         discretized Lambda_bar (complex64), B_bar (complex64)  (P,), (P,H)
     """
-    Identity = np.ones(Lambda.shape[0])
-    Lambda_bar = np.exp(Lambda * Delta)
+    Identity = jnp.ones(Lambda.shape[0])
+    Lambda_bar = jnp.exp(Lambda * Delta)
     B_bar = (1 / Lambda * (Lambda_bar - Identity))[..., None] * B_tilde
     return Lambda_bar, B_bar
 
 
 # Parallel scan operations
 @jax.vmap
-def binary_operator_reset(q_i, q_j):
+def binary_operator_reset(
+    q_i: chex.Array, q_j: chex.Array
+) -> Tuple[chex.Array, chex.Array, chex.Array]:
     """Binary operator for parallel scan of linear recurrence. Assumes a diagonal matrix A.
     Args:
         q_i: tuple containing A_i and Bu_i at position i       (P,), (P,)
@@ -173,7 +185,7 @@ def binary_operator_reset(q_i, q_j):
     )
 
 
-def make_HiPPO(N):
+def make_HiPPO(N: int) -> chex.Array:
     """Create a HiPPO-LegS matrix.
     From https://github.com/srush/annotated-s4/blob/main/s4/s4.py
     Args:
@@ -181,13 +193,13 @@ def make_HiPPO(N):
     Returns:
         N x N HiPPO LegS matrix
     """
-    P = np.sqrt(1 + 2 * np.arange(N))
-    A = P[:, np.newaxis] * P[np.newaxis, :]
-    A = np.tril(A) - np.diag(np.arange(N))
+    P = jnp.sqrt(1 + 2 * jnp.arange(N))
+    A = P[:, jnp.newaxis] * P[jnp.newaxis, :]
+    A = jnp.tril(A) - jnp.diag(jnp.arange(N))
     return -A
 
 
-def make_NPLR_HiPPO(N):
+def make_NPLR_HiPPO(N: int) -> Tuple[chex.Array, chex.Array, chex.Array]:
     """
     Makes components needed for NPLR representation of HiPPO-LegS
      From https://github.com/srush/annotated-s4/blob/main/s4/s4.py
@@ -200,14 +212,14 @@ def make_NPLR_HiPPO(N):
     hippo = make_HiPPO(N)
 
     # Add in a rank 1 term. Makes it Normal.
-    P = np.sqrt(np.arange(N) + 0.5)
+    P = jnp.sqrt(jnp.arange(N) + 0.5)
 
     # HiPPO also specifies the B matrix
-    B = np.sqrt(2 * np.arange(N) + 1.0)
+    B = jnp.sqrt(2 * jnp.arange(N) + 1.0)
     return hippo, P, B
 
 
-def make_DPLR_HiPPO(N):
+def make_DPLR_HiPPO(N: int) -> Tuple[chex.Array, chex.Array, chex.Array, chex.Array, chex.Array]:
     """
     Makes components needed for DPLR representation of HiPPO-LegS
      From https://github.com/srush/annotated-s4/blob/main/s4/s4.py
@@ -220,10 +232,10 @@ def make_DPLR_HiPPO(N):
     """
     A, P, B = make_NPLR_HiPPO(N)
 
-    S = A + P[:, np.newaxis] * P[np.newaxis, :]
+    S = A + P[:, jnp.newaxis] * P[jnp.newaxis, :]
 
-    S_diag = np.diagonal(S)
-    Lambda_real = np.mean(S_diag) * np.ones_like(S_diag)
+    S_diag = jnp.diagonal(S)
+    Lambda_real = jnp.mean(S_diag) * jnp.ones_like(S_diag)
 
     # Diagonalize S to V \Lambda V^*
     Lambda_imag, V = eigh(S * -1j)
@@ -234,7 +246,7 @@ def make_DPLR_HiPPO(N):
     return Lambda_real + 1j * Lambda_imag, P, B, V, B_orig
 
 
-class S5Cell(nn.Module):
+class S5Cell(LRMCellBase):
     d_model: int
     state_size: int
     blocks: int = 1
@@ -253,7 +265,7 @@ class S5Cell(nn.Module):
     bidirectional: bool = False
     step_rescale: float = 1.0
 
-    def setup(self):
+    def setup(self) -> None:
         """Initializes parameters once and performs discretization each time
         the SSM is applied to a sequence
         """
@@ -284,7 +296,7 @@ class S5Cell(nn.Module):
         self.Lambda_re = self.param("Lambda_re", lambda rng, shape: self.Lambda_re_init, (None,))
         self.Lambda_im = self.param("Lambda_im", lambda rng, shape: self.Lambda_im_init, (None,))
         if self.clip_eigs:
-            self.Lambda = np.clip(self.Lambda_re, None, -1e-4) + 1j * self.Lambda_im
+            self.Lambda = jnp.clip(self.Lambda_re, None, -1e-4) + 1j * self.Lambda_im
         else:
             self.Lambda = self.Lambda_re + 1j * self.Lambda_im
 
@@ -328,7 +340,7 @@ class S5Cell(nn.Module):
 
                 C1 = self.C1[..., 0] + 1j * self.C1[..., 1]
                 C2 = self.C2[..., 0] + 1j * self.C2[..., 1]
-                self.C_tilde = np.concatenate((C1, C2), axis=-1)
+                self.C_tilde = jnp.concatenate((C1, C2), axis=-1)
 
             else:
                 self.C = self.param(
@@ -342,7 +354,7 @@ class S5Cell(nn.Module):
 
         # Initialize learnable discretization timescale value
         self.log_step = self.param("log_step", init_log_steps, (self.P, self.dt_min, self.dt_max))
-        step = self.step_rescale * np.exp(self.log_step[:, 0])
+        step = self.step_rescale * jnp.exp(self.log_step[:, 0])
 
         # Discretize
         if self.discretization in ["zoh"]:
@@ -362,7 +374,7 @@ class S5Cell(nn.Module):
 
         self.norm = nn.LayerNorm()
 
-    def map_to_h(self, recurrent_state: RecurrentState, x: Inputs) -> ScanInput:
+    def map_to_h(self, recurrent_state: RecurrentState, x: InputEmbedding) -> ScanInput:
 
         if self.prenorm and self.do_norm:
             x = self.norm(x)

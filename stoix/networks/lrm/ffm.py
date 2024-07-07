@@ -1,24 +1,29 @@
-from typing import Tuple
+# flake8: noqa
+from typing import Sequence, Tuple
 
 import chex
 import jax
 from flax import linen as nn
+from flax.linen.initializers import Initializer
 from jax import numpy as jnp
 
-from stoix.networks.memoroids.types import (
+from stoix.networks.lrm.base import (
     InputEmbedding,
     Inputs,
+    LRMCellBase,
     RecurrentState,
     Reset,
     ScanInput,
     Timestep,
 )
 
+# Taken and modified from https://github.com/proroklab/memory-monoids
+
 
 def init_deterministic_a(
     memory_size: int,
-) -> Tuple[chex.Array, chex.Array]:
-    def init(key, shape):
+) -> Initializer:
+    def init(key: chex.PRNGKey, shape: Sequence[int]) -> chex.Array:
         a_low = 1e-6
         a_high = 0.5
         a = jnp.linspace(a_low, a_high, memory_size)
@@ -29,8 +34,8 @@ def init_deterministic_a(
 
 def init_deterministic_b(
     context_size: int, min_period: int = 1, max_period: int = 1_000
-) -> Tuple[chex.Array, chex.Array]:
-    def init(key, shape):
+) -> Initializer:
+    def init(key: chex.PRNGKey, shape: Sequence[int]) -> chex.Array:
         b = 2 * jnp.pi / jnp.linspace(min_period, max_period, context_size)
         return b
 
@@ -45,7 +50,7 @@ class Gate(nn.Module):
         return jax.nn.sigmoid(nn.Dense(self.output_size)(x))
 
 
-class FFMCell(nn.Module):
+class FFMCell(LRMCellBase):
     trace_size: int
     context_size: int
     output_size: int
@@ -76,7 +81,8 @@ class FFMCell(nn.Module):
         self.ln = nn.LayerNorm(use_scale=False, use_bias=False)
 
     def map_to_h(self, recurrent_state: RecurrentState, x: InputEmbedding) -> ScanInput:
-        """Given an input embedding, this will map it to the format required for the associative scan."""
+        """Given an input embedding, this will map it to the format
+        required for the associative scan."""
         gate_in = self.gate_in(x)
         pre = self.pre(x)
         gated_x = pre * gate_in
@@ -84,7 +90,8 @@ class FFMCell(nn.Module):
         return scan_input
 
     def map_from_h(self, recurrent_state: RecurrentState, x: InputEmbedding) -> chex.Array:
-        """Given the recurrent state and the input embedding, this will map the recurrent state back to the output space."""
+        """Given the recurrent state and the input embedding, this will map the
+        recurrent state back to the output space."""
         T = recurrent_state.shape[0]
         B = recurrent_state.shape[1]
         z_in = jnp.concatenate(
