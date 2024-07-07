@@ -23,15 +23,19 @@ def init_deterministic_a(
         a_high = 0.5
         a = jnp.linspace(a_low, a_high, memory_size)
         return a
+
     return init
 
+
 def init_deterministic_b(
-   context_size: int, min_period: int = 1, max_period: int = 1_000
+    context_size: int, min_period: int = 1, max_period: int = 1_000
 ) -> Tuple[chex.Array, chex.Array]:
     def init(key, shape):
         b = 2 * jnp.pi / jnp.linspace(min_period, max_period, context_size)
         return b
+
     return init
+
 
 class Gate(nn.Module):
     output_size: int
@@ -71,7 +75,7 @@ class FFMCell(nn.Module):
         self.mix = nn.Dense(self.output_size)
         self.ln = nn.LayerNorm(use_scale=False, use_bias=False)
 
-    def map_to_h(self, state : RecurrentState, x: InputEmbedding) -> ScanInput:
+    def map_to_h(self, state: RecurrentState, x: InputEmbedding) -> ScanInput:
         """Given an input embedding, this will map it to the format required for the associative scan."""
         gate_in = self.gate_in(x)
         pre = self.pre(x)
@@ -93,7 +97,7 @@ class FFMCell(nn.Module):
     def log_gamma(self, t: Timestep) -> chex.Array:
         T = t.shape[0]
         B = t.shape[1]
-        
+
         a = -jnp.abs(self.a).reshape((1, 1, self.trace_size, 1))
         b = self.b.reshape(1, 1, 1, self.context_size)
         ab = jax.lax.complex(a, b)
@@ -184,7 +188,7 @@ class FFMCell(nn.Module):
         final_state = jnp.squeeze(final_state, 0)
 
         return final_state, out
-    
+
     @nn.nowrap
     def initialize_carry(self, batch_size: int) -> RecurrentState:
         return jnp.zeros((batch_size, self.trace_size, self.context_size), dtype=jnp.complex64)
