@@ -3,15 +3,15 @@ from typing import Any, Callable, Dict, List, Tuple
 import chex
 from flax import linen as nn
 
-from stoix.networks.memoroids.base import Inputs, MemoroidCellBase, RecurrentState
 from stoix.networks.memoroids.ffm import FFMCell
 from stoix.networks.memoroids.lru import LRUCell
 from stoix.networks.memoroids.s5 import S5Cell
+from stoix.networks.memoroids.types import Inputs, RecurrentState
 
 
-def parse_lrm_cell(lrm_cell_name: str) -> MemoroidCellBase:
+def parse_lrm_cell(lrm_cell_name: str) -> nn.Module:
     """Get the lrm cell."""
-    lrm_cells: Dict[str, MemoroidCellBase] = {
+    lrm_cells: Dict[str, nn.Module] = {
         "s5": S5Cell,
         "ffm": FFMCell,
         "lru": LRUCell,
@@ -20,7 +20,7 @@ def parse_lrm_cell(lrm_cell_name: str) -> MemoroidCellBase:
 
 
 class StackedMemoroid(nn.Module):
-    lrm_cell_type: MemoroidCellBase
+    lrm_cell_type: nn.Module
     cell_kwargs: Dict[str, Any]
     num_cells: int
 

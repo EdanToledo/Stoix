@@ -7,10 +7,9 @@ import jax
 import jax.numpy as jnp
 from flax import linen as nn
 
-from stoix.networks.memoroids.base import (
+from stoix.networks.memoroids.types import (
     InputEmbedding,
     Inputs,
-    MemoroidCellBase,
     RecurrentState,
     Reset,
     ScanInput,
@@ -67,7 +66,7 @@ def gamma_log_init(key, lamb):
     return jnp.log(jnp.sqrt(1 - jnp.abs(diag_lambda) ** 2))
 
 
-class LRUCell(MemoroidCellBase):
+class LRUCell(nn.Module):
     """
     LRU module in charge of the recurrent processing.
     Implementation following the one of Orvieto et al. 2023.

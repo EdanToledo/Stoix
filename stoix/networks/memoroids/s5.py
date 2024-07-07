@@ -1,5 +1,6 @@
 import functools
 from functools import partial
+from typing import Tuple
 
 import chex
 import jax
@@ -11,11 +12,12 @@ from jax import random
 from jax.nn.initializers import lecun_normal, normal
 from jax.numpy.linalg import eigh
 
-from stoix.networks.memoroids.base import (
+from stoix.networks.memoroids.types import (
     InputEmbedding,
     Inputs,
-    MemoroidCellBase,
     RecurrentState,
+    Reset,
+    ScanInput,
 )
 
 
@@ -232,7 +234,7 @@ def make_DPLR_HiPPO(N):
     return Lambda_real + 1j * Lambda_imag, P, B, V, B_orig
 
 
-class S5Cell(MemoroidCellBase):
+class S5Cell(nn.Module):
     d_model: int
     state_size: int
     blocks: int = 1
@@ -360,7 +362,7 @@ class S5Cell(MemoroidCellBase):
 
         self.norm = nn.LayerNorm()
 
-    def map_to_h(self, recurrent_state: RecurrentState, x: Inputs):
+    def map_to_h(self, recurrent_state: RecurrentState, x: Inputs) -> ScanInput:
 
         if self.prenorm and self.do_norm:
             x = self.norm(x)
@@ -384,7 +386,9 @@ class S5Cell(MemoroidCellBase):
 
         return (Lambda_elements, Bu_elements)
 
-    def scan(self, resets, Lambda_elements, Bu_elements):
+    def scan(
+        self, resets: Reset, Lambda_elements: chex.Array, Bu_elements: chex.Array
+    ) -> RecurrentState:
 
         resets = jnp.concatenate(
             [
@@ -399,7 +403,7 @@ class S5Cell(MemoroidCellBase):
 
         return xs
 
-    def map_from_h(self, recurrent_state: RecurrentState, x: InputEmbedding):
+    def map_from_h(self, recurrent_state: RecurrentState, x: InputEmbedding) -> chex.Array:
         skip = x
         if self.conj_sym:
             x = jax.vmap(lambda x: 2 * (self.C_tilde @ x).real)(recurrent_state)
@@ -440,7 +444,9 @@ class S5Cell(MemoroidCellBase):
         split_rngs={"params": False},
     )
     @nn.compact
-    def __call__(self, recurrent_state: RecurrentState, inputs: Inputs):
+    def __call__(
+        self, recurrent_state: RecurrentState, inputs: Inputs
+    ) -> Tuple[RecurrentState, chex.Array]:
 
         # Add a sequence dimension to the recurrent state
         recurrent_state = jnp.expand_dims(recurrent_state, 0)
@@ -460,5 +466,5 @@ class S5Cell(MemoroidCellBase):
         return new_hidden_state, outputs
 
     @nn.nowrap
-    def initialize_carry(self, batch_size):
+    def initialize_carry(self, batch_size: int) -> RecurrentState:
         return jnp.zeros((batch_size, self.state_size), dtype=jnp.complex64)

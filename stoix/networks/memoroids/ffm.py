@@ -5,7 +5,7 @@ import jax
 from flax import linen as nn
 from jax import numpy as jnp
 
-from stoix.networks.memoroids.base import (
+from stoix.networks.memoroids.types import (
     InputEmbedding,
     Inputs,
     RecurrentState,
@@ -75,7 +75,7 @@ class FFMCell(nn.Module):
         self.mix = nn.Dense(self.output_size)
         self.ln = nn.LayerNorm(use_scale=False, use_bias=False)
 
-    def map_to_h(self, state: RecurrentState, x: InputEmbedding) -> ScanInput:
+    def map_to_h(self, recurrent_state: RecurrentState, x: InputEmbedding) -> ScanInput:
         """Given an input embedding, this will map it to the format required for the associative scan."""
         gate_in = self.gate_in(x)
         pre = self.pre(x)
@@ -83,11 +83,13 @@ class FFMCell(nn.Module):
         scan_input = jnp.repeat(jnp.expand_dims(gated_x, 3), self.context_size, axis=3)
         return scan_input
 
-    def map_from_h(self, state: RecurrentState, x: InputEmbedding) -> chex.Array:
+    def map_from_h(self, recurrent_state: RecurrentState, x: InputEmbedding) -> chex.Array:
         """Given the recurrent state and the input embedding, this will map the recurrent state back to the output space."""
-        T = state.shape[0]
-        B = state.shape[1]
-        z_in = jnp.concatenate([jnp.real(state), jnp.imag(state)], axis=-1).reshape(T, B, -1)
+        T = recurrent_state.shape[0]
+        B = recurrent_state.shape[1]
+        z_in = jnp.concatenate(
+            [jnp.real(recurrent_state), jnp.imag(recurrent_state)], axis=-1
+        ).reshape(T, B, -1)
         z = self.mix(z_in)
         gate_out = self.gate_out(x)
         skip = self.skip(x)
@@ -137,7 +139,7 @@ class FFMCell(nn.Module):
 
     def scan(
         self,
-        x: InputEmbedding,
+        x: ScanInput,
         state: RecurrentState,
         start: Reset,
     ) -> RecurrentState:
