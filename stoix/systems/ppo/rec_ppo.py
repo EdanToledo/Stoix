@@ -84,14 +84,15 @@ def get_learner_fn(
             ) = learner_state
 
             key, policy_key = jax.random.split(key)
-
+            
             # Add a batch dimension to the observation.
             batched_observation = jax.tree_util.tree_map(
                 lambda x: x[jnp.newaxis, :], last_timestep.observation
             )
+            reset_hidden_state = jnp.logical_or(last_done, last_truncated)
             ac_in = (
                 batched_observation,
-                last_done[jnp.newaxis, :],
+                reset_hidden_state[jnp.newaxis, :],
             )
 
             # Run the network.
@@ -167,9 +168,10 @@ def get_learner_fn(
         batched_last_observation = jax.tree_util.tree_map(
             lambda x: x[jnp.newaxis, :], last_timestep.observation
         )
+        reset_hidden_state = jnp.logical_or(last_done, last_truncated)
         ac_in = (
             batched_last_observation,
-            last_done[jnp.newaxis, :],
+            reset_hidden_state[jnp.newaxis, :],
         )
 
         # Run the network.
@@ -212,8 +214,8 @@ def get_learner_fn(
                 ) -> Tuple:
                     """Calculate the actor loss."""
                     # RERUN NETWORK
-
-                    obs_and_done = (traj_batch.obs, traj_batch.done)
+                    reset_hidden_state = jnp.logical_or(traj_batch.done, traj_batch.truncated)
+                    obs_and_done = (traj_batch.obs, reset_hidden_state)
                     policy_hidden_state = jax.tree_util.tree_map(
                         lambda x: x[0], traj_batch.hstates.policy_hidden_state
                     )
@@ -241,7 +243,8 @@ def get_learner_fn(
                 ) -> Tuple:
                     """Calculate the critic loss."""
                     # RERUN NETWORK
-                    obs_and_done = (traj_batch.obs, traj_batch.done)
+                    reset_hidden_state = jnp.logical_or(traj_batch.done, traj_batch.truncated)
+                    obs_and_done = (traj_batch.obs, reset_hidden_state)
                     critic_hidden_state = jax.tree_util.tree_map(
                         lambda x: x[0], traj_batch.hstates.critic_hidden_state
                     )
