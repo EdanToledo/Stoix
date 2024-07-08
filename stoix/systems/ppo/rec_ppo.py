@@ -84,7 +84,7 @@ def get_learner_fn(
             ) = learner_state
 
             key, policy_key = jax.random.split(key)
-            
+
             # Add a batch dimension to the observation.
             batched_observation = jax.tree_util.tree_map(
                 lambda x: x[jnp.newaxis, :], last_timestep.observation
