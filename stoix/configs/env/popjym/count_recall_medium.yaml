@@ -1,0 +1,12 @@
+# ---Environment Configs---
+env_name: popjym
+
+scenario:
+  name: CountRecallMedium
+  task_name: count_recall_medium
+
+kwargs: {}
+
+# Defines the metric that will be used to evaluate the performance of the agent.
+# This metric is returned at the end of an experiment and can be used for hyperparameter tuning.
+eval_metric: episode_return
