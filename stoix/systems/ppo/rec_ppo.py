@@ -24,7 +24,7 @@ from stoix.base_types import (
     RNNLearnerState,
 )
 from stoix.evaluator import evaluator_setup, get_rec_distribution_act_fn
-from stoix.networks.base import RecurrentActor, RecurrentCritic, ScannedRNN
+from stoix.networks.base import RecurrentActor, RecurrentCritic
 from stoix.systems.ppo.ppo_types import ActorCriticHiddenStates, RNNPPOTransition
 from stoix.utils import make_env as environments
 from stoix.utils.checkpointing import Checkpointer
@@ -80,7 +80,7 @@ def get_learner_fn(
                 last_timestep,
                 last_done,
                 last_truncated,
-                hstates,
+                last_hstates,
             ) = learner_state
 
             key, policy_key = jax.random.split(key)
@@ -96,10 +96,10 @@ def get_learner_fn(
 
             # Run the network.
             policy_hidden_state, actor_policy = actor_apply_fn(
-                params.actor_params, hstates.policy_hidden_state, ac_in
+                params.actor_params, last_hstates.policy_hidden_state, ac_in
             )
             critic_hidden_state, value = critic_apply_fn(
-                params.critic_params, hstates.critic_hidden_state, ac_in
+                params.critic_params, last_hstates.critic_hidden_state, ac_in
             )
 
             # Sample action from the policy and squeeze out the batch dimension.
@@ -128,7 +128,7 @@ def get_learner_fn(
                 timestep.reward,
                 log_prob,
                 last_timestep.observation,
-                hstates,
+                last_hstates,
                 info,
             )
             learner_state = RNNLearnerState(
@@ -142,9 +142,6 @@ def get_learner_fn(
                 hstates,
             )
             return learner_state, transition
-
-        # INITIALISE RNN STATE
-        initial_hstates = learner_state.hstates
 
         # STEP ENVIRONMENT FOR ROLLOUT LENGTH
         learner_state, traj_batch = jax.lax.scan(
@@ -316,7 +313,6 @@ def get_learner_fn(
             (
                 params,
                 opt_states,
-                init_hstates,
                 traj_batch,
                 advantages,
                 targets,
@@ -359,7 +355,6 @@ def get_learner_fn(
             update_state = (
                 params,
                 opt_states,
-                init_hstates,
                 traj_batch,
                 advantages,
                 targets,
@@ -367,11 +362,9 @@ def get_learner_fn(
             )
             return update_state, loss_info
 
-        init_hstates = jax.tree_util.tree_map(lambda x: x[None, :], initial_hstates)
         update_state = (
             params,
             opt_states,
-            init_hstates,
             traj_batch,
             advantages,
             targets,
@@ -383,7 +376,7 @@ def get_learner_fn(
             _update_epoch, update_state, None, config.system.epochs
         )
 
-        params, opt_states, _, traj_batch, advantages, targets, key = update_state
+        params, opt_states, traj_batch, advantages, targets, key = update_state
         learner_state = RNNLearnerState(
             params,
             opt_states,
@@ -431,7 +424,7 @@ def get_learner_fn(
 
 def learner_setup(
     env: Environment, keys: chex.Array, config: DictConfig
-) -> Tuple[LearnerFn[RNNLearnerState], RecurrentActor, ScannedRNN, RNNLearnerState]:
+) -> Tuple[LearnerFn[RNNLearnerState], RecurrentActor, Any, RNNLearnerState]:
     """Initialise learner_fn, network, optimiser, environment and states."""
     # Get available TPU cores.
     n_devices = len(jax.devices())
@@ -445,35 +438,27 @@ def learner_setup(
 
     # Define network and optimisers.
     actor_pre_torso = hydra.utils.instantiate(config.network.actor_network.pre_torso)
+    actor_rnn = hydra.utils.instantiate(config.network.actor_network.rnn_layer)
     actor_post_torso = hydra.utils.instantiate(config.network.actor_network.post_torso)
     actor_action_head = hydra.utils.instantiate(
         config.network.actor_network.action_head, action_dim=num_actions
     )
     critic_pre_torso = hydra.utils.instantiate(config.network.critic_network.pre_torso)
+    critic_rnn = hydra.utils.instantiate(config.network.critic_network.rnn_layer)
     critic_post_torso = hydra.utils.instantiate(config.network.critic_network.post_torso)
     critic_head = hydra.utils.instantiate(config.network.critic_network.critic_head)
 
     actor_network = RecurrentActor(
         pre_torso=actor_pre_torso,
-        hidden_state_dim=config.network.critic_network.rnn_layer.hidden_state_dim,
-        cell_type=config.network.critic_network.rnn_layer.cell_type,
+        rnn=actor_rnn,
         post_torso=actor_post_torso,
         action_head=actor_action_head,
     )
     critic_network = RecurrentCritic(
         pre_torso=critic_pre_torso,
-        hidden_state_dim=config.network.critic_network.rnn_layer.hidden_state_dim,
-        cell_type=config.network.critic_network.rnn_layer.cell_type,
+        rnn=critic_rnn,
         post_torso=critic_post_torso,
         critic_head=critic_head,
-    )
-    actor_rnn = ScannedRNN(
-        hidden_state_dim=config.network.actor_network.rnn_layer.hidden_state_dim,
-        cell_type=config.network.actor_network.rnn_layer.cell_type,
-    )
-    critic_rnn = ScannedRNN(
-        hidden_state_dim=config.network.critic_network.rnn_layer.hidden_state_dim,
-        cell_type=config.network.critic_network.rnn_layer.cell_type,
     )
 
     actor_lr = make_learning_rate(

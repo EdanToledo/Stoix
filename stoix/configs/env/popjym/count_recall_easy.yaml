@@ -2,8 +2,8 @@
 env_name: popjym
 
 scenario:
-  name: StatelessCartPoleEasy
-  task_name: stateless_cartpole_easy
+  name: CountRecallEasy
+  task_name: count_recall_easy
 
 kwargs: {}
 

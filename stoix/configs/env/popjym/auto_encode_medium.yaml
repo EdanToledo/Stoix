@@ -2,8 +2,8 @@
 env_name: popjym
 
 scenario:
-  name: StatelessCartPoleEasy
-  task_name: stateless_cartpole_easy
+  name: AutoencodeMedium
+  task_name: auto_encode_medium
 
 kwargs: {}
 
