@@ -36,13 +36,15 @@ class PGXWrapper(Wrapper):
         init_key, state_key = jax.random.split(key)
         init_state = self._env.init(init_key)
         state = PGXState(env_state=init_state, key=state_key)
+        agent_view = init_state.observation.astype(float)
+        legal_action_mask = init_state.legal_action_mask.astype(float)
         obs = Observation(
-            agent_view=init_state.observation.astype(jnp.float32),
-            action_mask=init_state.legal_action_mask.astype(jnp.float32),
+            agent_view=agent_view,
+            action_mask=legal_action_mask,
             step_count=init_state._step_count,
         )
-        reward = jnp.squeeze(init_state.rewards)
-        discount = 1.0 - init_state.terminated.astype(jnp.float32).squeeze()
+        reward = jnp.squeeze(init_state.rewards).astype(float)
+        discount = 1.0 - init_state.terminated.astype(float).squeeze()
         timestep = TimeStep(
             observation=obs,
             reward=reward,
@@ -56,11 +58,13 @@ class PGXWrapper(Wrapper):
         new_step_key, new_state_key = jax.random.split(state.key)
         env_state = self._env.step(state.env_state, action, new_step_key)
 
-        reward = jnp.squeeze(env_state.rewards)
+        agent_view = env_state.observation.astype(float)
+        legal_action_mask = env_state.legal_action_mask.astype(float)
+        reward = jnp.squeeze(env_state.rewards).astype(float)
 
         time_limit_reached = env_state._step_count >= self.max_episode_steps
-        terminated = jnp.squeeze(env_state.terminated).astype(jnp.bool_) | time_limit_reached
-        discount = 1.0 - terminated.astype(jnp.float32)
+        terminated = jnp.squeeze(env_state.terminated).astype(bool) | time_limit_reached
+        discount = 1.0 - terminated.astype(float)
 
         step_type = jnp.where(
             terminated,
@@ -68,8 +72,8 @@ class PGXWrapper(Wrapper):
             StepType.MID,
         )
         obs = Observation(
-            agent_view=env_state.observation.astype(jnp.float32),
-            action_mask=env_state.legal_action_mask.astype(jnp.float32),
+            agent_view=agent_view,
+            action_mask=legal_action_mask,
             step_count=env_state._step_count,
         )
         timestep = TimeStep(
@@ -87,19 +91,19 @@ class PGXWrapper(Wrapper):
         """Returns the action spec."""
         action_space = specs.DiscreteArray(
             num_values=self._env.num_actions,
-            dtype=jnp.int32,
+            dtype=int,
             name="action",
         )
         return action_space
 
     def observation_spec(self) -> specs.Spec:
         """Returns the observation spec."""
-        agent_view_spec = specs.Array(shape=self._env.observation_shape, dtype=jnp.float32)
-        action_mask_spec = specs.Array(shape=(self._env.num_actions,), dtype=jnp.float32)
+        agent_view_spec = specs.Array(shape=self._env.observation_shape, dtype=float)
+        action_mask_spec = specs.Array(shape=(self._env.num_actions,), dtype=float)
         return specs.Spec(
             Observation,
             "ObservationSpec",
             agent_view=agent_view_spec,
             action_mask=action_mask_spec,
-            step_count=specs.Array(shape=(), dtype=jnp.int32),
+            step_count=specs.Array(shape=(), dtype=int),
         )
