@@ -62,14 +62,16 @@ class GymnaxWrapper(Wrapper):
             n_actions = self.action_spec().num_values
         else:
             n_actions = self.action_spec().shape[0]
-        self._legal_action_mask = jnp.ones((n_actions,), dtype=jnp.float32)
+        self._legal_action_mask = jnp.ones((n_actions,), dtype=float)
 
     def reset(self, key: chex.PRNGKey) -> Tuple[GymnaxEnvState, TimeStep]:
         key, reset_key = jax.random.split(key)
         obs, gymnax_state = self._env.reset(reset_key, self._env_params)
-        obs = Observation(obs, self._legal_action_mask, jnp.array(0))
+        obs = Observation(obs, self._legal_action_mask, jnp.array(0, dtype=int))
         timestep = restart(obs, extras={})
-        state = GymnaxEnvState(key=key, gymnax_env_state=gymnax_state, step_count=jnp.array(0))
+        state = GymnaxEnvState(
+            key=key, gymnax_env_state=gymnax_state, step_count=jnp.array(0, dtype=int)
+        )
         return state, timestep
 
     def step(self, state: GymnaxEnvState, action: chex.Array) -> Tuple[GymnaxEnvState, TimeStep]:
@@ -83,8 +85,8 @@ class GymnaxWrapper(Wrapper):
 
         timestep = TimeStep(
             observation=Observation(obs, self._legal_action_mask, state.step_count),
-            reward=reward,
-            discount=jnp.array(1.0 - done),
+            reward=reward.astype(float),
+            discount=jnp.array(1.0 - done, dtype=float),
             step_type=jax.lax.select(done, StepType.LAST, StepType.MID),
             extras={},
         )
@@ -104,12 +106,12 @@ class GymnaxWrapper(Wrapper):
             self._env.observation_space(self._env_params)
         )
 
-        action_mask_spec = Array(shape=self._legal_action_mask.shape, dtype=jnp.float32)
+        action_mask_spec = Array(shape=self._legal_action_mask.shape, dtype=float)
 
         return specs.Spec(
             Observation,
             "ObservationSpec",
             agent_view=agent_view_spec,
             action_mask=action_mask_spec,
-            step_count=Array(shape=(), dtype=jnp.int32),
+            step_count=Array(shape=(), dtype=int),
         )
