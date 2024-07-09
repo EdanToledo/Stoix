@@ -78,7 +78,7 @@ Stoix currently offers the following building blocks for Single-Agent RL researc
 - **Sampled Alpha/Mu-Zero** - [Paper](https://arxiv.org/abs/2104.06303)
 
 ### Environment Wrappers 🍬
-Stoix offers wrappers for [Gymnax][gymnax], [Jumanji][jumanji], [Brax][brax], [XMinigrid][xminigrid], [Craftax][craftax], [POPJym][popjym] and even [JAXMarl][jaxmarl] (although using Centralised Controllers).
+Stoix offers wrappers for [Gymnax][gymnax], [Jumanji][jumanji], [Brax][brax], [XMinigrid][xminigrid], [Craftax][craftax], [POPJym][popjym], [Navix][navix] and even [JAXMarl][jaxmarl] (although using Centralised Controllers).
 
 ### Statistically Robust Evaluation 🧪
 Stoix natively supports logging to json files which adhere to the standard suggested by [Gorsane et al. (2022)][toward_standard_eval]. This enables easy downstream experiment plotting and aggregation using the tools found in the [MARL-eval][marl_eval] library.
@@ -139,6 +139,12 @@ or if you wanted to do dueling C51, you could do:
 ```bash
 python stoix/systems/q_learning/ff_c51.py network=mlp_dueling_c51
 ```
+
+## Important Considerations
+
+1. If your environment does not have a timestep limit or is not guaranteed to end through some game mechanic, then it is possible for the evaluation to seem as if it is hanging forever thereby stalling the training but in fact your agent is just so good _or bad_ that the episode never finishes. Keep this in mind if you are seeing this behaviour. One solution is to simply add a time step limit or potentially action masking.
+
+2. Due to the way Stoix is set up, you are not guaranteed to run for exactly the number of timesteps you set. A warning is given at the beginning of a run on the actual number of timesteps that will be run. This value will always be less than or equal to the specified sample budget. To get the exact number of transitions to run, ensure that the number of timesteps is divisible by the rollout length * total_num_envs and additionally ensure that the number of evaluations spaced out throughout training perfectly divide the number of updates to be performed. To see the exact calculation, see the file total_timestep_checker.py. This will give an indication of how the actual number of timesteps is calculated and how you can easily set it up to run the exact amount you desire. Its relatively trivial to do so but it is important to keep in mind.
 
 ## Contributing 🤝
 
@@ -210,5 +216,6 @@ We would like to thank the authors and developers of [Mava](mava) as this was es
 [xminigrid]: https://github.com/corl-team/xland-minigrid/
 [craftax]: https://github.com/MichaelTMatthews/Craftax
 [popjym]: https://github.com/FLAIROx/popjym
+[navix]: https://github.com/epignatelli/navix
 
 Disclaimer: This is not an official InstaDeep product nor is any of the work putforward associated with InstaDeep in any official capacity.
