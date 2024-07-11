@@ -70,9 +70,7 @@ def get_warmup_fn(
             info = timestep.extras["episode_metrics"]
             next_obs = timestep.extras["next_obs"]
 
-            transition = Transition(
-                last_timestep.observation, action, timestep.reward, done, next_obs, info
-            )
+            transition = Transition(last_timestep.observation, action, timestep.reward, done, next_obs, info)
 
             return (env_state, timestep, key), transition
 
@@ -86,9 +84,7 @@ def get_warmup_fn(
 
         return env_states, timesteps, keys, buffer_states
 
-    batched_warmup_step: Callable = jax.vmap(
-        warmup, in_axes=(0, 0, 0, 0), out_axes=(0, 0, 0, 0), axis_name="batch"
-    )
+    batched_warmup_step: Callable = jax.vmap(warmup, in_axes=(0, 0, 0, 0), out_axes=(0, 0, 0, 0), axis_name="batch")
 
     return batched_warmup_step
 
@@ -107,12 +103,8 @@ def get_learner_fn(
     actor_update_fn, q_update_fn, alpha_update_fn = update_fns
     buffer_add_fn, buffer_sample_fn = buffer_fns
 
-    def _update_step(
-        learner_state: OffPolicyLearnerState, _: Any
-    ) -> Tuple[OffPolicyLearnerState, Tuple]:
-        def _env_step(
-            learner_state: OffPolicyLearnerState, _: Any
-        ) -> Tuple[OffPolicyLearnerState, Transition]:
+    def _update_step(learner_state: OffPolicyLearnerState, _: Any) -> Tuple[OffPolicyLearnerState, Tuple]:
+        def _env_step(learner_state: OffPolicyLearnerState, _: Any) -> Tuple[OffPolicyLearnerState, Transition]:
             """Step the environment."""
             params, opt_states, buffer_state, key, env_state, last_timestep = learner_state
 
@@ -130,19 +122,13 @@ def get_learner_fn(
             info = timestep.extras["episode_metrics"]
             next_obs = timestep.extras["next_obs"]
 
-            transition = Transition(
-                last_timestep.observation, action, timestep.reward, done, next_obs, info
-            )
+            transition = Transition(last_timestep.observation, action, timestep.reward, done, next_obs, info)
 
-            learner_state = OffPolicyLearnerState(
-                params, opt_states, buffer_state, key, env_state, timestep
-            )
+            learner_state = OffPolicyLearnerState(params, opt_states, buffer_state, key, env_state, timestep)
             return learner_state, transition
 
         # STEP ENVIRONMENT FOR ROLLOUT LENGTH
-        learner_state, traj_batch = jax.lax.scan(
-            _env_step, learner_state, None, config.system.rollout_length
-        )
+        learner_state, traj_batch = jax.lax.scan(_env_step, learner_state, None, config.system.rollout_length)
 
         params, opt_states, buffer_state, key, env_state, last_timestep = learner_state
 
@@ -249,13 +235,9 @@ def get_learner_fn(
             # This calculation is inspired by the Anakin architecture demo notebook.
             # available at https://tinyurl.com/26tdzs5x
             # This pmean could be a regular mean as the batch axis is on the same device.
-            actor_grads, actor_loss_info = jax.lax.pmean(
-                (actor_grads, actor_loss_info), axis_name="batch"
-            )
+            actor_grads, actor_loss_info = jax.lax.pmean((actor_grads, actor_loss_info), axis_name="batch")
             # pmean over devices.
-            actor_grads, actor_loss_info = jax.lax.pmean(
-                (actor_grads, actor_loss_info), axis_name="device"
-            )
+            actor_grads, actor_loss_info = jax.lax.pmean((actor_grads, actor_loss_info), axis_name="device")
 
             q_grads, q_loss_info = jax.lax.pmean((q_grads, q_loss_info), axis_name="batch")
             q_grads, q_loss_info = jax.lax.pmean((q_grads, q_loss_info), axis_name="device")
@@ -265,15 +247,9 @@ def get_learner_fn(
                 alpha_grads, alpha_loss_info = alpha_grad_fn(
                     params.log_alpha, params.actor_params, transitions, alpha_key
                 )
-                alpha_grads, alpha_loss_info = jax.lax.pmean(
-                    (alpha_grads, alpha_loss_info), axis_name="batch"
-                )
-                alpha_grads, alpha_loss_info = jax.lax.pmean(
-                    (alpha_grads, alpha_loss_info), axis_name="device"
-                )
-                log_alpha_updates, alpha_new_opt_state = alpha_update_fn(
-                    alpha_grads, opt_states.alpha_opt_state
-                )
+                alpha_grads, alpha_loss_info = jax.lax.pmean((alpha_grads, alpha_loss_info), axis_name="batch")
+                alpha_grads, alpha_loss_info = jax.lax.pmean((alpha_grads, alpha_loss_info), axis_name="device")
+                log_alpha_updates, alpha_new_opt_state = alpha_update_fn(alpha_grads, opt_states.alpha_opt_state)
                 log_alpha_new_params = optax.apply_updates(params.log_alpha, log_alpha_updates)
             else:
                 log_alpha_new_params = params.log_alpha
@@ -281,9 +257,7 @@ def get_learner_fn(
                 alpha_loss_info = {"alpha_loss": 0.0, "alpha": alpha}
 
             # UPDATE ACTOR PARAMS AND OPTIMISER STATE
-            actor_updates, actor_new_opt_state = actor_update_fn(
-                actor_grads, opt_states.actor_opt_state
-            )
+            actor_updates, actor_new_opt_state = actor_update_fn(actor_grads, opt_states.actor_opt_state)
             actor_new_params = optax.apply_updates(params.actor_params, actor_updates)
 
             # UPDATE Q PARAMS AND OPTIMISER STATE
@@ -310,14 +284,10 @@ def get_learner_fn(
         update_state = (params, opt_states, buffer_state, key)
 
         # UPDATE EPOCHS
-        update_state, loss_info = jax.lax.scan(
-            _update_epoch, update_state, None, config.system.epochs
-        )
+        update_state, loss_info = jax.lax.scan(_update_epoch, update_state, None, config.system.epochs)
 
         params, opt_states, buffer_state, key = update_state
-        learner_state = OffPolicyLearnerState(
-            params, opt_states, buffer_state, key, env_state, last_timestep
-        )
+        learner_state = OffPolicyLearnerState(params, opt_states, buffer_state, key, env_state, last_timestep)
         metric = traj_batch.info
         return learner_state, (metric, loss_info)
 
@@ -447,12 +417,8 @@ def learner_setup(
         f"{Fore.RED}{Style.BRIGHT}The total batch size should be divisible "
         + "by the number of devices!{Style.RESET_ALL}"
     )
-    config.system.buffer_size = config.system.total_buffer_size // (
-        n_devices * config.arch.update_batch_size
-    )
-    config.system.batch_size = config.system.total_batch_size // (
-        n_devices * config.arch.update_batch_size
-    )
+    config.system.buffer_size = config.system.total_buffer_size // (n_devices * config.arch.update_batch_size)
+    config.system.batch_size = config.system.total_batch_size // (n_devices * config.arch.update_batch_size)
     buffer_fn = fbx.make_item_buffer(
         max_length=config.system.buffer_size,
         min_length=config.system.batch_size,
@@ -471,15 +437,11 @@ def learner_setup(
     warmup = jax.pmap(warmup, axis_name="device")
 
     # Initialise environment states and timesteps: across devices and batches.
-    key, *env_keys = jax.random.split(
-        key, n_devices * config.arch.update_batch_size * config.arch.num_envs + 1
-    )
+    key, *env_keys = jax.random.split(key, n_devices * config.arch.update_batch_size * config.arch.num_envs + 1)
     env_states, timesteps = jax.vmap(env.reset, in_axes=(0))(
         jnp.stack(env_keys),
     )
-    reshape_states = lambda x: x.reshape(
-        (n_devices, config.arch.update_batch_size, config.arch.num_envs) + x.shape[1:]
-    )
+    reshape_states = lambda x: x.reshape((n_devices, config.arch.update_batch_size, config.arch.num_envs) + x.shape[1:])
     # (devices, update batch size, num_envs, ...)
     env_states = jax.tree_util.tree_map(reshape_states, env_states)
     timesteps = jax.tree_util.tree_map(reshape_states, timesteps)
@@ -515,12 +477,8 @@ def learner_setup(
     # Initialise learner state.
     params, opt_states, buffer_states = replicate_learner
     # Warmup the buffer.
-    env_states, timesteps, keys, buffer_states = warmup(
-        env_states, timesteps, buffer_states, warmup_keys
-    )
-    init_learner_state = OffPolicyLearnerState(
-        params, opt_states, buffer_states, step_keys, env_states, timesteps
-    )
+    env_states, timesteps, keys, buffer_states = warmup(env_states, timesteps, buffer_states, warmup_keys)
+    init_learner_state = OffPolicyLearnerState(params, opt_states, buffer_states, step_keys, env_states, timesteps)
 
     return learn, actor_network, init_learner_state
 
@@ -541,14 +499,10 @@ def run_experiment(_config: DictConfig) -> float:
     env, eval_env = environments.make(config=config)
 
     # PRNG keys.
-    key, key_e, actor_net_key, q_net_key = jax.random.split(
-        jax.random.PRNGKey(config.arch.seed), num=4
-    )
+    key, key_e, actor_net_key, q_net_key = jax.random.split(jax.random.PRNGKey(config.arch.seed), num=4)
 
     # Setup learner.
-    learn, actor_network, learner_state = learner_setup(
-        env, (key, actor_net_key, q_net_key), config
-    )
+    learn, actor_network, learner_state = learner_setup(env, (key, actor_net_key, q_net_key), config)
 
     # Setup evaluator.
     evaluator, absolute_metric_evaluator, (trained_params, eval_keys) = evaluator_setup(
@@ -666,7 +620,7 @@ def run_experiment(_config: DictConfig) -> float:
     return eval_performance
 
 
-@hydra.main(config_path="../../configs", config_name="default_ff_sac.yaml", version_base="1.2")
+@hydra.main(config_path="../../../configs", config_name="default_ff_sac.yaml", version_base="1.2")
 def hydra_entry_point(cfg: DictConfig) -> float:
     """Experiment entry point."""
     # Allow dynamic attributes.

@@ -232,25 +232,17 @@ def mpo_loss(
     # This has been documented as having better performance in bandit settings,
     # see e.g. https://arxiv.org/pdf/1812.02256.pdf.
     fixed_stddev_distribution = Independent(
-        AffineTanhTransformedDistribution(
-            Normal(loc=online_mean, scale=target_scale), action_minimum, action_maximum
-        ),
+        AffineTanhTransformedDistribution(Normal(loc=online_mean, scale=target_scale), action_minimum, action_maximum),
         reinterpreted_batch_ndims=1,
     )
     fixed_mean_distribution = Independent(
-        AffineTanhTransformedDistribution(
-            Normal(loc=target_mean, scale=online_scale), action_minimum, action_maximum
-        ),
+        AffineTanhTransformedDistribution(Normal(loc=target_mean, scale=online_scale), action_minimum, action_maximum),
         reinterpreted_batch_ndims=1,
     )
 
     # Compute the decomposed policy losses.
-    loss_policy_mean = compute_cross_entropy_loss(
-        target_sampled_actions, normalized_weights, fixed_stddev_distribution
-    )
-    loss_policy_stddev = compute_cross_entropy_loss(
-        target_sampled_actions, normalized_weights, fixed_mean_distribution
-    )
+    loss_policy_mean = compute_cross_entropy_loss(target_sampled_actions, normalized_weights, fixed_stddev_distribution)
+    loss_policy_stddev = compute_cross_entropy_loss(target_sampled_actions, normalized_weights, fixed_mean_distribution)
 
     # Compute the decomposed KL between the target and online policies.
     if per_dim_constraining:
@@ -270,9 +262,7 @@ def mpo_loss(
         chex.assert_shape(kl_stddev, (batch_size,))
 
     # Compute the alpha-weighted KL-penalty and dual losses to adapt the alphas.
-    loss_kl_mean, loss_alpha_mean = compute_parametric_kl_penalty_and_dual_loss(
-        kl_mean, alpha_mean, epsilon_mean
-    )
+    loss_kl_mean, loss_alpha_mean = compute_parametric_kl_penalty_and_dual_loss(kl_mean, alpha_mean, epsilon_mean)
     loss_kl_stddev, loss_alpha_stddev = compute_parametric_kl_penalty_and_dual_loss(
         kl_stddev, alpha_stddev, epsilon_stddev
     )

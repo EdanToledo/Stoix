@@ -103,14 +103,10 @@ def make_root_fn(
         batch_size = value.shape[0]
         # Sample actions for the root node.
         sampled_actions = pi.sample(seed=sample_key, sample_shape=config.system.num_samples)
-        chex.assert_shape(
-            sampled_actions, (config.system.num_samples, batch_size, config.system.action_dim)
-        )
+        chex.assert_shape(sampled_actions, (config.system.num_samples, batch_size, config.system.action_dim))
         # Swap axes to have (batch_size, num_samples, action_dim)
         sampled_actions = jnp.swapaxes(sampled_actions, 0, 1)
-        chex.assert_shape(
-            sampled_actions, (batch_size, config.system.num_samples, config.system.action_dim)
-        )
+        chex.assert_shape(sampled_actions, (batch_size, config.system.num_samples, config.system.action_dim))
         # Add noise to the root sampled actions.
         if config.system.root_exploration_fraction != 0:
             sampled_actions = add_gaussian_noise(
@@ -164,14 +160,10 @@ def make_recurrent_fn(
 
         # Sample actions for the next state.
         next_sampled_actions = pi.sample(seed=rng_key, sample_shape=config.system.num_samples)
-        chex.assert_shape(
-            next_sampled_actions, (config.system.num_samples, batch_size, config.system.action_dim)
-        )
+        chex.assert_shape(next_sampled_actions, (config.system.num_samples, batch_size, config.system.action_dim))
         # Swap axes to have (batch_size, num_samples, action_dim)
         next_sampled_actions = jnp.swapaxes(next_sampled_actions, 0, 1)
-        chex.assert_shape(
-            next_sampled_actions, (batch_size, config.system.num_samples, config.system.action_dim)
-        )
+        chex.assert_shape(next_sampled_actions, (batch_size, config.system.num_samples, config.system.action_dim))
         # Due to sampling from a gaussian, set all actions to have a uniform prior.
         selection_logits = jnp.ones((batch_size, config.system.num_samples))
 
@@ -291,9 +283,7 @@ def get_warmup_fn(
 
         return env_states, timesteps, keys, buffer_states
 
-    batched_warmup_step: Callable = jax.vmap(
-        warmup, in_axes=(0, 0, 0, 0), out_axes=(0, 0, 0, 0), axis_name="batch"
-    )
+    batched_warmup_step: Callable = jax.vmap(warmup, in_axes=(0, 0, 0, 0), out_axes=(0, 0, 0, 0), axis_name="batch")
 
     return batched_warmup_step
 
@@ -315,9 +305,7 @@ def get_learner_fn(
     def _update_step(learner_state: ZLearnerState, _: Any) -> Tuple[ZLearnerState, Tuple]:
         """A single update of the network."""
 
-        def _env_step(
-            learner_state: ZLearnerState, _: Any
-        ) -> Tuple[ZLearnerState, SampledExItTransition]:
+        def _env_step(learner_state: ZLearnerState, _: Any) -> Tuple[ZLearnerState, SampledExItTransition]:
             """Step the environment."""
             params, opt_states, buffer_state, key, env_state, last_timestep = learner_state
 
@@ -347,15 +335,11 @@ def get_learner_fn(
                 last_timestep.observation,
                 info,
             )
-            learner_state = ZLearnerState(
-                params, opt_states, buffer_state, key, env_state, timestep
-            )
+            learner_state = ZLearnerState(params, opt_states, buffer_state, key, env_state, timestep)
             return learner_state, transition
 
         # STEP ENVIRONMENT FOR ROLLOUT LENGTH
-        learner_state, traj_batch = jax.lax.scan(
-            _env_step, learner_state, None, config.system.rollout_length
-        )
+        learner_state, traj_batch = jax.lax.scan(_env_step, learner_state, None, config.system.rollout_length)
         params, opt_states, buffer_state, key, env_state, last_timestep = learner_state
 
         # Add the trajectory to the buffer.
@@ -377,9 +361,7 @@ def get_learner_fn(
                 actor_policy = actor_apply_fn(actor_params, sequence.obs)
 
                 # CALCULATE LOSS
-                log_prob = jax.vmap(actor_policy.log_prob, in_axes=1, out_axes=1)(
-                    sequence.sampled_actions
-                )
+                log_prob = jax.vmap(actor_policy.log_prob, in_axes=1, out_axes=1)(sequence.sampled_actions)
                 actor_loss = -jnp.sum(log_prob * sequence.search_policy, -1).mean()
                 entropy = actor_policy.entropy(seed=rng_key).mean()
 
@@ -435,32 +417,20 @@ def get_learner_fn(
             # This calculation is inspired by the Anakin architecture demo notebook.
             # available at https://tinyurl.com/26tdzs5x
             # This pmean could be a regular mean as the batch axis is on the same device.
-            actor_grads, actor_loss_info = jax.lax.pmean(
-                (actor_grads, actor_loss_info), axis_name="batch"
-            )
+            actor_grads, actor_loss_info = jax.lax.pmean((actor_grads, actor_loss_info), axis_name="batch")
             # pmean over devices.
-            actor_grads, actor_loss_info = jax.lax.pmean(
-                (actor_grads, actor_loss_info), axis_name="device"
-            )
+            actor_grads, actor_loss_info = jax.lax.pmean((actor_grads, actor_loss_info), axis_name="device")
 
-            critic_grads, critic_loss_info = jax.lax.pmean(
-                (critic_grads, critic_loss_info), axis_name="batch"
-            )
+            critic_grads, critic_loss_info = jax.lax.pmean((critic_grads, critic_loss_info), axis_name="batch")
             # pmean over devices.
-            critic_grads, critic_loss_info = jax.lax.pmean(
-                (critic_grads, critic_loss_info), axis_name="device"
-            )
+            critic_grads, critic_loss_info = jax.lax.pmean((critic_grads, critic_loss_info), axis_name="device")
 
             # UPDATE ACTOR PARAMS AND OPTIMISER STATE
-            actor_updates, actor_new_opt_state = actor_update_fn(
-                actor_grads, opt_states.actor_opt_state
-            )
+            actor_updates, actor_new_opt_state = actor_update_fn(actor_grads, opt_states.actor_opt_state)
             actor_new_params = optax.apply_updates(params.actor_params, actor_updates)
 
             # UPDATE CRITIC PARAMS AND OPTIMISER STATE
-            critic_updates, critic_new_opt_state = critic_update_fn(
-                critic_grads, opt_states.critic_opt_state
-            )
+            critic_updates, critic_new_opt_state = critic_update_fn(critic_grads, opt_states.critic_opt_state)
             critic_new_params = optax.apply_updates(params.critic_params, critic_updates)
 
             # PACK NEW PARAMS AND OPTIMISER STATE
@@ -477,14 +447,10 @@ def get_learner_fn(
         update_state = (params, opt_states, buffer_state, key)
 
         # UPDATE EPOCHS
-        update_state, loss_info = jax.lax.scan(
-            _update_epoch, update_state, None, config.system.epochs
-        )
+        update_state, loss_info = jax.lax.scan(_update_epoch, update_state, None, config.system.epochs)
 
         params, opt_states, buffer_state, key = update_state
-        learner_state = ZLearnerState(
-            params, opt_states, buffer_state, key, env_state, last_timestep
-        )
+        learner_state = ZLearnerState(params, opt_states, buffer_state, key, env_state, last_timestep)
         metric = traj_batch.info
         return learner_state, (metric, loss_info)
 
@@ -621,12 +587,8 @@ def learner_setup(
         f"{Fore.RED}{Style.BRIGHT}The total batch size should be divisible "
         + "by the number of devices!{Style.RESET_ALL}"
     )
-    config.system.buffer_size = config.system.total_buffer_size // (
-        n_devices * config.arch.update_batch_size
-    )
-    config.system.batch_size = config.system.total_batch_size // (
-        n_devices * config.arch.update_batch_size
-    )
+    config.system.buffer_size = config.system.total_buffer_size // (n_devices * config.arch.update_batch_size)
+    config.system.batch_size = config.system.total_batch_size // (n_devices * config.arch.update_batch_size)
     buffer_fn = fbx.make_trajectory_buffer(
         max_size=config.system.buffer_size,
         min_length_time_axis=config.system.sample_sequence_length,
@@ -646,15 +608,11 @@ def learner_setup(
     warmup = jax.pmap(warmup, axis_name="device")
 
     # Initialise environment states and timesteps: across devices and batches.
-    key, *env_keys = jax.random.split(
-        key, n_devices * config.arch.update_batch_size * config.arch.num_envs + 1
-    )
+    key, *env_keys = jax.random.split(key, n_devices * config.arch.update_batch_size * config.arch.num_envs + 1)
     env_states, timesteps = jax.vmap(env.reset, in_axes=(0))(
         jnp.stack(env_keys),
     )
-    reshape_states = lambda x: x.reshape(
-        (n_devices, config.arch.update_batch_size, config.arch.num_envs) + x.shape[1:]
-    )
+    reshape_states = lambda x: x.reshape((n_devices, config.arch.update_batch_size, config.arch.num_envs) + x.shape[1:])
     # (devices, update batch size, num_envs, ...)
     env_states = jax.tree_util.tree_map(reshape_states, env_states)
     timesteps = jax.tree_util.tree_map(reshape_states, timesteps)
@@ -690,12 +648,8 @@ def learner_setup(
     # Initialise learner state.
     params, opt_states, buffer_states = replicate_learner
     # Warmup the buffer.
-    env_states, timesteps, keys, buffer_states = warmup(
-        env_states, timesteps, buffer_states, warmup_keys
-    )
-    init_learner_state = ZLearnerState(
-        params, opt_states, buffer_states, step_keys, env_states, timesteps
-    )
+    env_states, timesteps, keys, buffer_states = warmup(env_states, timesteps, buffer_states, warmup_keys)
+    init_learner_state = ZLearnerState(params, opt_states, buffer_states, step_keys, env_states, timesteps)
 
     return learn, root_fn, search_apply_fn, init_learner_state
 
@@ -716,9 +670,7 @@ def run_experiment(_config: DictConfig) -> float:
     env, eval_env = environments.make(config=config)
 
     # PRNG keys.
-    key, key_e, actor_net_key, critic_net_key = jax.random.split(
-        jax.random.PRNGKey(config.arch.seed), num=4
-    )
+    key, key_e, actor_net_key, critic_net_key = jax.random.split(jax.random.PRNGKey(config.arch.seed), num=4)
 
     # Setup learner.
     learn, root_fn, search_apply_fn, learner_state = learner_setup(
@@ -784,9 +736,7 @@ def run_experiment(_config: DictConfig) -> float:
 
         # Prepare for evaluation.
         start_time = time.time()
-        trained_params = unreplicate_batch_dim(
-            learner_output.learner_state.params
-        )  # Select only actor params
+        trained_params = unreplicate_batch_dim(learner_output.learner_state.params)  # Select only actor params
         key_e, *eval_keys = jax.random.split(key_e, n_devices + 1)
         eval_keys = jnp.stack(eval_keys)
         eval_keys = eval_keys.reshape(n_devices, -1)
@@ -843,9 +793,7 @@ def run_experiment(_config: DictConfig) -> float:
     return eval_performance
 
 
-@hydra.main(
-    config_path="../../configs", config_name="default_ff_sampled_az.yaml", version_base="1.2"
-)
+@hydra.main(config_path="../../../configs", config_name="default_ff_sampled_az.yaml", version_base="1.2")
 def hydra_entry_point(cfg: DictConfig) -> float:
     """Experiment entry point."""
     # Allow dynamic attributes.

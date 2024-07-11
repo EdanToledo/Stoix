@@ -98,12 +98,8 @@ def is_homogenous(env: MultiAgentEnv) -> bool:
     main_agent_act_shape = env.action_space(agents[0]).shape
     # Cannot easily check low, high and n are the same, without being very messy.
     # Unfortunately gymnax/jaxmarl doesn't have a custom __eq__ for their specs.
-    same_obs_shape = all(
-        env.observation_space(agent).shape == main_agent_obs_shape for agent in agents[1:]
-    )
-    same_act_shape = all(
-        env.action_space(agent).shape == main_agent_act_shape for agent in agents[1:]
-    )
+    same_obs_shape = all(env.observation_space(agent).shape == main_agent_obs_shape for agent in agents[1:])
+    same_act_shape = all(env.action_space(agent).shape == main_agent_act_shape for agent in agents[1:])
 
     return same_obs_shape and same_act_shape
 
@@ -115,9 +111,7 @@ def jaxmarl_space_to_jumanji_spec(space: jaxmarl_spaces.Space) -> specs.Spec:
         if space.shape == ():
             return specs.DiscreteArray(num_values=space.n, dtype=space.dtype)
         else:
-            return specs.MultiDiscreteArray(
-                num_values=jnp.full(space.shape, space.n), dtype=space.dtype
-            )
+            return specs.MultiDiscreteArray(num_values=jnp.full(space.shape, space.n), dtype=space.dtype)
     elif _is_box(space):
         return specs.BoundedArray(
             shape=space.shape,
@@ -140,8 +134,7 @@ def jaxmarl_space_to_jumanji_spec(space: jaxmarl_spaces.Space) -> specs.Spec:
         constructor = namedtuple("SubSpace", field_names)  # type: ignore
         # Recursively convert spaces to specs
         sub_specs = {
-            f"sub_space_{i}": jaxmarl_space_to_jumanji_spec(sub_space)
-            for i, sub_space in enumerate(space.spaces)
+            f"sub_space_{i}": jaxmarl_space_to_jumanji_spec(sub_space) for i, sub_space in enumerate(space.spaces)
         }
         return specs.Spec(constructor=constructor, name="", **sub_specs)
     else:
@@ -188,9 +181,7 @@ class JaxMarlWrapper(Wrapper):
         self.state_size
         self.n_actions
 
-    def reset(
-        self, key: PRNGKey
-    ) -> Tuple[JaxMarlState, TimeStep[Union[Observation, ObservationGlobalState]]]:
+    def reset(self, key: PRNGKey) -> Tuple[JaxMarlState, TimeStep[Union[Observation, ObservationGlobalState]]]:
         key, reset_key = jax.random.split(key)
         obs, env_state = self._env.reset(reset_key)
 
@@ -202,9 +193,7 @@ class JaxMarlWrapper(Wrapper):
     ) -> Tuple[JaxMarlState, TimeStep[Union[Observation, ObservationGlobalState]]]:
         # todo: how do you know if it's a truncation with only dones?
         key, step_key = jax.random.split(state.key)
-        obs, env_state, reward, done, _ = self._env.step(
-            step_key, state.state, unbatchify(action, self.agents)
-        )
+        obs, env_state, reward, done, _ = self._env.step(step_key, state.state, unbatchify(action, self.agents))
 
         obs = self._create_observation(obs, env_state, state, False)
 
@@ -250,12 +239,8 @@ class JaxMarlWrapper(Wrapper):
             merge_space(self._env.observation_spaces),
         )
 
-        action_mask = specs.BoundedArray(
-            (self.num_agents, self.n_actions), bool, False, True, "action_mask"
-        )
-        step_count = specs.BoundedArray(
-            (self.num_agents,), jnp.int32, 0, self._timelimit, "step_count"
-        )
+        action_mask = specs.BoundedArray((self.num_agents, self.n_actions), bool, False, True, "action_mask")
+        step_count = specs.BoundedArray((self.num_agents,), jnp.int32, 0, self._timelimit, "step_count")
 
         if self.has_global_state:
             global_state_shape: Sequence[int] = (self.num_agents, self.state_size)
@@ -290,9 +275,7 @@ class JaxMarlWrapper(Wrapper):
         return specs.Array(shape=(self.num_agents,), dtype=float, name="reward")
 
     def discount_spec(self) -> specs.BoundedArray:
-        return specs.BoundedArray(
-            shape=(self.num_agents,), dtype=float, minimum=0.0, maximum=1.0, name="discount"
-        )
+        return specs.BoundedArray(shape=(self.num_agents,), dtype=float, minimum=0.0, maximum=1.0, name="discount")
 
     def action_mask(self, wrapped_env_state: JaxMarlState) -> Array:
         """if not overridden, return a mask of all ones."""

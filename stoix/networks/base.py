@@ -108,9 +108,7 @@ class ScannedRNN(nn.Module):
             self.initialize_carry(ins.shape[0]),
             rnn_state,
         )
-        new_rnn_state, y = parse_rnn_cell(self.cell_type)(features=self.hidden_state_dim)(
-            rnn_state, ins
-        )
+        new_rnn_state, y = parse_rnn_cell(self.cell_type)(features=self.hidden_state_dim)(rnn_state, ins)
         return new_rnn_state, y
 
     @nn.nowrap

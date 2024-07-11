@@ -55,9 +55,7 @@ class JumanjiWrapper(Wrapper):
         else:
             legal_action_mask = jnp.ones((self._num_actions,), dtype=float)
         if self._observation_attribute:
-            agent_view = timestep.observation._asdict()[self._observation_attribute].astype(
-                jnp.float32
-            )
+            agent_view = timestep.observation._asdict()[self._observation_attribute].astype(jnp.float32)
         else:
             agent_view = timestep.observation
         obs = Observation(agent_view, legal_action_mask, state.step_count)

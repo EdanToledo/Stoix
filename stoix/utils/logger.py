@@ -145,9 +145,7 @@ class NeptuneLogger(BaseLogger):
 
         # Store json path for uploading json data to Neptune.
         json_exp_path = get_logger_path(cfg, "json")
-        self.json_file_path = os.path.join(
-            cfg.logger.base_exp_path, f"{json_exp_path}/{unique_token}/metrics.json"
-        )
+        self.json_file_path = os.path.join(cfg.logger.base_exp_path, f"{json_exp_path}/{unique_token}/metrics.json")
         self.unique_token = unique_token
         self.upload_json_data = cfg.logger.kwargs.upload_json_data
 
@@ -190,9 +188,7 @@ class WandBLogger(BaseLogger):
 
         # Store json path for uploading json data to Neptune.
         json_exp_path = get_logger_path(cfg, "json")
-        self.json_file_path = os.path.join(
-            cfg.logger.base_exp_path, f"{json_exp_path}/{unique_token}/metrics.json"
-        )
+        self.json_file_path = os.path.join(cfg.logger.base_exp_path, f"{json_exp_path}/{unique_token}/metrics.json")
         self.unique_token = unique_token
         self.upload_json_data = cfg.logger.kwargs.upload_json_data
 
@@ -250,9 +246,7 @@ class JsonLogger(BaseLogger):
 
         # if a custom path is specified, use that instead
         if cfg.logger.kwargs.json_path is not None:
-            json_logs_path = os.path.join(
-                cfg.logger.base_exp_path, "json", cfg.logger.kwargs.json_path
-            )
+            json_logs_path = os.path.join(cfg.logger.base_exp_path, "json", cfg.logger.kwargs.json_path)
 
         self.logger = MarlEvalJsonLogger(
             path=json_logs_path,
@@ -310,9 +304,7 @@ class ConsoleLogger(BaseLogger):
 
         # Replace underscores with spaces and capitalise keys.
         key = key.replace("_", " ").capitalize()
-        self.logger.info(
-            f"{colour}{Style.BRIGHT}{event.value.upper()} - {key}: {value:.3f}{Style.RESET_ALL}"
-        )
+        self.logger.info(f"{colour}{Style.BRIGHT}{event.value.upper()} - {key}: {value:.3f}{Style.RESET_ALL}")
 
     def log_dict(self, data: Dict, step: int, eval_step: int, event: LogEvent) -> None:
         # in case the dict is nested, flatten it.
@@ -325,9 +317,7 @@ class ConsoleLogger(BaseLogger):
         values = [v if isinstance(v, int) else f"{float(v):.3f}" for v in data.values()]
         log_str = " | ".join([f"{k}: {v}" for k, v in zip(keys, values)])
 
-        self.logger.info(
-            f"{colour}{Style.BRIGHT}{event.value.upper()} - {log_str}{Style.RESET_ALL}"
-        )
+        self.logger.info(f"{colour}{Style.BRIGHT}{event.value.upper()} - {log_str}{Style.RESET_ALL}")
 
 
 def _make_multi_logger(cfg: DictConfig) -> BaseLogger:

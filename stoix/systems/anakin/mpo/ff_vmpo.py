@@ -67,9 +67,7 @@ def get_learner_fn(
     actor_update_fn, critic_update_fn, dual_update_fn = update_fns
 
     def _update_step(learner_state: VMPOLearnerState, _: Any) -> Tuple[VMPOLearnerState, Tuple]:
-        def _env_step(
-            learner_state: VMPOLearnerState, _: Any
-        ) -> Tuple[VMPOLearnerState, SequenceStep]:
+        def _env_step(learner_state: VMPOLearnerState, _: Any) -> Tuple[VMPOLearnerState, SequenceStep]:
             """Step the environment."""
             params, opt_states, key, env_state, last_timestep, learner_step_count = learner_state
 
@@ -92,23 +90,17 @@ def get_learner_fn(
                 last_timestep.observation, action, timestep.reward, done, truncated, log_prob, info
             )
 
-            learner_state = VMPOLearnerState(
-                params, opt_states, key, env_state, timestep, learner_step_count
-            )
+            learner_state = VMPOLearnerState(params, opt_states, key, env_state, timestep, learner_step_count)
             return learner_state, sequence_step
 
         # STEP ENVIRONMENT FOR ROLLOUT LENGTH
-        learner_state, traj_batch = jax.lax.scan(
-            _env_step, learner_state, None, config.system.rollout_length
-        )
+        learner_state, traj_batch = jax.lax.scan(_env_step, learner_state, None, config.system.rollout_length)
 
         params, opt_states, key, env_state, last_timestep, learner_step_count = learner_state
 
         # Swap the batch and time axes for easier processing.
         traj_batch = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), traj_batch)
-        chex.assert_tree_shape_prefix(
-            traj_batch, (config.arch.num_envs, config.system.rollout_length)
-        )
+        chex.assert_tree_shape_prefix(traj_batch, (config.arch.num_envs, config.system.rollout_length))
 
         def _update_epoch(update_state: Tuple, _: Any) -> Tuple:
             """Update the network for a single epoch."""
@@ -136,9 +128,7 @@ def get_learner_fn(
                 target_actor_policy = actor_apply_fn(target_actor_params, sequence.obs)
 
                 sample_log_probs = online_actor_policy.log_prob(sequence.action)
-                temperature_constraint = rlax.LagrangePenalty(
-                    temperature, config.system.epsilon, False
-                )
+                temperature_constraint = rlax.LagrangePenalty(temperature, config.system.epsilon, False)
                 kl = target_actor_policy.kl_divergence(online_actor_policy)
                 alpha_constraint = rlax.LagrangePenalty(alpha, config.system.epsilon_policy, False)
                 kl_constraints = [(kl, alpha_constraint)]
@@ -185,9 +175,9 @@ def get_learner_fn(
             # Calculate Advantages and Value Target of pi_target
             discount = 1.0 - sequence_batch.done.astype(jnp.float32)
             d_t = (discount * config.system.gamma).astype(jnp.float32)
-            r_t = jnp.clip(
-                sequence_batch.reward, -config.system.max_abs_reward, config.system.max_abs_reward
-            ).astype(jnp.float32)
+            r_t = jnp.clip(sequence_batch.reward, -config.system.max_abs_reward, config.system.max_abs_reward).astype(
+                jnp.float32
+            )
 
             online_v_t = critic_apply_fn(params.critic_params, sequence_batch.obs)  # [B, T]
 
@@ -240,19 +230,13 @@ def get_learner_fn(
                 (actor_dual_grads, actor_dual_loss_info), axis_name="device"
             )
 
-            critic_grads, critic_loss_info = jax.lax.pmean(
-                (critic_grads, critic_loss_info), axis_name="batch"
-            )
-            critic_grads, critic_loss_info = jax.lax.pmean(
-                (critic_grads, critic_loss_info), axis_name="device"
-            )
+            critic_grads, critic_loss_info = jax.lax.pmean((critic_grads, critic_loss_info), axis_name="batch")
+            critic_grads, critic_loss_info = jax.lax.pmean((critic_grads, critic_loss_info), axis_name="device")
 
             actor_grads, dual_grads = actor_dual_grads
 
             # UPDATE ACTOR PARAMS AND OPTIMISER STATE
-            actor_updates, actor_new_opt_state = actor_update_fn(
-                actor_grads, opt_states.actor_opt_state
-            )
+            actor_updates, actor_new_opt_state = actor_update_fn(actor_grads, opt_states.actor_opt_state)
             actor_new_online_params = optax.apply_updates(params.actor_params.online, actor_updates)
 
             # UPDATE DUAL PARAMS AND OPTIMISER STATE
@@ -261,9 +245,7 @@ def get_learner_fn(
             dual_new_params = clip_categorical_mpo_params(dual_new_params)
 
             # UPDATE CRITIC PARAMS AND OPTIMISER STATE
-            critic_updates, critic_new_opt_state = critic_update_fn(
-                critic_grads, opt_states.critic_opt_state
-            )
+            critic_updates, critic_new_opt_state = critic_update_fn(critic_grads, opt_states.critic_opt_state)
             critic_new_online_params = optax.apply_updates(params.critic_params, critic_updates)
 
             learner_step_count += 1
@@ -280,9 +262,7 @@ def get_learner_fn(
             actor_new_params = OnlineAndTarget(actor_new_online_params, new_target_actor_params)
 
             new_params = VMPOParams(actor_new_params, critic_new_online_params, dual_new_params)
-            new_opt_state = VMPOOptStates(
-                actor_new_opt_state, critic_new_opt_state, dual_new_opt_state
-            )
+            new_opt_state = VMPOOptStates(actor_new_opt_state, critic_new_opt_state, dual_new_opt_state)
 
             # PACK LOSS INFO
             loss_info = {
@@ -294,14 +274,10 @@ def get_learner_fn(
         update_state = (params, opt_states, key, traj_batch, learner_step_count)
 
         # UPDATE EPOCHS
-        update_state, loss_info = jax.lax.scan(
-            _update_epoch, update_state, None, config.system.epochs
-        )
+        update_state, loss_info = jax.lax.scan(_update_epoch, update_state, None, config.system.epochs)
 
         params, opt_states, key, traj_batch, learner_step_count = update_state
-        learner_state = VMPOLearnerState(
-            params, opt_states, key, env_state, last_timestep, learner_step_count
-        )
+        learner_state = VMPOLearnerState(params, opt_states, key, env_state, last_timestep, learner_step_count)
         metric = traj_batch.info
         return learner_state, (metric, loss_info)
 
@@ -343,9 +319,7 @@ def learner_setup(
 
     # Define actor_network, critic_network and optimiser.
     actor_torso = hydra.utils.instantiate(config.network.actor_network.pre_torso)
-    actor_action_head = hydra.utils.instantiate(
-        config.network.actor_network.action_head, action_dim=action_dim
-    )
+    actor_action_head = hydra.utils.instantiate(config.network.actor_network.action_head, action_dim=action_dim)
     actor_network = Actor(torso=actor_torso, action_head=actor_action_head)
     critic_network_torso = hydra.utils.instantiate(config.network.critic_network.pre_torso)
     critic_network_head = hydra.utils.instantiate(config.network.critic_network.critic_head)
@@ -411,15 +385,11 @@ def learner_setup(
     learn = jax.pmap(learn, axis_name="device")
 
     # Initialise environment states and timesteps: across devices and batches.
-    key, *env_keys = jax.random.split(
-        key, n_devices * config.arch.update_batch_size * config.arch.num_envs + 1
-    )
+    key, *env_keys = jax.random.split(key, n_devices * config.arch.update_batch_size * config.arch.num_envs + 1)
     env_states, timesteps = jax.vmap(env.reset, in_axes=(0))(
         jnp.stack(env_keys),
     )
-    reshape_states = lambda x: x.reshape(
-        (n_devices, config.arch.update_batch_size, config.arch.num_envs) + x.shape[1:]
-    )
+    reshape_states = lambda x: x.reshape((n_devices, config.arch.update_batch_size, config.arch.num_envs) + x.shape[1:])
     # (devices, update batch size, num_envs, ...)
     env_states = jax.tree_util.tree_map(reshape_states, env_states)
     timesteps = jax.tree_util.tree_map(reshape_states, timesteps)
@@ -454,9 +424,7 @@ def learner_setup(
     # Initialise learner state.
     params, opt_states, learner_step_count = replicate_learner
 
-    init_learner_state = VMPOLearnerState(
-        params, opt_states, step_keys, env_states, timesteps, learner_step_count
-    )
+    init_learner_state = VMPOLearnerState(params, opt_states, step_keys, env_states, timesteps, learner_step_count)
 
     return learn, actor_network, init_learner_state
 
@@ -477,14 +445,10 @@ def run_experiment(_config: DictConfig) -> float:
     env, eval_env = environments.make(config=config)
 
     # PRNG keys.
-    key, key_e, actor_net_key, critic_net_key = jax.random.split(
-        jax.random.PRNGKey(config.arch.seed), num=4
-    )
+    key, key_e, actor_net_key, critic_net_key = jax.random.split(jax.random.PRNGKey(config.arch.seed), num=4)
 
     # Setup learner.
-    learn, actor_network, learner_state = learner_setup(
-        env, (key, actor_net_key, critic_net_key), config
-    )
+    learn, actor_network, learner_state = learner_setup(env, (key, actor_net_key, critic_net_key), config)
 
     # Setup evaluator.
     evaluator, absolute_metric_evaluator, (trained_params, eval_keys) = evaluator_setup(
@@ -602,7 +566,7 @@ def run_experiment(_config: DictConfig) -> float:
     return eval_performance
 
 
-@hydra.main(config_path="../../configs", config_name="default_ff_vmpo.yaml", version_base="1.2")
+@hydra.main(config_path="../../../configs", config_name="default_ff_vmpo.yaml", version_base="1.2")
 def hydra_entry_point(cfg: DictConfig) -> float:
     """Experiment entry point."""
     # Allow dynamic attributes.

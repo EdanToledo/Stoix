@@ -47,9 +47,7 @@ class AffineTanhTransformedDistribution(TransformedDistribution):
         # Chain the bijectors
         joint_bijector = tfb.Chain([tfb.Shift(shift), tfb.Scale(scale), tfb.Tanh()])
 
-        super().__init__(
-            distribution=distribution, bijector=joint_bijector, validate_args=validate_args
-        )
+        super().__init__(distribution=distribution, bijector=joint_bijector, validate_args=validate_args)
 
         # Computes the log of the average probability distribution outside the
         # clipping range, i.e. on the interval [-inf, atanh(inverse_affine(minimum))] for
@@ -64,9 +62,7 @@ class AffineTanhTransformedDistribution(TransformedDistribution):
         # Those 2 values are differentiable w.r.t. model parameters, such that the
         # gradient is defined everywhere.
         self._log_prob_left = self.distribution.log_cdf(min_inverse_threshold) - log_epsilon
-        self._log_prob_right = (
-            self.distribution.log_survival_function(max_inverse_threshold) - log_epsilon
-        )
+        self._log_prob_right = self.distribution.log_survival_function(max_inverse_threshold) - log_epsilon
 
     def log_prob(self, event: chex.Array) -> chex.Array:
         # Without this clip there would be NaNs in the inner tf.where and that
@@ -97,11 +93,7 @@ class ClippedBeta(Beta):
     """Beta distribution with clipped samples."""
 
     def sample(
-        self,
-        sample_shape: Sequence[int] = (),
-        seed: Optional[chex.PRNGKey] = None,
-        name: str = "sample",
-        **kwargs: Any
+        self, sample_shape: Sequence[int] = (), seed: Optional[chex.PRNGKey] = None, name: str = "sample", **kwargs: Any
     ) -> chex.Array:
         _epsilon = 1e-7
         # Call the original sample method

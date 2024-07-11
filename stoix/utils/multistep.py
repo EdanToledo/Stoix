@@ -137,9 +137,7 @@ def batch_n_step_bootstrapped_returns(
         estimated bootstrapped returns at times B x [0, ...., T-1]
     """
     # swap axes to make time axis the first dimension
-    r_t, discount_t, v_t = jax.tree_util.tree_map(
-        lambda x: jnp.swapaxes(x, 0, 1), (r_t, discount_t, v_t)
-    )
+    r_t, discount_t, v_t = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), (r_t, discount_t, v_t))
     seq_len = r_t.shape[0]
     batch_size = r_t.shape[1]
 
@@ -221,9 +219,7 @@ def batch_general_off_policy_returns_from_q_and_v(
         acc = reward + discount * (v - c * q + c * acc)
         return acc, acc
 
-    _, returns = jax.lax.scan(
-        _body, g, (r_t[:-1], discount_t[:-1], c_t, v_t[:-1], q_t), reverse=True
-    )
+    _, returns = jax.lax.scan(_body, g, (r_t[:-1], discount_t[:-1], c_t, v_t[:-1], q_t), reverse=True)
     returns = jnp.concatenate([returns, g[jnp.newaxis]], axis=0)
 
     returns = jnp.swapaxes(returns, 0, 1)
@@ -268,9 +264,7 @@ def batch_retrace_continuous(
     # state.
     target_tm1 = batch_general_off_policy_returns_from_q_and_v(q_t, v_t, r_t, discount_t, c_t)
 
-    target_tm1 = jax.lax.select(
-        stop_target_gradients, jax.lax.stop_gradient(target_tm1), target_tm1
-    )
+    target_tm1 = jax.lax.select(stop_target_gradients, jax.lax.stop_gradient(target_tm1), target_tm1)
     return target_tm1 - q_tm1
 
 
@@ -350,9 +344,7 @@ def batch_lambda_returns(
 
     # Swap axes to make time axis the first dimension
     if not time_major:
-        r_t, discount_t, v_t = jax.tree_util.tree_map(
-            lambda x: jnp.swapaxes(x, 0, 1), (r_t, discount_t, v_t)
-        )
+        r_t, discount_t, v_t = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), (r_t, discount_t, v_t))
 
     # If scalar make into vector.
     lambda_ = jnp.ones_like(discount_t) * lambda_

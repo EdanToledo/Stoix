@@ -70,9 +70,7 @@ def get_warmup_fn(
             truncated = (timestep.last() & (timestep.discount != 0.0)).reshape(-1)
             info = timestep.extras["episode_metrics"]
 
-            sequence_step = SequenceStep(
-                last_timestep.observation, action, timestep.reward, done, truncated, info
-            )
+            sequence_step = SequenceStep(last_timestep.observation, action, timestep.reward, done, truncated, info)
 
             return (env_state, timestep, key), sequence_step
 
@@ -88,9 +86,7 @@ def get_warmup_fn(
 
         return env_states, timesteps, keys, buffer_states
 
-    batched_warmup_step: Callable = jax.vmap(
-        warmup, in_axes=(0, 0, 0, 0), out_axes=(0, 0, 0, 0), axis_name="batch"
-    )
+    batched_warmup_step: Callable = jax.vmap(warmup, in_axes=(0, 0, 0, 0), out_axes=(0, 0, 0, 0), axis_name="batch")
 
     return batched_warmup_step
 
@@ -110,9 +106,7 @@ def get_learner_fn(
     buffer_add_fn, buffer_sample_fn = buffer_fns
 
     def _update_step(learner_state: AWRLearnerState, _: Any) -> Tuple[AWRLearnerState, Tuple]:
-        def _env_step(
-            learner_state: AWRLearnerState, _: Any
-        ) -> Tuple[AWRLearnerState, SequenceStep]:
+        def _env_step(learner_state: AWRLearnerState, _: Any) -> Tuple[AWRLearnerState, SequenceStep]:
             """Step the environment."""
             params, opt_states, buffer_state, key, env_state, last_timestep = learner_state
 
@@ -129,19 +123,13 @@ def get_learner_fn(
             truncated = (timestep.last() & (timestep.discount != 0.0)).reshape(-1)
             info = timestep.extras["episode_metrics"]
 
-            sequence_step = SequenceStep(
-                last_timestep.observation, action, timestep.reward, done, truncated, info
-            )
+            sequence_step = SequenceStep(last_timestep.observation, action, timestep.reward, done, truncated, info)
 
-            learner_state = AWRLearnerState(
-                params, opt_states, buffer_state, key, env_state, timestep
-            )
+            learner_state = AWRLearnerState(params, opt_states, buffer_state, key, env_state, timestep)
             return learner_state, sequence_step
 
         # STEP ENVIRONMENT FOR ROLLOUT LENGTH
-        learner_state, traj_batch = jax.lax.scan(
-            _env_step, learner_state, None, config.system.rollout_length
-        )
+        learner_state, traj_batch = jax.lax.scan(_env_step, learner_state, None, config.system.rollout_length)
 
         params, opt_states, buffer_state, key, env_state, last_timestep = learner_state
 
@@ -189,26 +177,18 @@ def get_learner_fn(
 
             # CALCULATE CRITIC LOSS
             critic_grad_fn = jax.grad(_critic_loss_fn, has_aux=True)
-            critic_grads, critic_loss_info = critic_grad_fn(
-                params.critic_params, sequence.obs, target_vals
-            )
+            critic_grads, critic_loss_info = critic_grad_fn(params.critic_params, sequence.obs, target_vals)
 
             # Compute the parallel mean (pmean) over the batch.
             # This calculation is inspired by the Anakin architecture demo notebook.
             # available at https://tinyurl.com/26tdzs5x
             # This pmean could be a regular mean as the batch axis is on the same device.
 
-            critic_grads, critic_loss_info = jax.lax.pmean(
-                (critic_grads, critic_loss_info), axis_name="batch"
-            )
-            critic_grads, critic_loss_info = jax.lax.pmean(
-                (critic_grads, critic_loss_info), axis_name="device"
-            )
+            critic_grads, critic_loss_info = jax.lax.pmean((critic_grads, critic_loss_info), axis_name="batch")
+            critic_grads, critic_loss_info = jax.lax.pmean((critic_grads, critic_loss_info), axis_name="device")
 
             # UPDATE CRITIC PARAMS AND OPTIMISER STATE
-            critic_updates, critic_new_opt_state = critic_update_fn(
-                critic_grads, opt_states.critic_opt_state
-            )
+            critic_updates, critic_new_opt_state = critic_update_fn(critic_grads, opt_states.critic_opt_state)
             critic_new_params = optax.apply_updates(params.critic_params, critic_updates)
 
             # PACK NEW PARAMS AND OPTIMISER STATE
@@ -272,18 +252,12 @@ def get_learner_fn(
             # This calculation is inspired by the Anakin architecture demo notebook.
             # available at https://tinyurl.com/26tdzs5x
             # This pmean could be a regular mean as the batch axis is on the same device.
-            actor_grads, actor_loss_info = jax.lax.pmean(
-                (actor_grads, actor_loss_info), axis_name="batch"
-            )
+            actor_grads, actor_loss_info = jax.lax.pmean((actor_grads, actor_loss_info), axis_name="batch")
             # pmean over devices.
-            actor_grads, actor_loss_info = jax.lax.pmean(
-                (actor_grads, actor_loss_info), axis_name="device"
-            )
+            actor_grads, actor_loss_info = jax.lax.pmean((actor_grads, actor_loss_info), axis_name="device")
 
             # UPDATE ACTOR PARAMS AND OPTIMISER STATE
-            actor_updates, actor_new_opt_state = actor_update_fn(
-                actor_grads, opt_states.actor_opt_state
-            )
+            actor_updates, actor_new_opt_state = actor_update_fn(actor_grads, opt_states.actor_opt_state)
             actor_new_params = optax.apply_updates(params.actor_params, actor_updates)
 
             # PACK NEW PARAMS AND OPTIMISER STATE
@@ -317,9 +291,7 @@ def get_learner_fn(
         }
 
         params, opt_states, buffer_state, key = update_state
-        learner_state = AWRLearnerState(
-            params, opt_states, buffer_state, key, env_state, last_timestep
-        )
+        learner_state = AWRLearnerState(params, opt_states, buffer_state, key, env_state, last_timestep)
         metric = traj_batch.info
         return learner_state, (metric, loss_info)
 
@@ -361,9 +333,7 @@ def learner_setup(
 
     # Define actor_network, q_network and optimiser.
     actor_torso = hydra.utils.instantiate(config.network.actor_network.pre_torso)
-    actor_action_head = hydra.utils.instantiate(
-        config.network.actor_network.action_head, action_dim=action_dim
-    )
+    actor_action_head = hydra.utils.instantiate(config.network.actor_network.action_head, action_dim=action_dim)
     actor_network = Actor(torso=actor_torso, action_head=actor_action_head)
 
     critic_network_torso = hydra.utils.instantiate(config.network.critic_network.pre_torso)
@@ -425,12 +395,8 @@ def learner_setup(
         f"{Fore.RED}{Style.BRIGHT}The total batch size should be divisible "
         + "by the number of devices!{Style.RESET_ALL}"
     )
-    config.system.buffer_size = config.system.total_buffer_size // (
-        n_devices * config.arch.update_batch_size
-    )
-    config.system.batch_size = config.system.total_batch_size // (
-        n_devices * config.arch.update_batch_size
-    )
+    config.system.buffer_size = config.system.total_buffer_size // (n_devices * config.arch.update_batch_size)
+    config.system.batch_size = config.system.total_batch_size // (n_devices * config.arch.update_batch_size)
     buffer_fn = fbx.make_trajectory_buffer(
         max_size=config.system.buffer_size,
         min_length_time_axis=config.system.sample_sequence_length,
@@ -450,15 +416,11 @@ def learner_setup(
     warmup = jax.pmap(warmup, axis_name="device")
 
     # Initialise environment states and timesteps: across devices and batches.
-    key, *env_keys = jax.random.split(
-        key, n_devices * config.arch.update_batch_size * config.arch.num_envs + 1
-    )
+    key, *env_keys = jax.random.split(key, n_devices * config.arch.update_batch_size * config.arch.num_envs + 1)
     env_states, timesteps = jax.vmap(env.reset, in_axes=(0))(
         jnp.stack(env_keys),
     )
-    reshape_states = lambda x: x.reshape(
-        (n_devices, config.arch.update_batch_size, config.arch.num_envs) + x.shape[1:]
-    )
+    reshape_states = lambda x: x.reshape((n_devices, config.arch.update_batch_size, config.arch.num_envs) + x.shape[1:])
     # (devices, update batch size, num_envs, ...)
     env_states = jax.tree_util.tree_map(reshape_states, env_states)
     timesteps = jax.tree_util.tree_map(reshape_states, timesteps)
@@ -494,12 +456,8 @@ def learner_setup(
     # Initialise learner state.
     params, opt_states, buffer_states = replicate_learner
     # Warmup the buffer.
-    env_states, timesteps, keys, buffer_states = warmup(
-        env_states, timesteps, buffer_states, warmup_keys
-    )
-    init_learner_state = AWRLearnerState(
-        params, opt_states, buffer_states, step_keys, env_states, timesteps
-    )
+    env_states, timesteps, keys, buffer_states = warmup(env_states, timesteps, buffer_states, warmup_keys)
+    init_learner_state = AWRLearnerState(params, opt_states, buffer_states, step_keys, env_states, timesteps)
 
     return learn, actor_network, init_learner_state
 
@@ -520,14 +478,10 @@ def run_experiment(_config: DictConfig) -> float:
     env, eval_env = environments.make(config=config)
 
     # PRNG keys.
-    key, key_e, actor_net_key, critic_net_key = jax.random.split(
-        jax.random.PRNGKey(config.arch.seed), num=4
-    )
+    key, key_e, actor_net_key, critic_net_key = jax.random.split(jax.random.PRNGKey(config.arch.seed), num=4)
 
     # Setup learner.
-    learn, actor_network, learner_state = learner_setup(
-        env, (key, actor_net_key, critic_net_key), config
-    )
+    learn, actor_network, learner_state = learner_setup(env, (key, actor_net_key, critic_net_key), config)
 
     # Setup evaluator.
     evaluator, absolute_metric_evaluator, (trained_params, eval_keys) = evaluator_setup(
@@ -645,7 +599,7 @@ def run_experiment(_config: DictConfig) -> float:
     return eval_performance
 
 
-@hydra.main(config_path="../../configs", config_name="default_ff_awr.yaml", version_base="1.2")
+@hydra.main(config_path="../../../configs", config_name="default_ff_awr.yaml", version_base="1.2")
 def hydra_entry_point(cfg: DictConfig) -> float:
     """Experiment entry point."""
     # Allow dynamic attributes.

@@ -68,16 +68,12 @@ def get_learner_fn(
             done = timestep.last().reshape(-1)
             info = timestep.extras["episode_metrics"]
 
-            transition = Transition(
-                done, action, value, timestep.reward, last_timestep.observation, info
-            )
+            transition = Transition(done, action, value, timestep.reward, last_timestep.observation, info)
             learner_state = LearnerState(params, opt_states, key, env_state, timestep)
             return learner_state, transition
 
         # STEP ENVIRONMENT FOR ROLLOUT LENGTH
-        learner_state, traj_batch = jax.lax.scan(
-            _env_step, learner_state, None, config.system.rollout_length
-        )
+        learner_state, traj_batch = jax.lax.scan(_env_step, learner_state, None, config.system.rollout_length)
 
         # CALCULATE ADVANTAGE
         params, opt_states, key, env_state, last_timestep = learner_state
@@ -142,40 +138,26 @@ def get_learner_fn(
 
         # CALCULATE CRITIC LOSS
         critic_grad_fn = jax.grad(_critic_loss_fn, has_aux=True)
-        critic_grads, critic_loss_info = critic_grad_fn(
-            params.critic_params, traj_batch.obs, monte_carlo_returns
-        )
+        critic_grads, critic_loss_info = critic_grad_fn(params.critic_params, traj_batch.obs, monte_carlo_returns)
 
         # Compute the parallel mean (pmean) over the batch.
         # This calculation is inspired by the Anakin architecture demo notebook.
         # available at https://tinyurl.com/26tdzs5x
         # This pmean could be a regular mean as the batch axis is on the same device.
-        actor_grads, actor_loss_info = jax.lax.pmean(
-            (actor_grads, actor_loss_info), axis_name="batch"
-        )
+        actor_grads, actor_loss_info = jax.lax.pmean((actor_grads, actor_loss_info), axis_name="batch")
         # pmean over devices.
-        actor_grads, actor_loss_info = jax.lax.pmean(
-            (actor_grads, actor_loss_info), axis_name="device"
-        )
+        actor_grads, actor_loss_info = jax.lax.pmean((actor_grads, actor_loss_info), axis_name="device")
 
-        critic_grads, critic_loss_info = jax.lax.pmean(
-            (critic_grads, critic_loss_info), axis_name="batch"
-        )
+        critic_grads, critic_loss_info = jax.lax.pmean((critic_grads, critic_loss_info), axis_name="batch")
         # pmean over devices.
-        critic_grads, critic_loss_info = jax.lax.pmean(
-            (critic_grads, critic_loss_info), axis_name="device"
-        )
+        critic_grads, critic_loss_info = jax.lax.pmean((critic_grads, critic_loss_info), axis_name="device")
 
         # UPDATE ACTOR PARAMS AND OPTIMISER STATE
-        actor_updates, actor_new_opt_state = actor_update_fn(
-            actor_grads, opt_states.actor_opt_state
-        )
+        actor_updates, actor_new_opt_state = actor_update_fn(actor_grads, opt_states.actor_opt_state)
         actor_new_params = optax.apply_updates(params.actor_params, actor_updates)
 
         # UPDATE CRITIC PARAMS AND OPTIMISER STATE
-        critic_updates, critic_new_opt_state = critic_update_fn(
-            critic_grads, opt_states.critic_opt_state
-        )
+        critic_updates, critic_new_opt_state = critic_update_fn(critic_grads, opt_states.critic_opt_state)
         critic_new_params = optax.apply_updates(params.critic_params, critic_updates)
 
         # PACK NEW PARAMS AND OPTIMISER STATE
@@ -277,15 +259,11 @@ def learner_setup(
     learn = jax.pmap(learn, axis_name="device")
 
     # Initialise environment states and timesteps: across devices and batches.
-    key, *env_keys = jax.random.split(
-        key, n_devices * config.arch.update_batch_size * config.arch.num_envs + 1
-    )
+    key, *env_keys = jax.random.split(key, n_devices * config.arch.update_batch_size * config.arch.num_envs + 1)
     env_states, timesteps = jax.vmap(env.reset, in_axes=(0))(
         jnp.stack(env_keys),
     )
-    reshape_states = lambda x: x.reshape(
-        (n_devices, config.arch.update_batch_size, config.arch.num_envs) + x.shape[1:]
-    )
+    reshape_states = lambda x: x.reshape((n_devices, config.arch.update_batch_size, config.arch.num_envs) + x.shape[1:])
     # (devices, update batch size, num_envs, ...)
     env_states = jax.tree_util.tree_map(reshape_states, env_states)
     timesteps = jax.tree_util.tree_map(reshape_states, timesteps)
@@ -339,14 +317,10 @@ def run_experiment(_config: DictConfig) -> float:
     env, eval_env = environments.make(config=config)
 
     # PRNG keys.
-    key, key_e, actor_net_key, critic_net_key = jax.random.split(
-        jax.random.PRNGKey(config.arch.seed), num=4
-    )
+    key, key_e, actor_net_key, critic_net_key = jax.random.split(jax.random.PRNGKey(config.arch.seed), num=4)
 
     # Setup learner.
-    learn, actor_network, learner_state = learner_setup(
-        env, (key, actor_net_key, critic_net_key), config
-    )
+    learn, actor_network, learner_state = learner_setup(env, (key, actor_net_key, critic_net_key), config)
 
     # Setup evaluator.
     evaluator, absolute_metric_evaluator, (trained_params, eval_keys) = evaluator_setup(
@@ -466,7 +440,7 @@ def run_experiment(_config: DictConfig) -> float:
 
 
 @hydra.main(
-    config_path="../../configs",
+    config_path="../../../configs",
     config_name="default_ff_reinforce_continuous.yaml",
     version_base="1.2",
 )

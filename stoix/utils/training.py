@@ -3,9 +3,7 @@ from typing import Callable, Optional, Union
 from omegaconf import DictConfig
 
 
-def make_learning_rate_schedule(
-    init_lr: float, num_updates: int, num_epochs: int, num_minibatches: int
-) -> Callable:
+def make_learning_rate_schedule(init_lr: float, num_updates: int, num_epochs: int, num_minibatches: int) -> Callable:
     """Makes a very simple linear learning rate scheduler.
 
     Args:
@@ -46,8 +44,6 @@ def make_learning_rate(
         num_minibatches = 1
 
     if config.system.decay_learning_rates:
-        return make_learning_rate_schedule(
-            init_lr, config.arch.num_updates, num_epochs, num_minibatches
-        )
+        return make_learning_rate_schedule(init_lr, config.arch.num_updates, num_epochs, num_minibatches)
     else:
         return init_lr
