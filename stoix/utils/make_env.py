@@ -62,9 +62,7 @@ def make_jumanji_env(
         env_kwargs["generator"] = generator
     env = jumanji.make(env_name, **env_kwargs)
     eval_env = jumanji.make(env_name, **env_kwargs)
-    env, eval_env = JumanjiWrapper(
-        env, config.env.observation_attribute, config.env.multi_agent
-    ), JumanjiWrapper(
+    env, eval_env = JumanjiWrapper(env, config.env.observation_attribute, config.env.multi_agent), JumanjiWrapper(
         eval_env,
         config.env.observation_attribute,
         config.env.multi_agent,

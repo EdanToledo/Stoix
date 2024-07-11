@@ -212,9 +212,7 @@ def update(
         # algorithm using batches (see https://stackoverflow.com/q/56402955).
         diff_to_old_mean = batch - mean
         if weights is not None:
-            expanded_weights = jnp.reshape(
-                weights, list(weights.shape) + [1] * (batch.ndim - weights.ndim)
-            )
+            expanded_weights = jnp.reshape(weights, list(weights.shape) + [1] * (batch.ndim - weights.ndim))
             diff_to_old_mean = diff_to_old_mean * expanded_weights
         mean_update = jnp.sum(diff_to_old_mean, axis=batch_axis) / count
         if pmap_axis_name is not None:
@@ -231,9 +229,7 @@ def update(
         summed_variance = summed_variance + variance_update
         return mean, summed_variance
 
-    updated_stats = fast_map_structure_with_path(
-        _compute_node_statistics, state.mean, state.summed_variance, batch
-    )
+    updated_stats = fast_map_structure_with_path(_compute_node_statistics, state.mean, state.summed_variance, batch)
     # map_structure_up_to is slow, so shortcut if we know the input is not
     # structured.
     if isinstance(state.mean, jnp.ndarray):
@@ -242,8 +238,7 @@ def update(
         # Reshape the updated stats from `nest(mean, summed_variance)` to
         # `nest(mean), nest(summed_variance)`.
         mean, summed_variance = [
-            tree.map_structure_up_to(state.mean, lambda s, i=idx: s[i], updated_stats)
-            for idx in range(2)
+            tree.map_structure_up_to(state.mean, lambda s, i=idx: s[i], updated_stats) for idx in range(2)
         ]
 
     def compute_std(path: Path, summed_variance: jnp.ndarray, std: jnp.ndarray) -> jnp.ndarray:
@@ -261,9 +256,7 @@ def update(
     return RunningStatisticsState(count=count, mean=mean, summed_variance=summed_variance, std=std)
 
 
-def normalize(
-    batch: chex.ArrayTree, mean_std: NestedMeanStd, max_abs_value: Optional[float] = None
-) -> chex.ArrayTree:
+def normalize(batch: chex.ArrayTree, mean_std: NestedMeanStd, max_abs_value: Optional[float] = None) -> chex.ArrayTree:
     """Normalizes data using running statistics."""
 
     def normalize_leaf(data: jnp.ndarray, mean: jnp.ndarray, std: jnp.ndarray) -> jnp.ndarray:
@@ -273,9 +266,7 @@ def normalize(
         data = (data - mean) / std
         if max_abs_value is not None:
             # TODO(b/124318564): remove pylint directive
-            data = jnp.clip(
-                data, -max_abs_value, +max_abs_value
-            )  # pylint: disable=invalid-unary-operand-type
+            data = jnp.clip(data, -max_abs_value, +max_abs_value)  # pylint: disable=invalid-unary-operand-type
         return data
 
     return fast_map_structure(normalize_leaf, batch, mean_std.mean, mean_std.std)
@@ -350,9 +341,7 @@ def clip(batch: chex.ArrayTree, clipping_config: NestClippingConfig) -> chex.Arr
     def clip_leaf(data: jnp.ndarray, max_abs_value: Optional[float]) -> jnp.ndarray:
         if max_abs_value is not None:
             # TODO(b/124318564): remove pylint directive
-            data = jnp.clip(
-                data, -max_abs_value, +max_abs_value
-            )  # pylint: disable=invalid-unary-operand-type
+            data = jnp.clip(data, -max_abs_value, +max_abs_value)  # pylint: disable=invalid-unary-operand-type
         return data
 
     return fast_map_structure(clip_leaf, batch, max_abs_values)

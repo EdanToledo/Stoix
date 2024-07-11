@@ -46,9 +46,7 @@ class XMiniGridWrapper(Wrapper):
         return state, timestep
 
     def step(self, state: XMiniGridEnvState, action: chex.Array) -> Tuple[State, TimeStep]:
-        minigrid_state_timestep = self._env.step(
-            self._env_params, state.minigrid_state_timestep, action
-        )
+        minigrid_state_timestep = self._env.step(self._env_params, state.minigrid_state_timestep, action)
         obs = minigrid_state_timestep.observation
         obs = Observation(
             obs,

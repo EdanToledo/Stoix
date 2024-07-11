@@ -40,9 +40,7 @@ class FlattenObservationWrapper(Wrapper):
         return state, timestep
 
     def observation_spec(self) -> Spec:
-        return self._env.observation_spec().replace(
-            agent_view=Array(shape=self._obs_shape, dtype=jnp.float32)
-        )
+        return self._env.observation_spec().replace(agent_view=Array(shape=self._obs_shape, dtype=jnp.float32))
 
 
 class MultiDiscreteToDiscrete(Wrapper):

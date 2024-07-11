@@ -32,15 +32,11 @@ class StackedRNN(nn.Module):
     def setup(self) -> None:
         """Set up the RNN cells for the stacked RNN."""
         self.cells = [
-            self.rnn_cls(
-                features=self.rnn_size, activation_fn=parse_activation_fn(self.activation_fn)
-            )
+            self.rnn_cls(features=self.rnn_size, activation_fn=parse_activation_fn(self.activation_fn))
             for _ in range(self.num_layers)
         ]
 
-    def __call__(
-        self, all_rnn_states: List[chex.ArrayTree], x: chex.Array
-    ) -> Tuple[List[chex.ArrayTree], chex.Array]:
+    def __call__(self, all_rnn_states: List[chex.ArrayTree], x: chex.Array) -> Tuple[List[chex.ArrayTree], chex.Array]:
         """
         Run the stacked RNN cells on the input.
 
@@ -147,9 +143,7 @@ class NoisyLinear(nn.Module):
             bias = None
             sigma_b = None
 
-        inputs, kernel, bias, sigma_w, sigma_b = promote_dtype(
-            inputs, kernel, bias, sigma_w, sigma_b, dtype=self.dtype
-        )
+        inputs, kernel, bias, sigma_w, sigma_b = promote_dtype(inputs, kernel, bias, sigma_w, sigma_b, dtype=self.dtype)
 
         eps_w, eps_b = self._get_noise_matrix_and_vect(kernel_shape)
 

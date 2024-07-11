@@ -75,9 +75,7 @@ def make_downsampling_layer(
     elif strategy is DownsamplingStrategy.LAYERNORM_RELU_CONV:
         return nn.Sequential(
             [
-                nn.LayerNorm(
-                    reduction_axes=(-3, -2, -1), use_scale=True, use_bias=True, epsilon=1e-6
-                ),
+                nn.LayerNorm(reduction_axes=(-3, -2, -1), use_scale=True, use_bias=True, epsilon=1e-6),
                 jax.nn.relu,
                 nn.Conv(
                     features=output_channels,
@@ -118,23 +116,17 @@ class VisualResNetTorso(nn.Module):
         if observation.ndim > 4:
             return nn.batch_apply.BatchApply(self.__call__)(observation)
 
-        assert (
-            observation.ndim == 4
-        ), f"Expected inputs to have shape [B, H, W, C] but got shape {observation.shape}."
+        assert observation.ndim == 4, f"Expected inputs to have shape [B, H, W, C] but got shape {observation.shape}."
 
         output = observation
-        channels_blocks_strategies = zip(
-            self.channels_per_group, self.blocks_per_group, self.downsampling_strategies
-        )
+        channels_blocks_strategies = zip(self.channels_per_group, self.blocks_per_group, self.downsampling_strategies)
 
         for _, (num_channels, num_blocks, strategy) in enumerate(channels_blocks_strategies):
             output = make_downsampling_layer(strategy, num_channels)(output)
 
             for _ in range(num_blocks):
                 output = ResidualBlock(
-                    make_inner_op=functools.partial(
-                        nn.Conv, features=num_channels, kernel_size=(3, 3)
-                    ),
+                    make_inner_op=functools.partial(nn.Conv, features=num_channels, kernel_size=(3, 3)),
                     use_layer_norm=self.use_layer_norm,
                     non_linearity=parse_activation_fn(self.activation),
                 )(output)

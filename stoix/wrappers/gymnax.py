@@ -20,9 +20,7 @@ else:
     from chex import dataclass
 
 
-def gymnax_space_to_jumanji_spec(
-    space: Union[gymnax_spaces.Discrete, gymnax_spaces.Box, gymnax_spaces.Dict]
-) -> Spec:
+def gymnax_space_to_jumanji_spec(space: Union[gymnax_spaces.Discrete, gymnax_spaces.Box, gymnax_spaces.Dict]) -> Spec:
     """Converts Gymnax spaces to Jumanji specs."""
     if isinstance(space, gymnax_spaces.Discrete):
         return specs.DiscreteArray(num_values=space.n, dtype=int)
@@ -31,17 +29,13 @@ def gymnax_space_to_jumanji_spec(
         bounded_below = np.all(np.isfinite(space.low))
         bounded_above = np.all(np.isfinite(space.high))
         if bounded_below and bounded_above:
-            return specs.BoundedArray(
-                shape=space.shape, dtype=space.dtype, minimum=space.low, maximum=space.high
-            )
+            return specs.BoundedArray(shape=space.shape, dtype=space.dtype, minimum=space.low, maximum=space.high)
         else:
             # Assume unbounded if any dimension is not bounded
             return specs.Array(shape=space.shape, dtype=space.dtype)
     elif isinstance(space, gymnax_spaces.Dict):
         # Convert nested dict spaces
-        dict_specs = {
-            key: gymnax_space_to_jumanji_spec(value) for key, value in space.spaces.items()
-        }
+        dict_specs = {key: gymnax_space_to_jumanji_spec(value) for key, value in space.spaces.items()}
         return dict_specs
     else:
         raise TypeError(f"Unsupported Gymnax space type: {type(space)}")
@@ -69,19 +63,13 @@ class GymnaxWrapper(Wrapper):
         obs, gymnax_state = self._env.reset(reset_key, self._env_params)
         obs = Observation(obs, self._legal_action_mask, jnp.array(0, dtype=int))
         timestep = restart(obs, extras={})
-        state = GymnaxEnvState(
-            key=key, gymnax_env_state=gymnax_state, step_count=jnp.array(0, dtype=int)
-        )
+        state = GymnaxEnvState(key=key, gymnax_env_state=gymnax_state, step_count=jnp.array(0, dtype=int))
         return state, timestep
 
     def step(self, state: GymnaxEnvState, action: chex.Array) -> Tuple[GymnaxEnvState, TimeStep]:
         key, key_step = jax.random.split(state.key)
-        obs, gymnax_state, reward, done, _ = self._env.step(
-            key_step, state.gymnax_env_state, action, self._env_params
-        )
-        state = GymnaxEnvState(
-            key=key, gymnax_env_state=gymnax_state, step_count=state.step_count + 1
-        )
+        obs, gymnax_state, reward, done, _ = self._env.step(key_step, state.gymnax_env_state, action, self._env_params)
+        state = GymnaxEnvState(key=key, gymnax_env_state=gymnax_state, step_count=state.step_count + 1)
 
         timestep = TimeStep(
             observation=Observation(obs, self._legal_action_mask, state.step_count),
@@ -102,9 +90,7 @@ class GymnaxWrapper(Wrapper):
         return gymnax_space_to_jumanji_spec(self._env.action_space(self._env_params))
 
     def observation_spec(self) -> Spec:
-        agent_view_spec = gymnax_space_to_jumanji_spec(
-            self._env.observation_space(self._env_params)
-        )
+        agent_view_spec = gymnax_space_to_jumanji_spec(self._env.observation_space(self._env_params))
 
         action_mask_spec = Array(shape=self._legal_action_mask.shape, dtype=float)
 

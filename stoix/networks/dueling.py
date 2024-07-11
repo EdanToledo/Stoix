@@ -61,9 +61,7 @@ class DistributionalDuelingQNetwork(nn.Module):
     @nn.compact
     def __call__(self, inputs: chex.Array) -> chex.Array:
 
-        value_torso = MLPTorso(
-            self.layer_sizes, self.activation, self.use_layer_norm, self.kernel_init
-        )(inputs)
+        value_torso = MLPTorso(self.layer_sizes, self.activation, self.use_layer_norm, self.kernel_init)(inputs)
         advantages_torso = MLPTorso(
             self.layer_sizes,
             self.activation,
@@ -73,9 +71,7 @@ class DistributionalDuelingQNetwork(nn.Module):
 
         value_logits = nn.Dense(self.num_atoms, kernel_init=self.kernel_init)(value_torso)
         value_logits = jnp.reshape(value_logits, (-1, 1, self.num_atoms))
-        adv_logits = nn.Dense(self.action_dim * self.num_atoms, kernel_init=self.kernel_init)(
-            advantages_torso
-        )
+        adv_logits = nn.Dense(self.action_dim * self.num_atoms, kernel_init=self.kernel_init)(advantages_torso)
         adv_logits = jnp.reshape(adv_logits, (-1, self.action_dim, self.num_atoms))
         q_logits = value_logits + adv_logits - adv_logits.mean(axis=1, keepdims=True)
 
@@ -101,18 +97,14 @@ class NoisyDistributionalDuelingQNetwork(nn.Module):
 
     @nn.compact
     def __call__(self, embeddings: chex.Array) -> chex.Array:
-        value_torso = NoisyMLPTorso(
-            self.layer_sizes, self.activation, self.use_layer_norm, self.sigma_zero
-        )(embeddings)
-        advantages_torso = NoisyMLPTorso(
-            self.layer_sizes, self.activation, self.use_layer_norm, self.sigma_zero
-        )(embeddings)
+        value_torso = NoisyMLPTorso(self.layer_sizes, self.activation, self.use_layer_norm, self.sigma_zero)(embeddings)
+        advantages_torso = NoisyMLPTorso(self.layer_sizes, self.activation, self.use_layer_norm, self.sigma_zero)(
+            embeddings
+        )
 
         value_logits = NoisyLinear(self.num_atoms, sigma_zero=self.sigma_zero)(value_torso)
         value_logits = jnp.reshape(value_logits, (-1, 1, self.num_atoms))
-        adv_logits = NoisyLinear(self.action_dim * self.num_atoms, sigma_zero=self.sigma_zero)(
-            advantages_torso
-        )
+        adv_logits = NoisyLinear(self.action_dim * self.num_atoms, sigma_zero=self.sigma_zero)(advantages_torso)
         adv_logits = jnp.reshape(adv_logits, (-1, self.action_dim, self.num_atoms))
         q_logits = value_logits + adv_logits - adv_logits.mean(axis=1, keepdims=True)
 

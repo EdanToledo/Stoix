@@ -63,9 +63,7 @@ class FrameStackingWrapper(Wrapper):
         super().__init__(env)
         original_spec = self._env.observation_spec()
         # We only stack the agent view
-        self._stacker = FrameStacker(
-            num_frames=num_frames, flatten=flatten, frame_shape=original_spec.agent_view.shape
-        )
+        self._stacker = FrameStacker(num_frames=num_frames, flatten=flatten, frame_shape=original_spec.agent_view.shape)
         self._num_frames = num_frames
         self._flatten = flatten
 
@@ -98,9 +96,7 @@ class FrameStackingWrapper(Wrapper):
         observation = timestep.observation
         agent_view = observation.agent_view
         new_stack_state = self._stacker.step(stack_state, agent_view)
-        observation = observation._replace(
-            agent_view=self.stacked_frames_to_view(new_stack_state.stacked_frames)
-        )
+        observation = observation._replace(agent_view=self.stacked_frames_to_view(new_stack_state.stacked_frames))
         return new_stack_state, timestep.replace(observation=observation)
 
     def reset(self, key: chex.PRNGKey) -> Tuple[FrameStackEnvState, TimeStep]:
@@ -110,9 +106,7 @@ class FrameStackingWrapper(Wrapper):
         stacked_env_state = FrameStackEnvState(env_state=env_state, stack_state=new_stack_state)
         return stacked_env_state, timestep
 
-    def step(
-        self, state: FrameStackEnvState, action: chex.Array
-    ) -> Tuple[FrameStackEnvState, TimeStep]:
+    def step(self, state: FrameStackEnvState, action: chex.Array) -> Tuple[FrameStackEnvState, TimeStep]:
         env_state, timestep = self._env.step(state.env_state, action)
         new_stack_state, timestep = self._process_timestep(state.stack_state, timestep)
         return FrameStackEnvState(env_state=env_state, stack_state=new_stack_state), timestep

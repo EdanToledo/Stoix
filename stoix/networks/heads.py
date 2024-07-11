@@ -52,10 +52,7 @@ class NormalAffineTanhDistributionHead(nn.Module):
     def __call__(self, embedding: chex.Array) -> Independent:
 
         loc = nn.Dense(self.action_dim, kernel_init=self.kernel_init)(embedding)
-        scale = (
-            jax.nn.softplus(nn.Dense(self.action_dim, kernel_init=self.kernel_init)(embedding))
-            + self.min_scale
-        )
+        scale = jax.nn.softplus(nn.Dense(self.action_dim, kernel_init=self.kernel_init)(embedding)) + self.min_scale
         distribution = Normal(loc=loc, scale=scale)
 
         return Independent(
@@ -75,21 +72,15 @@ class BetaDistributionHead(nn.Module):
     def __call__(self, embedding: chex.Array) -> Independent:
 
         # Use alpha and beta >= 1 according to [Chou et. al, 2017]
-        alpha = (
-            jax.nn.softplus(nn.Dense(self.action_dim, kernel_init=self.kernel_init)(embedding)) + 1
-        )
-        beta = (
-            jax.nn.softplus(nn.Dense(self.action_dim, kernel_init=self.kernel_init)(embedding)) + 1
-        )
+        alpha = jax.nn.softplus(nn.Dense(self.action_dim, kernel_init=self.kernel_init)(embedding)) + 1
+        beta = jax.nn.softplus(nn.Dense(self.action_dim, kernel_init=self.kernel_init)(embedding)) + 1
         # Calculate scale and shift for the affine transformation to achieve the range
         # [minimum, maximum].
         scale = self.maximum - self.minimum
         shift = self.minimum
         affine_bijector = tfb.Chain([tfb.Shift(shift), tfb.Scale(scale)])
 
-        transformed_distribution = TransformedDistribution(
-            ClippedBeta(alpha, beta), bijector=affine_bijector
-        )
+        transformed_distribution = TransformedDistribution(ClippedBeta(alpha, beta), bijector=affine_bijector)
 
         return Independent(
             transformed_distribution,
@@ -235,13 +226,9 @@ class DistributionalDiscreteQNetwork(nn.Module):
     kernel_init: Initializer = lecun_normal()
 
     @nn.compact
-    def __call__(
-        self, embedding: chex.Array
-    ) -> Tuple[distrax.EpsilonGreedy, chex.Array, chex.Array]:
+    def __call__(self, embedding: chex.Array) -> Tuple[distrax.EpsilonGreedy, chex.Array, chex.Array]:
         atoms = jnp.linspace(self.vmin, self.vmax, self.num_atoms)
-        q_logits = nn.Dense(self.action_dim * self.num_atoms, kernel_init=self.kernel_init)(
-            embedding
-        )
+        q_logits = nn.Dense(self.action_dim * self.num_atoms, kernel_init=self.kernel_init)(embedding)
         q_logits = jnp.reshape(q_logits, (-1, self.action_dim, self.num_atoms))
         q_dist = jax.nn.softmax(q_logits)
         q_values = jnp.sum(q_dist * atoms, axis=2)
@@ -257,9 +244,7 @@ class DistributionalContinuousQNetwork(nn.Module):
     kernel_init: Initializer = lecun_normal()
 
     @nn.compact
-    def __call__(
-        self, embedding: chex.Array
-    ) -> Tuple[distrax.EpsilonGreedy, chex.Array, chex.Array]:
+    def __call__(self, embedding: chex.Array) -> Tuple[distrax.EpsilonGreedy, chex.Array, chex.Array]:
         atoms = jnp.linspace(self.vmin, self.vmax, self.num_atoms)
         q_logits = nn.Dense(self.num_atoms, kernel_init=self.kernel_init)(embedding)
         q_dist = jax.nn.softmax(q_logits)
@@ -276,9 +261,7 @@ class QuantileDiscreteQNetwork(nn.Module):
 
     @nn.compact
     def __call__(self, embedding: chex.Array) -> Tuple[distrax.EpsilonGreedy, chex.Array]:
-        q_logits = nn.Dense(self.action_dim * self.num_quantiles, kernel_init=self.kernel_init)(
-            embedding
-        )
+        q_logits = nn.Dense(self.action_dim * self.num_quantiles, kernel_init=self.kernel_init)(embedding)
         q_dist = jnp.reshape(q_logits, (-1, self.action_dim, self.num_quantiles))
         q_values = jnp.mean(q_dist, axis=-1)
         q_values = jax.lax.stop_gradient(q_values)

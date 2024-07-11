@@ -34,9 +34,7 @@ class RewardBasedWorldModel(nn.Module):
 
         rnn_cell_cls = parse_rnn_cell(self.rnn_cell_type)
 
-        self._core = StackedRNN(
-            self.rnn_size, rnn_cell_cls, self.num_stacked_rnn_layers, self.recurrent_activation
-        )
+        self._core = StackedRNN(self.rnn_size, rnn_cell_cls, self.num_stacked_rnn_layers, self.recurrent_activation)
 
     @cached_property
     def hidden_state_size(self) -> int:
