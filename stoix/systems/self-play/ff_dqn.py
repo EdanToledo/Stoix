@@ -155,7 +155,9 @@ def get_learner_fn(
                 q_t = q_apply_fn(target_q_params, transitions.next_obs).preferences
 
                 # Cast and clip rewards.
-                discount = 1.0 - transitions.done.astype(jnp.float32)
+                discount = (
+                    1.0 - transitions.done.astype(jnp.float32)
+                ) * -1  # reverse the discount to obtain zero-sum returns
                 d_t = (discount * config.system.gamma).astype(jnp.float32)
                 r_t = jnp.clip(
                     transitions.reward, -config.system.max_abs_reward, config.system.max_abs_reward
