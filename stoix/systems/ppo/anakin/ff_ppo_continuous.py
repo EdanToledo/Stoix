@@ -35,7 +35,7 @@ from stoix.utils.jax_utils import (
     unreplicate_n_dims,
 )
 from stoix.utils.logger import LogEvent, StoixLogger
-from stoix.utils.loss import clipped_value_loss, ppo_penalty_loss
+from stoix.utils.loss import clipped_value_loss, ppo_clip_loss
 from stoix.utils.multistep import batch_truncated_generalized_advantage_estimation
 from stoix.utils.total_timestep_checker import check_total_timesteps
 from stoix.utils.training import make_learning_rate
@@ -126,7 +126,6 @@ def get_learner_fn(
             standardize_advantages=config.system.standardize_advantages,
             truncation_flags=traj_batch.truncated,
         )
-        behaviour_actor_params = params.actor_params
 
         def _update_epoch(update_state: Tuple, _: Any) -> Tuple:
             """Update the network for a single epoch."""
@@ -135,36 +134,30 @@ def get_learner_fn(
                 """Update the network for a single minibatch."""
 
                 # UNPACK TRAIN STATE AND BATCH INFO
-                params, opt_states = train_state
+                params, opt_states, key = train_state
                 traj_batch, advantages, targets = batch_info
 
                 def _actor_loss_fn(
                     actor_params: FrozenDict,
                     traj_batch: PPOTransition,
                     gae: chex.Array,
+                    rng_key: chex.PRNGKey,
                 ) -> Tuple:
                     """Calculate the actor loss."""
                     # RERUN NETWORK
                     actor_policy = actor_apply_fn(actor_params, traj_batch.obs)
                     log_prob = actor_policy.log_prob(traj_batch.action)
-                    behaviour_policy = actor_apply_fn(behaviour_actor_params, traj_batch.obs)
 
                     # CALCULATE ACTOR LOSS
-                    loss_actor, kl_div = ppo_penalty_loss(
-                        log_prob,
-                        traj_batch.log_prob,
-                        gae,
-                        config.system.kl_penalty_coef,
-                        actor_policy,
-                        behaviour_policy,
+                    loss_actor = ppo_clip_loss(
+                        log_prob, traj_batch.log_prob, gae, config.system.clip_eps
                     )
-                    entropy = actor_policy.entropy().mean()
+                    entropy = actor_policy.entropy(seed=rng_key).mean()
 
                     total_loss_actor = loss_actor - config.system.ent_coef * entropy
                     loss_info = {
                         "actor_loss": loss_actor,
                         "entropy": entropy,
-                        "kl_divergence": kl_div,
                     }
 
                     return total_loss_actor, loss_info
@@ -190,9 +183,13 @@ def get_learner_fn(
                     return critic_total_loss, loss_info
 
                 # CALCULATE ACTOR LOSS
+                key, actor_loss_key = jax.random.split(key)
                 actor_grad_fn = jax.grad(_actor_loss_fn, has_aux=True)
                 actor_grads, actor_loss_info = actor_grad_fn(
-                    params.actor_params, traj_batch, advantages
+                    params.actor_params,
+                    traj_batch,
+                    advantages,
+                    actor_loss_key,
                 )
 
                 # CALCULATE CRITIC LOSS
@@ -242,7 +239,7 @@ def get_learner_fn(
                     **actor_loss_info,
                     **critic_loss_info,
                 }
-                return (new_params, new_opt_state), loss_info
+                return (new_params, new_opt_state, key), loss_info
 
             params, opt_states, traj_batch, advantages, targets, key = update_state
             key, shuffle_key = jax.random.split(key)
@@ -261,8 +258,8 @@ def get_learner_fn(
             )
 
             # UPDATE MINIBATCHES
-            (params, opt_states), loss_info = jax.lax.scan(
-                _update_minibatch, (params, opt_states), minibatches
+            (params, opt_states, key), loss_info = jax.lax.scan(
+                _update_minibatch, (params, opt_states, key), minibatches
             )
 
             update_state = (params, opt_states, traj_batch, advantages, targets, key)
@@ -317,9 +314,11 @@ def learner_setup(
     # Get available TPU cores.
     n_devices = len(jax.devices())
 
-    # Get number/dimension of actions.
-    num_actions = int(env.action_spec().num_values)
+    # Get number of actions.
+    num_actions = int(env.action_spec().shape[-1])
     config.system.action_dim = num_actions
+    config.system.action_minimum = float(env.action_spec().minimum)
+    config.system.action_maximum = float(env.action_spec().maximum)
 
     # PRNG keys.
     key, actor_net_key, critic_net_key = keys
@@ -327,7 +326,10 @@ def learner_setup(
     # Define network and optimiser.
     actor_torso = hydra.utils.instantiate(config.network.actor_network.pre_torso)
     actor_action_head = hydra.utils.instantiate(
-        config.network.actor_network.action_head, action_dim=num_actions
+        config.network.actor_network.action_head,
+        action_dim=num_actions,
+        minimum=config.system.action_minimum,
+        maximum=config.system.action_maximum,
     )
     critic_torso = hydra.utils.instantiate(config.network.critic_network.pre_torso)
     critic_head = hydra.utils.instantiate(config.network.critic_network.critic_head)
@@ -566,7 +568,9 @@ def run_experiment(_config: DictConfig) -> float:
     return eval_performance
 
 
-@hydra.main(config_path="../../configs", config_name="default_ff_ppo.yaml", version_base="1.2")
+@hydra.main(
+    config_path="../../../configs", config_name="default_ff_ppo_continuous.yaml", version_base="1.2"
+)
 def hydra_entry_point(cfg: DictConfig) -> float:
     """Experiment entry point."""
     # Allow dynamic attributes.
@@ -574,7 +578,6 @@ def hydra_entry_point(cfg: DictConfig) -> float:
 
     # Run experiment.
     eval_performance = run_experiment(cfg)
-
     print(f"{Fore.CYAN}{Style.BRIGHT}PPO experiment completed{Style.RESET_ALL}")
     return eval_performance
 
