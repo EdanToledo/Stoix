@@ -451,8 +451,8 @@ def learner_setup(
 
     # Get number/dimension of actions.
     env = env_factory(num_envs=1)
-    obs_shape = env.observation_space.shape
-    num_actions = int(env.action_space.n)
+    obs_shape = env.observation_spec().shape
+    num_actions = int(env.action_spec().num_values)
     env.close()
     config.system.action_dim = num_actions
 
@@ -540,11 +540,11 @@ def learner_setup(
 def run_experiment(_config: DictConfig) -> float:
     """Runs experiment."""
     config = copy.deepcopy(_config)
-
+    config = check_total_timesteps(config)
     assert (
-        config.system.num_updates > config.arch.num_evaluation
+        config.arch.num_updates > config.arch.num_evaluation
     ), "Number of updates per evaluation must be less than total number of updates."
-    config.system.num_updates_per_eval = config.system.num_updates // config.arch.num_evaluation
+    config.arch.num_updates_per_eval = config.arch.num_updates // config.arch.num_evaluation
 
     # Get the learner and actor devices
     local_devices = jax.local_devices()
@@ -557,9 +557,9 @@ def run_experiment(_config: DictConfig) -> float:
     local_learner_devices = [
         local_devices[device_id] for device_id in config.arch.learner.device_ids
     ]
-    print(f"{Fore.YELLOW}{Style.BRIGHT}[Sebulba] Actors devices: {actor_devices}{Style.RESET_ALL}")
+    print(f"{Fore.BLUE}{Style.BRIGHT}[Sebulba] Actors devices: {actor_devices}{Style.RESET_ALL}")
     print(
-        f"{Fore.YELLOW}{Style.BRIGHT}[Sebulba] Learner devices: {local_learner_devices}{Style.RESET_ALL}"
+        f"{Fore.GREEN}{Style.BRIGHT}[Sebulba] Learner devices: {local_learner_devices}{Style.RESET_ALL}"
     )
 
     config.num_learning_devices = len(local_learner_devices)

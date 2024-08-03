@@ -4,21 +4,31 @@ from omegaconf import DictConfig
 
 def check_total_timesteps(config: DictConfig) -> DictConfig:
     """Check if total_timesteps is set, if not, set it based on the other parameters"""
-
-    assert config.arch.total_num_envs % (config.num_devices * config.arch.update_batch_size) == 0, (
+    
+    if "num_devices" not in config:
+        num_devices = 1
+    else:
+        num_devices = num_devices
+    if "update_batch_size" not in config.arch:
+        update_batch_size = 1
+    else:
+        update_batch_size = update_batch_size
+    
+    
+    assert config.arch.total_num_envs % (num_devices * update_batch_size) == 0, (
         f"{Fore.RED}{Style.BRIGHT}The total number of environments "
         + "should be divisible by the n_devices*update_batch_size!{Style.RESET_ALL}"
     )
     config.arch.num_envs = config.arch.total_num_envs // (
-        config.num_devices * config.arch.update_batch_size
+        num_devices * update_batch_size
     )  # Number of environments per device
 
     if config.arch.total_timesteps is None:
         config.arch.total_timesteps = (
-            config.num_devices
+            num_devices
             * config.arch.num_updates
             * config.system.rollout_length
-            * config.arch.update_batch_size
+            * update_batch_size
             * config.arch.num_envs
         )
         print(
@@ -31,9 +41,9 @@ def check_total_timesteps(config: DictConfig) -> DictConfig:
         config.arch.num_updates = (
             config.arch.total_timesteps
             // config.system.rollout_length
-            // config.arch.update_batch_size
+            // update_batch_size
             // config.arch.num_envs
-            // config.num_devices
+            // num_devices
         )
         print(
             f"{Fore.YELLOW}{Style.BRIGHT} Changing the number of updates "
@@ -45,10 +55,10 @@ def check_total_timesteps(config: DictConfig) -> DictConfig:
     # Calculate the actual number of timesteps that will be run
     num_updates_per_eval = config.arch.num_updates // config.arch.num_evaluation
     steps_per_rollout = (
-        config.num_devices
+        num_devices
         * num_updates_per_eval
         * config.system.rollout_length
-        * config.arch.update_batch_size
+        * update_batch_size
         * config.arch.num_envs
     )
     total_actual_timesteps = steps_per_rollout * config.arch.num_evaluation
