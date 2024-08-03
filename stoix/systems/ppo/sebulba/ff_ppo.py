@@ -40,7 +40,7 @@ from stoix.networks.base import FeedForwardCritic as Critic
 from stoix.systems.ppo.ppo_types import PPOTransition
 from stoix.utils import make_env as environments
 from stoix.utils.checkpointing import Checkpointer
-from stoix.utils.env_factory import EnvPoolFactory
+from stoix.utils.env_factory import EnvPoolFactory, make_gym_env_factory
 from stoix.utils.jax_utils import (
     merge_leading_dims,
     unreplicate_batch_dim,
@@ -84,7 +84,7 @@ def get_rollout_fn(
         with jax.default_device(actor_device):
             # Reset the environment
             # TODO(edan): put seeds in reset
-            timestep = envs.reset()
+            timestep = envs.reset(seed=seeds)
             next_dones = np.logical_and(
                 np.array(timestep.last()), np.array(timestep.discount == 0.0)
             )
@@ -146,6 +146,8 @@ def get_rollout_fn(
                 # Send the trajectory to the pipeline
                 with RecordTimeTo(timings_dict["rollout_put_time"]):
                     pipeline.put(traj, timestep, timings_dict)
+
+            envs.close()
 
     return rollout
 
@@ -454,8 +456,8 @@ def learner_setup(
 
     # Get number/dimension of actions.
     env = env_factory(num_envs=1)
-    obs_shape = env.observation_spec().obs.shape
-    num_actions = int(env.action_spec().num_values)
+    obs_shape = env.unwrapped.single_observation_space.shape
+    num_actions = int(env.env.unwrapped.single_action_space.n)
     env.close()
     config.system.action_dim = num_actions
 
@@ -574,11 +576,12 @@ def run_experiment(_config: DictConfig) -> float:
     config.arch.actor.envs_per_actor = num_envs_per_actor
 
     # Create the environments for train and eval.
-    env_factory = EnvPoolFactory(
-        config.arch.seed,
-        task_id="CartPole-v1",
-        env_type="dm",
-    )
+    # env_factory = EnvPoolFactory(
+    #     config.arch.seed,
+    #     task_id="CartPole-v1",
+    #     env_type="dm",
+    # )
+    env_factory = make_gym_env_factory()
 
     # PRNG keys.
     key, key_e, actor_net_key, critic_net_key = jax.random.split(

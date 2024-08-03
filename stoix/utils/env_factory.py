@@ -3,6 +3,10 @@ import threading
 from typing import Any
 
 import envpool
+import gymnasium
+from omegaconf import DictConfig
+
+from stoix.wrappers.gym import GymRecordEpisodeMetrics, GymToJumanji
 
 
 class EnvFactory(abc.ABC):
@@ -32,3 +36,18 @@ class EnvPoolFactory(EnvFactory):
             seed = self.seed
             self.seed += num_envs
             return envpool.make(**self.kwargs, num_envs=num_envs, seed=seed)
+
+
+def make_gym_env_factory() -> EnvFactory:
+    def create_gym_env(name) -> gymnasium.Env:
+        env = gymnasium.make(name)
+        env = GymRecordEpisodeMetrics(env)
+        return env
+
+    def env_factory(num_envs):
+        envs = gymnasium.vector.AsyncVectorEnv(
+            [lambda: create_gym_env("CartPole-v1") for _ in range(num_envs)],
+        )
+        return GymToJumanji(envs)
+
+    return env_factory
