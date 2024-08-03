@@ -1,6 +1,9 @@
 import copy
+import threading
 import time
-from typing import Any, Dict, List, Tuple
+from collections import defaultdict
+from queue import Queue
+from typing import Any, Dict, List, Sequence, Tuple
 
 import chex
 import flax
@@ -11,6 +14,7 @@ import numpy as np
 import optax
 from colorama import Fore, Style
 from flax.core.frozen_dict import FrozenDict
+from flax.jax_utils import unreplicate
 from jumanji.env import Environment
 from omegaconf import DictConfig, OmegaConf
 from rich.pretty import pprint
@@ -26,12 +30,17 @@ from stoix.base_types import (
     LearnerState,
     SebulbaLearnerFn,
 )
-from stoix.evaluator import evaluator_setup, get_distribution_act_fn
+from stoix.evaluator import (
+    evaluator_setup,
+    get_distribution_act_fn,
+    get_sebulba_eval_fn,
+)
 from stoix.networks.base import FeedForwardActor as Actor
 from stoix.networks.base import FeedForwardCritic as Critic
 from stoix.systems.ppo.ppo_types import PPOTransition
 from stoix.utils import make_env as environments
 from stoix.utils.checkpointing import Checkpointer
+from stoix.utils.env_factory import EnvPoolFactory
 from stoix.utils.jax_utils import (
     merge_leading_dims,
     unreplicate_batch_dim,
@@ -51,7 +60,7 @@ from stoix.utils.training import make_learning_rate
 from stoix.wrappers.episode_metrics import get_final_step_metrics
 
 
-def get_actor_thread(
+def get_rollout_fn(
     env_builder: EnvFactory,
     actor_device: jax.Device,
     params_source: ParamsSource,
@@ -59,47 +68,57 @@ def get_actor_thread(
     apply_fns: Tuple[ActorApply, CriticApply],
     key: chex.PRNGKey,
     config: DictConfig,
+    seeds: List[int],
     thread_lifetime: ThreadLifetime,
 ):
+
     actor_apply_fn, critic_apply_fn = apply_fns
-    actor_fn = jax.jit(actor_apply_fn)
+    actor_apply_fn = jax.jit(actor_apply_fn)
+    critic_apply_fn = jax.jit(critic_apply_fn)
     rng = jax.device_put(key, actor_device)
     cpu = jax.devices("cpu")[0]
     split_key_fn = jax.jit(jax.random.split)
     envs = env_builder(config.arch.actor.envs_per_actor)
+    move_to_device = jax.jit(lambda x: jax.device_put(x, actor_device))
 
-    def _rollout(self) -> None:
-        episode_return = np.zeros((config.arch.actor.envs_per_actor,))
+    # Create the rollout function
+    def rollout() -> None:
         with jax.default_device(actor_device):
-
-            obs, _ = envs.reset()
-            obs = jax.device_put(obs, actor_device)
-
+            # Reset the environment
+            timestep = envs.reset(seed=seeds)
+            next_dones = timestep.last() & timestep.discount == 0.0
+            next_trunc = timestep.last() & timestep.discount == 1.0
+            # Loop until the thread is stopped
             while not thread_lifetime.should_stop():
-                # Rollout
+                # Create the list to store transitions
                 traj: List[PPOTransition] = []
-                time_dict: Dict[str, List[float]] = {
-                    "single_rollout_time": [],
-                    "env_step_time": [],
-                    "get_params_time": [],
-                    "rollout_put_time": [],
-                }
+                # Create the dictionary to store timings
+                timings_dict: Dict[str, List[float]] = defaultdict(list)
 
                 for _ in range(config.system.rollout_length):
-                    params = params_source.get()
-                    with RecordTimeTo(time_dict["compute_action_time"]):
-                        rng, key = split_key_fn(rng)
-                        action, extra = actor_fn(params, obs, key)
+                    with RecordTimeTo(timings_dict["get_params_time"]):
+                        params = params_source.get()
 
-                    with RecordTimeTo(time_dict["put_action_on_cpu_time"]):
+                    cached_next_obs = jax.tree.map(move_to_device, timestep.observation)
+                    cached_next_dones = move_to_device(next_dones)
+                    cached_next_trunc = move_to_device(next_trunc)
+
+                    with RecordTimeTo(timings_dict["compute_action_time"]):
+                        rng, key = split_key_fn(rng)
+                        pi = actor_apply_fn(params.actor_params, cached_next_obs)
+                        value = critic_apply_fn(params.critic_params, cached_next_obs)
+                        action = pi.sample(seed=key)
+                        log_prob = pi.log_prob(action)
+
+                    with RecordTimeTo(timings_dict["put_action_on_cpu_time"]):
                         action_cpu = np.array(jax.device_put(action, cpu))
 
-                    with RecordTimeTo(time_dict["env_step_time"]):
-                        next_obs, reward, terminated, truncated, info = envs.step(action_cpu)
+                    with RecordTimeTo(timings_dict["env_step_time"]):
+                        timestep = envs.step(action_cpu)
 
-                    episode_return += reward
-
-                    next_dones = jnp.repeat(timestep.last(), num_agents).reshape(num_envs, -1)
+                    # Get the next dones and truncation flags
+                    next_dones = timestep.last() & timestep.discount == 0.0
+                    next_trunc = timestep.last() & timestep.discount == 1.0
 
                     # Append data to storage
                     reward = timestep.reward
@@ -107,6 +126,7 @@ def get_actor_thread(
                     traj.append(
                         PPOTransition(
                             cached_next_dones,
+                            cached_next_trunc,
                             action,
                             value,
                             reward,
@@ -116,19 +136,49 @@ def get_actor_thread(
                         )
                     )
 
-                    dones = terminated | truncated
-                    for env_idx, env_done in enumerate(dones):
-                        if env_done:
-                            metrics_hub["episode_return"].append(episode_return[env_idx])
-                            metrics_hub["episode_length"].append(info["elapsed_step"][env_idx])
-                    metrics_hub["number_of_episodes"].add(np.sum(dones))
-                    # Reset the episode return when the episode is done
-                    episode_return *= 1.0 - dones
-                    # Set the new observation
-                    obs = next_obs
+                # Send the trajectory to the pipeline
+                with RecordTimeTo(timings_dict["rollout_put_time"]):
+                    pipeline.put(traj, timestep, timings_dict)
+
+    return rollout
 
 
-def get_learner_fn(
+def get_actor_thread(
+    env_builder: EnvFactory,
+    actor_device: jax.Device,
+    params_source: ParamsSource,
+    pipeline: Pipeline,
+    apply_fns: Tuple[ActorApply, CriticApply],
+    key: chex.PRNGKey,
+    config: DictConfig,
+    seeds: List[int],
+    thread_lifetime: ThreadLifetime,
+    name: str,
+):
+    """Get the actor thread."""
+
+    rollout_fn = get_rollout_fn(
+        env_builder,
+        actor_device,
+        params_source,
+        pipeline,
+        apply_fns,
+        key,
+        config,
+        seeds,
+        thread_lifetime,
+    )
+
+    actor = threading.Thread(
+        target=rollout_fn,
+        args=(),
+        name=name,
+    )
+
+    return actor
+
+
+def get_learner_update_fn(
     apply_fns: Tuple[ActorApply, CriticApply],
     update_fns: Tuple[optax.TransformUpdateFn, optax.TransformUpdateFn],
     config: DictConfig,
@@ -328,15 +378,82 @@ def get_learner_fn(
     return learner_fn
 
 
+def get_learner_rollout_fn(
+    learn: SebulbaLearnerFn[LearnerState, PPOTransition],
+    learner_state: LearnerState,
+    config: DictConfig,
+    eval_queue: Queue,
+    pipeline: Pipeline,
+    params_sources: Sequence[ParamsSource],
+):
+    def learner_rollout() -> None:
+        for _ in range(config.arch.num_evaluation):
+            metrics: List[Tuple[Dict, Dict]] = []
+            rollout_times: List[Dict] = []
+            learn_timings: Dict[str, List[float]] = defaultdict(list)
+
+            for _ in range(config.system.num_updates_per_eval):
+                with RecordTimeTo(learn_timings["rollout_get_time"]):
+                    traj_batch, timestep, rollout_time = pipeline.get(block=True)
+
+                learner_state = learner_state._replace(timestep=timestep)
+                with RecordTimeTo(learn_timings["learning_time"]):
+                    learner_state, episode_metrics, train_metrics = learn(learner_state, traj_batch)
+
+                metrics.append((episode_metrics, train_metrics))
+                rollout_times.append(rollout_time)
+
+                unreplicated_params = unreplicate(learner_state.params)
+
+                for source in params_sources:
+                    source.update(unreplicated_params)
+
+            # Pass to the evaluator
+            episode_metrics, train_metrics = jax.tree.map(lambda *x: np.asarray(x), *metrics)
+
+            rollout_times = jax.tree.map(lambda *x: np.mean(x), *rollout_times)
+            timing_dict = rollout_times | learn_timings
+            timing_dict = jax.tree.map(np.mean, timing_dict, is_leaf=lambda x: isinstance(x, list))
+
+            eval_queue.put((episode_metrics, train_metrics, learner_state, timing_dict))
+
+    return learner_rollout
+
+
+def get_learner_thread(
+    learn: SebulbaLearnerFn[LearnerState, PPOTransition],
+    learner_state: LearnerState,
+    config: DictConfig,
+    eval_queue: Queue,
+    pipeline: Pipeline,
+    params_sources: Sequence[ParamsSource],
+):
+
+    learner_rollout_fn = get_learner_rollout_fn(
+        learn, learner_state, config, eval_queue, pipeline, params_sources
+    )
+
+    learner_thread = threading.Thread(
+        target=learner_rollout_fn,
+        name="Learner",
+        args=(),
+    )
+
+    return learner_thread
+
+
 def learner_setup(
-    env: Environment, keys: chex.Array, config: DictConfig
+    env_factory: EnvFactory,
+    keys: chex.Array,
+    learner_devices: Sequence[jax.Device],
+    config: DictConfig,
 ) -> Tuple[LearnerFn[LearnerState], Actor, LearnerState]:
-    """Initialise learner_fn, network, optimiser, environment and states."""
-    # Get available TPU cores.
-    n_devices = len(jax.devices())
 
     # Get number/dimension of actions.
-    num_actions = int(env.action_spec().num_values)
+    env = env_factory(num_envs=1)
+    obs_shape = env.observation_space.shape
+    num_actions = int(env.action_space.n)
+    env.close()
     config.system.action_dim = num_actions
 
     # PRNG keys.
@@ -370,7 +487,7 @@ def learner_setup(
     )
 
     # Initialise observation
-    init_x = env.observation_spec().generate_value()
+    init_x = jnp.ones(obs_shape)
     init_x = jax.tree_util.tree_map(lambda x: x[None, ...], init_x)
 
     # Initialise actor params and optimiser state.
@@ -392,22 +509,8 @@ def learner_setup(
     update_fns = (actor_optim.update, critic_optim.update)
 
     # Get batched iterated update and replicate it to pmap it over cores.
-    learn = get_learner_fn(env, apply_fns, update_fns, config)
+    learn = get_learner_update_fn(env, apply_fns, update_fns, config)
     learn = jax.pmap(learn, axis_name="device")
-
-    # Initialise environment states and timesteps: across devices and batches.
-    key, *env_keys = jax.random.split(
-        key, n_devices * config.arch.update_batch_size * config.arch.num_envs + 1
-    )
-    env_states, timesteps = jax.vmap(env.reset, in_axes=(0))(
-        jnp.stack(env_keys),
-    )
-    reshape_states = lambda x: x.reshape(
-        (n_devices, config.arch.update_batch_size, config.arch.num_envs) + x.shape[1:]
-    )
-    # (devices, update batch size, num_envs, ...)
-    env_states = jax.tree_util.tree_map(reshape_states, env_states)
-    timesteps = jax.tree_util.tree_map(reshape_states, timesteps)
 
     # Load model from checkpoint if specified.
     if config.logger.checkpointing.load_model:
@@ -421,25 +524,17 @@ def learner_setup(
         params = restored_params
 
     # Define params to be replicated across devices and batches.
-    key, step_key = jax.random.split(key)
-    step_keys = jax.random.split(step_key, n_devices * config.arch.update_batch_size)
-    reshape_keys = lambda x: x.reshape((n_devices, config.arch.update_batch_size) + x.shape[1:])
-    step_keys = reshape_keys(jnp.stack(step_keys))
     opt_states = ActorCriticOptStates(actor_opt_state, critic_opt_state)
     replicate_learner = (params, opt_states)
 
-    # Duplicate learner for update_batch_size.
-    broadcast = lambda x: jnp.broadcast_to(x, (config.arch.update_batch_size,) + x.shape)
-    replicate_learner = jax.tree_util.tree_map(broadcast, replicate_learner)
-
     # Duplicate learner across devices.
-    replicate_learner = flax.jax_utils.replicate(replicate_learner, devices=jax.devices())
+    replicate_learner = flax.jax_utils.replicate(replicate_learner, devices=learner_devices)
 
     # Initialise learner state.
     params, opt_states = replicate_learner
-    init_learner_state = LearnerState(params, opt_states, step_keys, env_states, timesteps)
+    init_learner_state = LearnerState(params, opt_states, None, None, None)
 
-    return learn, actor_network, init_learner_state
+    return learn, apply_fns, init_learner_state
 
 
 def run_experiment(_config: DictConfig) -> float:
@@ -462,6 +557,11 @@ def run_experiment(_config: DictConfig) -> float:
     local_learner_devices = [
         local_devices[device_id] for device_id in config.arch.learner.device_ids
     ]
+    print(f"{Fore.YELLOW}{Style.BRIGHT}[Sebulba] Actors devices: {actor_devices}{Style.RESET_ALL}")
+    print(
+        f"{Fore.YELLOW}{Style.BRIGHT}[Sebulba] Learner devices: {local_learner_devices}{Style.RESET_ALL}"
+    )
+
     config.num_learning_devices = len(local_learner_devices)
     config.num_actor_actor_devices = len(actor_devices)
 
@@ -471,25 +571,30 @@ def run_experiment(_config: DictConfig) -> float:
     config.arch.actor.envs_per_actor = num_envs_per_actor
 
     # Create the environments for train and eval.
-    env, eval_env = environments.make(config=config)
+    env_factory = EnvPoolFactory(
+        config.arch.seed,
+        task_id="CartPole-v1",
+        env_type="dm",
+    )
 
     # PRNG keys.
     key, key_e, actor_net_key, critic_net_key = jax.random.split(
         jax.random.PRNGKey(config.arch.seed), num=4
     )
+    np_rng = np.random.default_rng(config.arch.seed)
 
     # Setup learner.
-    learn, actor_network, learner_state = learner_setup(
-        env, (key, actor_net_key, critic_net_key), config
+    learn, apply_fns, learner_state = learner_setup(
+        env_factory, (key, actor_net_key, critic_net_key), local_learner_devices, config
     )
 
     # Setup evaluator.
-    evaluator, absolute_metric_evaluator, (trained_params, eval_keys) = evaluator_setup(
-        eval_env=eval_env,
-        key_e=key_e,
-        eval_act_fn=get_distribution_act_fn(config, actor_network.apply),
-        params=learner_state.params.actor_params,
-        config=config,
+    evaluator, evaluator_envs = get_sebulba_eval_fn(
+        env_factory,
+        get_distribution_act_fn(config, apply_fns[0]),
+        config,
+        np_rng,
+        absolute_metric=False,
     )
 
     # Calculate number of updates per evaluation.
@@ -510,86 +615,131 @@ def run_experiment(_config: DictConfig) -> float:
             **config.logger.checkpointing.save_args,  # Checkpoint args
         )
 
+    # Get initial parameters
+    initial_params = unreplicate(learner_state.params)
+
+    # Get the number of steps per rollout
+    steps_per_rollout = (
+        config.system.rollout_length
+        * config.arch.total_num_envs
+        * config.system.num_updates_per_eval
+    )
+
+    # Creating the pipeline
+    # First we create the lifetime so we can stop the pipeline when we want
+    pipeline_lifetime = ThreadLifetime()
+    # Now we create the pipeline
+    pipeline = Pipeline(config.arch.pipeline_queue_size, local_learner_devices, pipeline_lifetime)
+    # Start the pipeline
+    pipeline.start()
+
+    params_sources: List[ParamsSource] = []
+    actor_threads: List[threading.Thread] = []
+    actors_lifetime = ThreadLifetime()
+    params_sources_lifetime = ThreadLifetime()
+    for actor_device in actor_devices:
+        # Create 1 params source per actor device as this will be used to pass the params to the actors
+        params_source = ParamsSource(initial_params, actor_device, params_sources_lifetime)
+        params_source.start()
+        params_sources.append(params_source)
+        # Now for each device we choose to create multiple actor threads
+        for i in range(config.arch.actor.actor_per_device):
+            key, actors_key = jax.random.split(key)
+            seeds = np_rng.integers(
+                np.iinfo(np.int32).max, size=config.arch.actor.envs_per_actor
+            ).tolist()
+            actor_thread = get_actor_thread(
+                env_factory,
+                actor_device,
+                params_source,
+                pipeline,
+                apply_fns,
+                actors_key,
+                config,
+                seeds,
+                actors_lifetime,
+                f"Actor-{actor_device}-{i}",
+            )
+            actor_thread.start()
+            actor_threads.append(actor_thread)
+
+    # Create the evaluation queue
+    eval_queue: Queue = Queue()
+    learner_thread = get_learner_thread(
+        learn, learner_state, config, eval_queue, pipeline, params_sources
+    )
+    learner_thread.start()
+
     # Run experiment for a total number of evaluations.
     max_episode_return = jnp.float32(-1e7)
-    best_params = unreplicate_batch_dim(learner_state.params.actor_params)
+    best_params = initial_params.actor_params
+    # This is the main loop, all it does is evaluation and logging.
+    # Acting and learning is happening in their own threads.
+    # This loop waits for the learner to finish an update before evaluation and logging.
     for eval_step in range(config.arch.num_evaluation):
-        # Train.
-        start_time = time.time()
+        # Get the next set of params and metrics from the learner
+        episode_metrics, train_metrics, learner_state, times_dict = eval_queue.get()
 
-        learner_output = learn(learner_state)
-        jax.block_until_ready(learner_output)
-
-        # Log the results of the training.
-        elapsed_time = time.time() - start_time
         t = int(steps_per_rollout * (eval_step + 1))
-        episode_metrics, ep_completed = get_final_step_metrics(learner_output.episode_metrics)
-        episode_metrics["steps_per_second"] = steps_per_rollout / elapsed_time
+        times_dict["timestep"] = t
+        logger.log(times_dict, t, eval_step, LogEvent.MISC)
 
-        # Separately log timesteps, actoring metrics and training metrics.
-        logger.log({"timestep": t}, t, eval_step, LogEvent.MISC)
-        if ep_completed:  # only log episode metrics if an episode was completed in the rollout.
+        episode_metrics, ep_completed = get_final_step_metrics(episode_metrics)
+        episode_metrics["steps_per_second"] = steps_per_rollout / times_dict["single_rollout_time"]
+        if ep_completed:
             logger.log(episode_metrics, t, eval_step, LogEvent.ACT)
-        logger.log(learner_output.train_metrics, t, eval_step, LogEvent.TRAIN)
 
-        # Prepare for evaluation.
-        start_time = time.time()
-        trained_params = unreplicate_batch_dim(
-            learner_output.learner_state.params.actor_params
-        )  # Select only actor params
-        key_e, *eval_keys = jax.random.split(key_e, n_devices + 1)
-        eval_keys = jnp.stack(eval_keys)
-        eval_keys = eval_keys.reshape(n_devices, -1)
+        logger.log(train_metrics, t, eval_step, LogEvent.TRAIN)
 
-        # Evaluate.
-        evaluator_output = evaluator(trained_params, eval_keys)
-        jax.block_until_ready(evaluator_output)
+        unreplicated_actor_params = unreplicate(learner_state.params.actor_params)
+        key, eval_key = jax.random.split(key, 2)
+        eval_metrics = evaluator(unreplicated_actor_params, eval_key, {})
+        logger.log(eval_metrics, t, eval_step, LogEvent.EVAL)
 
-        # Log the results of the evaluation.
-        elapsed_time = time.time() - start_time
-        episode_return = jnp.mean(evaluator_output.episode_metrics["episode_return"])
-
-        steps_per_eval = int(jnp.sum(evaluator_output.episode_metrics["episode_length"]))
-        evaluator_output.episode_metrics["steps_per_second"] = steps_per_eval / elapsed_time
-        logger.log(evaluator_output.episode_metrics, t, eval_step, LogEvent.EVAL)
+        episode_return = jnp.mean(eval_metrics["episode_return"])
 
         if save_checkpoint:
             # Save checkpoint of learner state
             checkpointer.save(
-                timestep=int(steps_per_rollout * (eval_step + 1)),
-                unreplicated_learner_state=unreplicate_n_dims(learner_output.learner_state),
+                timestep=steps_per_rollout * (eval_step + 1),
+                unreplicated_learner_state=learner_state,
                 episode_return=episode_return,
             )
 
         if config.arch.absolute_metric and max_episode_return <= episode_return:
-            best_params = copy.deepcopy(trained_params)
+            best_params = copy.deepcopy(unreplicated_actor_params)
             max_episode_return = episode_return
 
-        # Update runner state to continue training.
-        learner_state = learner_output.learner_state
+    evaluator_envs.close()
+    eval_performance = float(jnp.mean(eval_metrics[config.env.eval_metric]))
+
+    # Make sure all of the Threads are closed.
+    actors_lifetime.stop()
+    for actor in actor_threads:
+        actor.join()
+
+    pipeline_lifetime.stop()
+    pipeline.join()
+
+    params_sources_lifetime.stop()
+    for param_source in params_sources:
+        param_source.join()
 
     # Measure absolute metric.
-    if config.arch.absolute_metric:
-        start_time = time.time()
+    # if config.arch.absolute_metric:
+    #     abs_metric_evaluator, abs_metric_evaluator_envs = get_eval_fn(
+    #         environments.make_gym_env, eval_act_fn, config, np_rng, absolute_metric=True
+    #     )
+    #     key, eval_key = jax.random.split(key, 2)
+    #     eval_metrics = abs_metric_evaluator(best_params, eval_key, {})
 
-        key_e, *eval_keys = jax.random.split(key_e, n_devices + 1)
-        eval_keys = jnp.stack(eval_keys)
-        eval_keys = eval_keys.reshape(n_devices, -1)
-
-        evaluator_output = absolute_metric_evaluator(best_params, eval_keys)
-        jax.block_until_ready(evaluator_output)
-
-        elapsed_time = time.time() - start_time
-        t = int(steps_per_rollout * (eval_step + 1))
-        steps_per_eval = int(jnp.sum(evaluator_output.episode_metrics["episode_length"]))
-        evaluator_output.episode_metrics["steps_per_second"] = steps_per_eval / elapsed_time
-        logger.log(evaluator_output.episode_metrics, t, eval_step, LogEvent.ABSOLUTE)
+    #     t = int(steps_per_rollout * (eval_step + 1))
+    #     logger.log(eval_metrics, t, eval_step, LogEvent.ABSOLUTE)
+    #     abs_metric_evaluator_envs.close()
 
     # Stop the logger.
     logger.stop()
-    # Record the performance for the final evaluation run. If the absolute metric is not
-    # calculated, this will be the final evaluation run.
-    eval_performance = float(jnp.mean(evaluator_output.episode_metrics[config.env.eval_metric]))
+
     return eval_performance
 
 
