@@ -4,7 +4,7 @@ from omegaconf import DictConfig
 
 def check_total_timesteps(config: DictConfig) -> DictConfig:
     """Check if total_timesteps is set, if not, set it based on the other parameters"""
-    
+
     if "num_devices" not in config:
         num_devices = 1
     else:
@@ -13,8 +13,7 @@ def check_total_timesteps(config: DictConfig) -> DictConfig:
         update_batch_size = 1
     else:
         update_batch_size = update_batch_size
-    
-    
+
     assert config.arch.total_num_envs % (num_devices * update_batch_size) == 0, (
         f"{Fore.RED}{Style.BRIGHT}The total number of environments "
         + "should be divisible by the n_devices*update_batch_size!{Style.RESET_ALL}"

@@ -384,7 +384,7 @@ def get_sebulba_eval_fn(
 
     n_parallel_envs = min(eval_episodes, config.arch.num_envs)
     episode_loops = math.ceil(eval_episodes / n_parallel_envs)
-    env = env_maker(config, n_parallel_envs)
+    env = env_maker(n_parallel_envs)
 
     # Warnings if num eval episodes is not divisible by num parallel envs.
     if eval_episodes % n_parallel_envs != 0:

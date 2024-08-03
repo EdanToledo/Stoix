@@ -66,7 +66,6 @@ def get_rollout_fn(
     params_source: ParamsSource,
     pipeline: Pipeline,
     apply_fns: Tuple[ActorApply, CriticApply],
-    key: chex.PRNGKey,
     config: DictConfig,
     seeds: List[int],
     thread_lifetime: ThreadLifetime,
@@ -75,19 +74,23 @@ def get_rollout_fn(
     actor_apply_fn, critic_apply_fn = apply_fns
     actor_apply_fn = jax.jit(actor_apply_fn)
     critic_apply_fn = jax.jit(critic_apply_fn)
-    rng = jax.device_put(key, actor_device)
     cpu = jax.devices("cpu")[0]
     split_key_fn = jax.jit(jax.random.split)
     envs = env_builder(config.arch.actor.envs_per_actor)
     move_to_device = jax.jit(lambda x: jax.device_put(x, actor_device))
 
     # Create the rollout function
-    def rollout() -> None:
+    def rollout(rng: chex.PRNGKey) -> None:
         with jax.default_device(actor_device):
             # Reset the environment
-            timestep = envs.reset(seed=seeds)
-            next_dones = timestep.last() & timestep.discount == 0.0
-            next_trunc = timestep.last() & timestep.discount == 1.0
+            # TODO(edan): put seeds in reset
+            timestep = envs.reset()
+            next_dones = np.logical_and(
+                np.array(timestep.last()), np.array(timestep.discount == 0.0)
+            )
+            next_trunc = np.logical_and(
+                np.array(timestep.last()), np.array(timestep.discount == 1.0)
+            )
             # Loop until the thread is stopped
             while not thread_lifetime.should_stop():
                 # Create the list to store transitions
@@ -117,8 +120,12 @@ def get_rollout_fn(
                         timestep = envs.step(action_cpu)
 
                     # Get the next dones and truncation flags
-                    next_dones = timestep.last() & timestep.discount == 0.0
-                    next_trunc = timestep.last() & timestep.discount == 1.0
+                    next_dones = np.logical_and(
+                        np.array(timestep.last()), np.array(timestep.discount == 0.0)
+                    )
+                    next_trunc = np.logical_and(
+                        np.array(timestep.last()), np.array(timestep.discount == 1.0)
+                    )
 
                     # Append data to storage
                     reward = timestep.reward
@@ -156,6 +163,7 @@ def get_actor_thread(
     name: str,
 ):
     """Get the actor thread."""
+    rng = jax.device_put(key, actor_device)
 
     rollout_fn = get_rollout_fn(
         env_builder,
@@ -163,7 +171,6 @@ def get_actor_thread(
         params_source,
         pipeline,
         apply_fns,
-        key,
         config,
         seeds,
         thread_lifetime,
@@ -171,7 +178,7 @@ def get_actor_thread(
 
     actor = threading.Thread(
         target=rollout_fn,
-        args=(),
+        args=(rng,),
         name=name,
     )
 
@@ -348,7 +355,9 @@ def get_learner_update_fn(
         metric = traj_batch.info
         return learner_state, (metric, loss_info)
 
-    def learner_fn(learner_state: LearnerState) -> ExperimentOutput[LearnerState]:
+    def learner_fn(
+        learner_state: LearnerState, traj_batch: PPOTransition
+    ) -> ExperimentOutput[LearnerState]:
         """Learner function.
 
         This function represents the learner, it updates the network parameters
@@ -364,11 +373,8 @@ def get_learner_update_fn(
                 - timesteps (TimeStep): The initial timestep in the initial trajectory.
         """
 
-        batched_update_step = jax.vmap(_update_step, in_axes=(0, None), axis_name="batch")
+        learner_state, (episode_info, loss_info) = _update_step(learner_state, traj_batch)
 
-        learner_state, (episode_info, loss_info) = jax.lax.scan(
-            batched_update_step, learner_state, None, config.arch.num_updates_per_eval
-        )
         return ExperimentOutput(
             learner_state=learner_state,
             episode_metrics=episode_info,
@@ -380,13 +386,12 @@ def get_learner_update_fn(
 
 def get_learner_rollout_fn(
     learn: SebulbaLearnerFn[LearnerState, PPOTransition],
-    learner_state: LearnerState,
     config: DictConfig,
     eval_queue: Queue,
     pipeline: Pipeline,
     params_sources: Sequence[ParamsSource],
 ):
-    def learner_rollout() -> None:
+    def learner_rollout(learner_state: LearnerState) -> None:
         for _ in range(config.arch.num_evaluation):
             metrics: List[Tuple[Dict, Dict]] = []
             rollout_times: List[Dict] = []
@@ -429,14 +434,12 @@ def get_learner_thread(
     params_sources: Sequence[ParamsSource],
 ):
 
-    learner_rollout_fn = get_learner_rollout_fn(
-        learn, learner_state, config, eval_queue, pipeline, params_sources
-    )
+    learner_rollout_fn = get_learner_rollout_fn(learn, config, eval_queue, pipeline, params_sources)
 
     learner_thread = threading.Thread(
         target=learner_rollout_fn,
+        args=(learner_state,),
         name="Learner",
-        args=(),
     )
 
     return learner_thread
@@ -451,7 +454,7 @@ def learner_setup(
 
     # Get number/dimension of actions.
     env = env_factory(num_envs=1)
-    obs_shape = env.observation_spec().shape
+    obs_shape = env.observation_spec().obs.shape
     num_actions = int(env.action_spec().num_values)
     env.close()
     config.system.action_dim = num_actions
@@ -509,7 +512,7 @@ def learner_setup(
     update_fns = (actor_optim.update, critic_optim.update)
 
     # Get batched iterated update and replicate it to pmap it over cores.
-    learn = get_learner_update_fn(env, apply_fns, update_fns, config)
+    learn = get_learner_update_fn(apply_fns, update_fns, config)
     learn = jax.pmap(learn, axis_name="device")
 
     # Load model from checkpoint if specified.
@@ -620,9 +623,7 @@ def run_experiment(_config: DictConfig) -> float:
 
     # Get the number of steps per rollout
     steps_per_rollout = (
-        config.system.rollout_length
-        * config.arch.total_num_envs
-        * config.system.num_updates_per_eval
+        config.system.rollout_length * config.arch.total_num_envs * config.arch.num_updates_per_eval
     )
 
     # Creating the pipeline
