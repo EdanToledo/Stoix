@@ -146,6 +146,9 @@ class OnlineAndTarget(NamedTuple):
 StoixState = TypeVar(
     "StoixState",
 )
+StoixTransition = TypeVar(
+    "StoixTransition",
+)
 
 
 class ExperimentOutput(NamedTuple, Generic[StoixState]):
@@ -158,6 +161,7 @@ class ExperimentOutput(NamedTuple, Generic[StoixState]):
 
 RNNObservation: TypeAlias = Tuple[Observation, Done]
 LearnerFn = Callable[[StoixState], ExperimentOutput[StoixState]]
+SebulbaLearnerFn = Callable[[StoixState, StoixTransition], ExperimentOutput[StoixState]]
 EvalFn = Callable[[FrozenDict, chex.PRNGKey], ExperimentOutput[StoixState]]
 
 ActorApply = Callable[..., DistributionLike]
@@ -174,3 +178,6 @@ RecActFn = Callable[
     [FrozenDict, HiddenState, RNNObservation, chex.PRNGKey], Tuple[HiddenState, chex.Array]
 ]
 RecCriticApply = Callable[[FrozenDict, HiddenState, RNNObservation], Tuple[HiddenState, Value]]
+
+
+EnvFactory = Callable[[int], Any]
