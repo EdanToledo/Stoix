@@ -30,15 +30,16 @@ class GymWrapper(gymnasium.Wrapper):
         """
         super().__init__(env)
         self._env = env
-        self.num_actions = self._env.action_space[0].n
+        if isinstance(self._env.action_space, gymnasium.spaces.Discrete):
+            self.num_actions = self._env.action_space.n
+        else:
+            self.num_actions = self._env.action_space.shape[0]
 
     def reset(
-        self, seed: Optional[int] = None, options: Optional[dict] = None
+        self, *, seed: int | None = None, options: dict[str, Any] | None = None
     ) -> Tuple[NDArray, Dict]:
-        if seed is not None:
-            self.env.seed(seed)
 
-        agents_view, info = self._env.reset()
+        agents_view, info = self._env.reset(seed=seed, options=options)
 
         info = {"actions_mask": self.get_actions_mask(info)}
 
@@ -49,14 +50,15 @@ class GymWrapper(gymnasium.Wrapper):
 
         info = {"actions_mask": self.get_actions_mask(info)}
         
-        reward = np.array(reward)
+        agents_view = np.asarray(agents_view)
+        reward = np.asarray(reward)
+        terminated = np.asarray(terminated)
+        truncated = np.asarray(truncated)
 
         return agents_view, reward, terminated, truncated, info
 
     def get_actions_mask(self, info: Dict) -> NDArray:
-        if "action_mask" in info:
-            return np.array(info["action_mask"])
-        return np.ones((self.num_agents, self.num_actions), dtype=np.float32)
+        return np.ones(self.num_actions, dtype=np.float32)
 
 class GymRecordEpisodeMetrics(gymnasium.Wrapper):
     """Record the episode returns and lengths."""
@@ -68,9 +70,9 @@ class GymRecordEpisodeMetrics(gymnasium.Wrapper):
         self.running_count_episode_length = 0.0
 
     def reset(
-        self, seed: Optional[int] = None, options: Optional[dict] = None
+        self, *, seed: int | None = None, options: dict[str, Any] | None = None
     ) -> Tuple[NDArray, Dict]:
-        agents_view, info = self._env.reset(seed, options)
+        agents_view, info = self._env.reset(seed=seed, options=options)
 
         # Create the metrics dict
         metrics = {
@@ -93,7 +95,7 @@ class GymRecordEpisodeMetrics(gymnasium.Wrapper):
     def step(self, actions: NDArray) -> Tuple[NDArray, NDArray, NDArray, NDArray, Dict]:
         agents_view, reward, terminated, truncated, info = self._env.step(actions)
 
-        self.running_count_episode_return += float(np.mean(reward))
+        self.running_count_episode_return += reward
         self.running_count_episode_length += 1
 
         metrics = {
@@ -117,12 +119,11 @@ class GymToJumanji(gymnasium.Wrapper):
     ) -> TimeStep:
         obs, info = self.env.reset(seed=seed, options=options)
         
-        num_envs = self.env.num_envs
+        num_envs = int(self.env.num_envs)
 
         ep_done = np.zeros(num_envs, dtype=float)
-        rewards = np.zeros((num_envs,), dtype=float)
-        teminated = np.zeros((num_envs,), dtype=float)
-        self.step_count = np.zeros((num_envs,), dtype=float)
+        rewards = np.zeros(num_envs, dtype=float)
+        teminated = np.zeros(num_envs, dtype=float)
 
         timestep = self._create_timestep(obs, ep_done, teminated, rewards, info)
 
@@ -131,8 +132,7 @@ class GymToJumanji(gymnasium.Wrapper):
     def step(self, action: list) -> TimeStep:
         obs, rewards, terminated, truncated, info = self.env.step(action)
 
-        ep_done = np.logical_or(terminated, truncated).all(axis=1)
-        self.step_count += 1
+        ep_done = np.logical_or(terminated, truncated)
 
         timestep = self._create_timestep(obs, ep_done, terminated, rewards, info)
 
@@ -141,13 +141,8 @@ class GymToJumanji(gymnasium.Wrapper):
     def _format_observation(
         self, obs: NDArray, info: Dict
     ) -> Observation:
-        """Create an observation from the raw observation and environment state."""
-
-        obs = np.array(obs)
-        action_mask = info["actions_mask"]
-        obs_data = {"agents_view": obs, "action_mask": action_mask, "step_count": self.step_count}
-
-        return Observation(**obs_data)
+        # TODO(edan): fix action mask
+        return Observation(agent_view=obs, action_mask=np.ones(1, dtype=np.float32))
 
     def _create_timestep(
         self, obs: NDArray, ep_done: NDArray, terminated: NDArray, rewards: NDArray, info: Dict
@@ -155,7 +150,6 @@ class GymToJumanji(gymnasium.Wrapper):
         obs = self._format_observation(obs, info)
         extras = jax.tree.map(lambda *x: np.stack(x), *info["metrics"])
         step_type = np.where(ep_done, StepType.LAST, StepType.MID)
-        terminated = np.all(terminated, axis=1)
 
         return TimeStep(
             step_type=step_type,

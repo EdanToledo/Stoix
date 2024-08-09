@@ -6,7 +6,7 @@ import envpool
 import gymnasium
 from omegaconf import DictConfig
 
-from stoix.wrappers.gym import GymRecordEpisodeMetrics, GymToJumanji
+from stoix.wrappers.gym import GymRecordEpisodeMetrics, GymToJumanji, GymWrapper
 
 
 class EnvFactory(abc.ABC):
@@ -41,6 +41,7 @@ class EnvPoolFactory(EnvFactory):
 def make_gym_env_factory() -> EnvFactory:
     def create_gym_env(name) -> gymnasium.Env:
         env = gymnasium.make(name)
+        env = GymWrapper(env)
         env = GymRecordEpisodeMetrics(env)
         return env
 

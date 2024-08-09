@@ -18,8 +18,7 @@ class FeedForwardActor(nn.Module):
 
     action_head: nn.Module
     torso: nn.Module
-    # TODO(edan): revert back
-    input_layer: nn.Module = EmbeddingInput()  # ObservationInput()
+    input_layer: nn.Module = ObservationInput()
 
     @nn.compact
     def __call__(self, observation: Observation) -> distrax.DistributionLike:
@@ -36,8 +35,7 @@ class FeedForwardCritic(nn.Module):
 
     critic_head: nn.Module
     torso: nn.Module
-    # TODO(edan): revert back
-    input_layer: nn.Module = EmbeddingInput()  # ObservationInput()
+    input_layer: nn.Module = ObservationInput()
 
     @nn.compact
     def __call__(self, observation: Observation) -> chex.Array:

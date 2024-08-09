@@ -28,6 +28,7 @@ from stoix.base_types import (
     ExperimentOutput,
     LearnerFn,
     LearnerState,
+    Observation,
     SebulbaLearnerFn,
 )
 from stoix.evaluator import (
@@ -83,7 +84,6 @@ def get_rollout_fn(
     def rollout(rng: chex.PRNGKey) -> None:
         with jax.default_device(actor_device):
             # Reset the environment
-            # TODO(edan): put seeds in reset
             timestep = envs.reset(seed=seeds)
             next_dones = np.logical_and(
                 np.array(timestep.last()), np.array(timestep.discount == 0.0)
@@ -492,7 +492,7 @@ def learner_setup(
     )
 
     # Initialise observation
-    init_x = jnp.ones(obs_shape)
+    init_x = Observation(agent_view=jnp.ones(obs_shape), action_mask=jnp.ones(num_actions))
     init_x = jax.tree_util.tree_map(lambda x: x[None, ...], init_x)
 
     # Initialise actor params and optimiser state.

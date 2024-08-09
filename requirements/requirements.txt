@@ -28,3 +28,5 @@ tensorflow_probability
 tqdm
 wandb
 xminigrid @ git+https://github.com/corl-team/xland-minigrid.git@main
+envpool
+gymnasium

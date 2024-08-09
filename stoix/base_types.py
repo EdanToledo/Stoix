@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, Callable, Dict, Generic, Tuple, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Dict, Generic, Optional, Tuple, TypeVar
 
 import chex
 from distrax import DistributionLike
@@ -36,7 +36,7 @@ class Observation(NamedTuple):
 
     agent_view: chex.Array  # (num_obs_features,)
     action_mask: chex.Array  # (num_actions,)
-    step_count: chex.Array  # (,)
+    step_count: Optional[chex.Array] = None  # (,)
 
 
 class ObservationGlobalState(NamedTuple):
