@@ -455,12 +455,13 @@ def learner_setup(
     config: DictConfig,
 ) -> Tuple[LearnerFn[LearnerState], Actor, LearnerState]:
 
-    # Get number/dimension of actions.
+    # Create a single environment to get the observation and action shapes.
     env = env_factory(num_envs=1)
-    obs_shape = env.unwrapped.single_observation_space.shape
-    num_actions = int(env.env.unwrapped.single_action_space.n)
-    env.close()
+    # Get number/dimension of actions.
+    num_actions = int(env.action_spec().num_values)
     config.system.action_dim = num_actions
+    example_obs = env.observation_spec().generate_value()
+    env.close()
 
     # PRNG keys.
     key, actor_net_key, critic_net_key = keys
@@ -493,7 +494,7 @@ def learner_setup(
     )
 
     # Initialise observation
-    init_x = Observation(agent_view=jnp.ones(obs_shape), action_mask=jnp.ones(num_actions))
+    init_x = example_obs
     init_x = jax.tree_util.tree_map(lambda x: x[None, ...], init_x)
 
     # Initialise actor params and optimiser state.
@@ -583,12 +584,11 @@ def run_experiment(_config: DictConfig) -> float:
     ), "The number of envs per actor must be divisible by the number of learner devices"
 
     # Create the environments for train and eval.
-    # env_factory = EnvPoolFactory(
-    #     config.arch.seed,
-    #     task_id="CartPole-v1",
-    #     env_type="dm",
-    # )
-    env_factory = GymnasiumFactory("CartPole-v1")
+    env_factory = EnvPoolFactory(
+        "CartPole-v1",
+        config.arch.seed
+    )
+    # env_factory = GymnasiumFactory("CartPole-v1")
 
     # PRNG keys.
     key, key_e, actor_net_key, critic_net_key = jax.random.split(

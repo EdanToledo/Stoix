@@ -10,6 +10,7 @@ import jax
 import numpy as np
 from jumanji.types import StepType, TimeStep
 from numpy.typing import NDArray
+from jumanji.specs import Array, Spec, DiscreteArray
 
 from stoix.base_types import Observation
 
@@ -163,3 +164,16 @@ class GymToJumanji(gymnasium.Wrapper):
             observation=obs,
             extras=extras,
         )
+        
+    def observation_spec(self) -> Spec:
+        agent_view_spec = Array(shape=self.obs_shape, dtype=float)
+        return Spec(
+            Observation,
+            "ObservationSpec",
+            agent_view=agent_view_spec,
+            action_mask=Array(shape=(self.num_actions,), dtype=float),
+            step_count=Array(shape=(), dtype=int),
+        )
+
+    def action_spec(self) -> Spec:
+        return DiscreteArray(num_values=self.num_actions)
