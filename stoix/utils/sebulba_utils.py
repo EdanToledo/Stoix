@@ -61,15 +61,17 @@ class Pipeline(threading.Thread):
             except queue.Empty:
                 continue
 
-    def put(self, traj: Sequence[StoixTransition], timestep: TimeStep, time_dict: Dict) -> None:
+    def put(self, traj: Sequence[StoixTransition], timestep: TimeStep, timings_dict: Dict) -> None:
         """Put a trajectory on the queue to be consumed by the learner."""
         start_condition, end_condition = (threading.Condition(), threading.Condition())
         with start_condition:
             self.tickets_queue.put((start_condition, end_condition))
             start_condition.wait()  # wait to be allowed to start
 
-        # [Transition] * rollout_len --> Transition[done=(rollout_len, num_envs,)
-        sharded_traj = jax.tree.map(lambda *x: self.shard_split_playload(jnp.stack(x), 1), *traj)
+        # [Transition(num_envs)] * rollout_len --> Transition[(rollout_len, num_envs,)
+        traj = jax.tree_map(lambda *x: jnp.stack(x, axis=0), *traj)
+        # Split trajectory on the num envs axis so each learner device gets a valid full rollout
+        sharded_traj = jax.tree.map(lambda x : self.shard_split_playload(x, axis=1), traj)
 
         # Timestep[(num_envs, ...), ...] -->
         # [(num_envs / num_learner_devices, ...)] * num_learner_devices
@@ -81,7 +83,7 @@ class Pipeline(threading.Thread):
         if self._queue.full():
             self._queue.get()  # throw away the transition
 
-        self._queue.put((sharded_traj, sharded_timestep, time_dict))
+        self._queue.put((sharded_traj, sharded_timestep, timings_dict))
 
         with end_condition:
             end_condition.notify()  # tell we have finish

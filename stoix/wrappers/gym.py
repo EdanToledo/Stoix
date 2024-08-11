@@ -142,7 +142,8 @@ class GymToJumanji(gymnasium.Wrapper):
         self, obs: NDArray, info: Dict
     ) -> Observation:
         # TODO(edan): fix action mask
-        return Observation(agent_view=obs, action_mask=np.ones(1, dtype=np.float32))
+        num_envs = int(self.env.num_envs)
+        return Observation(agent_view=obs, action_mask=np.ones(num_envs, dtype=np.float32))
 
     def _create_timestep(
         self, obs: NDArray, ep_done: NDArray, terminated: NDArray, rewards: NDArray, info: Dict

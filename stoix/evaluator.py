@@ -395,7 +395,7 @@ def get_sebulba_eval_fn(
             stacklevel=2,
         )
 
-    def eval_fn(params: FrozenDict, key: chex.PRNGKey, init_act_state: Any) -> Dict:
+    def eval_fn(params: FrozenDict, key: chex.PRNGKey) -> Dict:
         """Evaluates the given params on an environment and returns relevent metrics.
 
         Metrics are collected by the `RecordEpisodeMetrics` wrapper: episode return and length,
@@ -412,13 +412,12 @@ def get_sebulba_eval_fn(
 
             timesteps = [ts]
 
-            actor_state = init_act_state
             finished_eps = ts.last()
 
             while not finished_eps.all():
                 key, act_key = jax.random.split(key)
-                action, actor_state = act_fn(params, ts, act_key, actor_state)
-                cpu_action = jax.device_get(action).swapaxes(0, 1)
+                action = act_fn(params, ts.observation, act_key)
+                cpu_action = jax.device_get(action)
                 ts = env.step(cpu_action)
                 timesteps.append(ts)
 
@@ -427,8 +426,6 @@ def get_sebulba_eval_fn(
             timesteps = jax.tree.map(lambda *x: np.stack(x), *timesteps)
 
             metrics = timesteps.extras
-            if config.env.log_win_rate:
-                metrics["won_episode"] = timesteps.extras["won_episode"]
 
             # find the first instance of done to get the metrics at that timestep, we don't
             # care about subsequent steps because we only the results from the first episode
@@ -451,11 +448,11 @@ def get_sebulba_eval_fn(
         )  # flatten metrics
         return metrics
 
-    def timed_eval_fn(params: FrozenDict, key: chex.PRNGKey, init_act_state: Any) -> Any:
+    def timed_eval_fn(params: FrozenDict, key: chex.PRNGKey) -> Any:
         """Wrapper around eval function to time it and add in steps per second metric."""
         start_time = time.time()
 
-        metrics = eval_fn(params, key, init_act_state)
+        metrics = eval_fn(params, key)
 
         end_time = time.time()
         total_timesteps = jnp.sum(metrics["episode_length"])

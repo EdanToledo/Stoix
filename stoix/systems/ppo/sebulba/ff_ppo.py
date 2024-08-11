@@ -97,51 +97,52 @@ def get_rollout_fn(
                 traj: List[PPOTransition] = []
                 # Create the dictionary to store timings
                 timings_dict: Dict[str, List[float]] = defaultdict(list)
+                # Rollout the environment
+                with RecordTimeTo(timings_dict["single_rollout_time"]):
+                    for _ in range(config.system.rollout_length):
+                        with RecordTimeTo(timings_dict["get_params_time"]):
+                            params = params_source.get()
 
-                for _ in range(config.system.rollout_length):
-                    with RecordTimeTo(timings_dict["get_params_time"]):
-                        params = params_source.get()
+                        cached_next_obs = jax.tree.map(move_to_device, timestep.observation)
+                        cached_next_dones = move_to_device(next_dones)
+                        cached_next_trunc = move_to_device(next_trunc)
 
-                    cached_next_obs = jax.tree.map(move_to_device, timestep.observation)
-                    cached_next_dones = move_to_device(next_dones)
-                    cached_next_trunc = move_to_device(next_trunc)
+                        with RecordTimeTo(timings_dict["compute_action_time"]):
+                            rng, key = split_key_fn(rng)
+                            pi = actor_apply_fn(params.actor_params, cached_next_obs)
+                            value = critic_apply_fn(params.critic_params, cached_next_obs)
+                            action = pi.sample(seed=key)
+                            log_prob = pi.log_prob(action)
 
-                    with RecordTimeTo(timings_dict["compute_action_time"]):
-                        rng, key = split_key_fn(rng)
-                        pi = actor_apply_fn(params.actor_params, cached_next_obs)
-                        value = critic_apply_fn(params.critic_params, cached_next_obs)
-                        action = pi.sample(seed=key)
-                        log_prob = pi.log_prob(action)
+                        with RecordTimeTo(timings_dict["put_action_on_cpu_time"]):
+                            action_cpu = np.array(jax.device_put(action, cpu))
 
-                    with RecordTimeTo(timings_dict["put_action_on_cpu_time"]):
-                        action_cpu = np.array(jax.device_put(action, cpu))
+                        with RecordTimeTo(timings_dict["env_step_time"]):
+                            timestep = envs.step(action_cpu)
 
-                    with RecordTimeTo(timings_dict["env_step_time"]):
-                        timestep = envs.step(action_cpu)
-
-                    # Get the next dones and truncation flags
-                    next_dones = np.logical_and(
-                        np.array(timestep.last()), np.array(timestep.discount == 0.0)
-                    )
-                    next_trunc = np.logical_and(
-                        np.array(timestep.last()), np.array(timestep.discount == 1.0)
-                    )
-
-                    # Append data to storage
-                    reward = timestep.reward
-                    info = timestep.extras
-                    traj.append(
-                        PPOTransition(
-                            cached_next_dones,
-                            cached_next_trunc,
-                            action,
-                            value,
-                            reward,
-                            log_prob,
-                            cached_next_obs,
-                            info,
+                        # Get the next dones and truncation flags
+                        next_dones = np.logical_and(
+                            np.array(timestep.last()), np.array(timestep.discount == 0.0)
                         )
-                    )
+                        next_trunc = np.logical_and(
+                            np.array(timestep.last()), np.array(timestep.discount == 1.0)
+                        )
+
+                        # Append data to storage
+                        reward = timestep.reward
+                        info = timestep.extras
+                        traj.append(
+                            PPOTransition(
+                                cached_next_dones,
+                                cached_next_trunc,
+                                action,
+                                value,
+                                reward,
+                                log_prob,
+                                cached_next_obs,
+                                info,
+                            )
+                        )
 
                 # Send the trajectory to the pipeline
                 with RecordTimeTo(timings_dict["rollout_put_time"]):
@@ -399,7 +400,7 @@ def get_learner_rollout_fn(
             rollout_times: List[Dict] = []
             learn_timings: Dict[str, List[float]] = defaultdict(list)
 
-            for _ in range(config.system.num_updates_per_eval):
+            for _ in range(config.arch.num_updates_per_eval):
                 with RecordTimeTo(learn_timings["rollout_get_time"]):
                     traj_batch, timestep, rollout_time = pipeline.get(block=True)
 
@@ -537,7 +538,9 @@ def learner_setup(
 
     # Initialise learner state.
     params, opt_states = replicate_learner
-    init_learner_state = LearnerState(params, opt_states, None, None, None)
+    key, step_key = jax.random.split(key)
+    step_keys = jax.random.split(step_key, len(learner_devices))
+    init_learner_state = LearnerState(params, opt_states, step_keys, None, None)
 
     return learn, apply_fns, init_learner_state
 
@@ -549,7 +552,7 @@ def run_experiment(_config: DictConfig) -> float:
     assert (
         config.arch.num_updates > config.arch.num_evaluation
     ), "Number of updates per evaluation must be less than total number of updates."
-    config.arch.num_updates_per_eval = config.arch.num_updates // config.arch.num_evaluation
+    config.arch.num_updates_per_eval = int(config.arch.num_updates // config.arch.num_evaluation)
 
     # Get the learner and actor devices
     local_devices = jax.local_devices()
@@ -574,6 +577,10 @@ def run_experiment(_config: DictConfig) -> float:
     num_envs_per_actor_device = config.arch.total_num_envs // len(actor_devices)
     num_envs_per_actor = num_envs_per_actor_device // config.arch.actor.actor_per_device
     config.arch.actor.envs_per_actor = num_envs_per_actor
+    
+    assert num_envs_per_actor % len(local_learner_devices) == 0, (
+        "The number of envs per actor must be divisible by the number of learner devices"
+    )
 
     # Create the environments for train and eval.
     # env_factory = EnvPoolFactory(
@@ -602,9 +609,6 @@ def run_experiment(_config: DictConfig) -> float:
         np_rng,
         absolute_metric=False,
     )
-
-    # Calculate number of updates per evaluation.
-    config.arch.num_updates_per_eval = config.arch.num_updates // config.arch.num_evaluation
 
     # Logger setup
     logger = StoixLogger(config)
@@ -697,7 +701,7 @@ def run_experiment(_config: DictConfig) -> float:
 
         unreplicated_actor_params = unreplicate(learner_state.params.actor_params)
         key, eval_key = jax.random.split(key, 2)
-        eval_metrics = evaluator(unreplicated_actor_params, eval_key, {})
+        eval_metrics = evaluator(unreplicated_actor_params, eval_key)
         logger.log(eval_metrics, t, eval_step, LogEvent.EVAL)
 
         episode_return = jnp.mean(eval_metrics["episode_return"])
@@ -721,6 +725,8 @@ def run_experiment(_config: DictConfig) -> float:
     actors_lifetime.stop()
     for actor in actor_threads:
         actor.join()
+        
+    learner_thread.join()
 
     pipeline_lifetime.stop()
     pipeline.join()

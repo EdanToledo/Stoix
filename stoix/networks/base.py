@@ -9,7 +9,7 @@ import numpy as np
 from flax import linen as nn
 
 from stoix.base_types import Observation, RNNObservation
-from stoix.networks.inputs import EmbeddingInput, ObservationInput
+from stoix.networks.inputs import ObservationInput
 from stoix.networks.utils import parse_rnn_cell
 
 
