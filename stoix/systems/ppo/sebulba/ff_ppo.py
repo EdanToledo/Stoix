@@ -41,7 +41,7 @@ from stoix.networks.base import FeedForwardCritic as Critic
 from stoix.systems.ppo.ppo_types import PPOTransition
 from stoix.utils import make_env as environments
 from stoix.utils.checkpointing import Checkpointer
-from stoix.utils.env_factory import EnvPoolFactory, make_gym_env_factory
+from stoix.utils.env_factory import EnvPoolFactory, GymnasiumFactory
 from stoix.utils.jax_utils import (
     merge_leading_dims,
     unreplicate_batch_dim,
@@ -577,10 +577,10 @@ def run_experiment(_config: DictConfig) -> float:
     num_envs_per_actor_device = config.arch.total_num_envs // len(actor_devices)
     num_envs_per_actor = num_envs_per_actor_device // config.arch.actor.actor_per_device
     config.arch.actor.envs_per_actor = num_envs_per_actor
-    
-    assert num_envs_per_actor % len(local_learner_devices) == 0, (
-        "The number of envs per actor must be divisible by the number of learner devices"
-    )
+
+    assert (
+        num_envs_per_actor % len(local_learner_devices) == 0
+    ), "The number of envs per actor must be divisible by the number of learner devices"
 
     # Create the environments for train and eval.
     # env_factory = EnvPoolFactory(
@@ -588,7 +588,7 @@ def run_experiment(_config: DictConfig) -> float:
     #     task_id="CartPole-v1",
     #     env_type="dm",
     # )
-    env_factory = make_gym_env_factory()
+    env_factory = GymnasiumFactory("CartPole-v1")
 
     # PRNG keys.
     key, key_e, actor_net_key, critic_net_key = jax.random.split(
@@ -725,7 +725,7 @@ def run_experiment(_config: DictConfig) -> float:
     actors_lifetime.stop()
     for actor in actor_threads:
         actor.join()
-        
+
     learner_thread.join()
 
     pipeline_lifetime.stop()

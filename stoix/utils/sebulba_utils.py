@@ -71,7 +71,7 @@ class Pipeline(threading.Thread):
         # [Transition(num_envs)] * rollout_len --> Transition[(rollout_len, num_envs,)
         traj = jax.tree_map(lambda *x: jnp.stack(x, axis=0), *traj)
         # Split trajectory on the num envs axis so each learner device gets a valid full rollout
-        sharded_traj = jax.tree.map(lambda x : self.shard_split_playload(x, axis=1), traj)
+        sharded_traj = jax.tree.map(lambda x: self.shard_split_playload(x, axis=1), traj)
 
         # Timestep[(num_envs, ...), ...] -->
         # [(num_envs / num_learner_devices, ...)] * num_learner_devices
