@@ -101,7 +101,7 @@ class VecGymToJumanji:
         self, obs: NDArray, ep_done: NDArray, terminated: NDArray, rewards: NDArray, info: Dict
     ) -> TimeStep:
         obs = self._format_observation(obs, info)
-        extras = jax.tree.map(lambda *x: np.stack(x), *info["metrics"])
+        extras = info["metrics"]
         step_type = np.where(ep_done, StepType.LAST, StepType.MID)
 
         return TimeStep(

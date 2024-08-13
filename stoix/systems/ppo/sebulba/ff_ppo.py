@@ -142,16 +142,6 @@ def get_rollout_fn(
                         # Append PPOTransition to the trajectory list
                         reward = timestep.reward
                         info = timestep.extras
-                        print(PPOTransition(
-                                cached_next_dones,
-                                cached_next_trunc,
-                                action,
-                                value,
-                                reward,
-                                log_prob,
-                                cached_next_obs,
-                                info,
-                            ))
                         traj.append(
                             PPOTransition(
                                 cached_next_dones,
