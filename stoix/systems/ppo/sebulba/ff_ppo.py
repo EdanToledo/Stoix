@@ -62,7 +62,7 @@ from stoix.wrappers.episode_metrics import get_final_step_metrics
 
 
 def get_rollout_fn(
-    env_builder: EnvFactory,
+    env_factory: EnvFactory,
     actor_device: jax.Device,
     params_source: ParamsSource,
     pipeline: Pipeline,
@@ -71,20 +71,25 @@ def get_rollout_fn(
     seeds: List[int],
     thread_lifetime: ThreadLifetime,
 ):
-
+    """Get the rollout function that is used by the actor threads."""
+    # Unpack and set up the functions
     actor_apply_fn, critic_apply_fn = apply_fns
-    actor_apply_fn = jax.jit(actor_apply_fn)
-    critic_apply_fn = jax.jit(critic_apply_fn)
+    actor_apply_fn = jax.jit(actor_apply_fn, device=actor_device)
+    critic_apply_fn = jax.jit(critic_apply_fn, device=actor_device)
     cpu = jax.devices("cpu")[0]
-    split_key_fn = jax.jit(jax.random.split)
-    envs = env_builder(config.arch.actor.envs_per_actor)
-    move_to_device = jax.jit(lambda x: jax.device_put(x, actor_device))
+    split_key_fn = jax.jit(jax.random.split, device=actor_device)
+    move_to_device = lambda tree: jax.tree_map(lambda x: jax.device_put(x, actor_device), tree)
+    move_to_device = jax.jit(move_to_device)
+    # Build the environments
+    envs = env_factory(config.arch.actor.envs_per_actor)
 
     # Create the rollout function
-    def rollout_fn(rng: chex.PRNGKey) -> None:
+    def rollout_fn(rng_key: chex.PRNGKey) -> None:
+        # Ensure all computation is on the actor device
         with jax.default_device(actor_device):
             # Reset the environment
             timestep = envs.reset(seed=seeds)
+            # Get the next dones and truncation flags
             next_dones = np.logical_and(
                 np.array(timestep.last()), np.array(timestep.discount == 0.0)
             )
@@ -95,40 +100,46 @@ def get_rollout_fn(
             while not thread_lifetime.should_stop():
                 # Create the list to store transitions
                 traj: List[PPOTransition] = []
-                # Create the dictionary to store timings
+                # Create the dictionary to store timings for metrics
                 timings_dict: Dict[str, List[float]] = defaultdict(list)
                 # Rollout the environment
                 with RecordTimeTo(timings_dict["single_rollout_time"]):
+                    # Loop until the rollout length is reached
                     for _ in range(config.system.rollout_length):
+                        # Get the latest parameters from the source
                         with RecordTimeTo(timings_dict["get_params_time"]):
                             params = params_source.get()
 
-                        cached_next_obs = jax.tree.map(move_to_device, timestep.observation)
+                        # Move the environment data to the actor device
+                        cached_next_obs = move_to_device(timestep.observation)
                         cached_next_dones = move_to_device(next_dones)
                         cached_next_trunc = move_to_device(next_trunc)
 
+                        # Run the actor and critic networks to get the action, value and log_prob
                         with RecordTimeTo(timings_dict["compute_action_time"]):
-                            rng, key = split_key_fn(rng)
+                            rng_key, policy_key = split_key_fn(rng_key)
                             pi = actor_apply_fn(params.actor_params, cached_next_obs)
                             value = critic_apply_fn(params.critic_params, cached_next_obs)
-                            action = pi.sample(seed=key)
+                            action = pi.sample(seed=policy_key)
                             log_prob = pi.log_prob(action)
 
+                        # Move the action to the CPU
                         with RecordTimeTo(timings_dict["put_action_on_cpu_time"]):
-                            action_cpu = np.array(jax.device_put(action, cpu))
-
+                            action_cpu = np.asarray(jax.device_put(action, cpu))
+                        
+                        # Step the environment
                         with RecordTimeTo(timings_dict["env_step_time"]):
                             timestep = envs.step(action_cpu)
 
                         # Get the next dones and truncation flags
                         next_dones = np.logical_and(
-                            np.array(timestep.last()), np.array(timestep.discount == 0.0)
+                            np.asarray(timestep.last()), np.asarray(timestep.discount == 0.0)
                         )
                         next_trunc = np.logical_and(
-                            np.array(timestep.last()), np.array(timestep.discount == 1.0)
+                            np.asarray(timestep.last()), np.asarray(timestep.discount == 1.0)
                         )
 
-                        # Append data to storage
+                        # Append PPOTransition to the trajectory list
                         reward = timestep.reward
                         info = timestep.extras
                         traj.append(
@@ -147,29 +158,30 @@ def get_rollout_fn(
                 # Send the trajectory to the pipeline
                 with RecordTimeTo(timings_dict["rollout_put_time"]):
                     pipeline.put(traj, timestep, timings_dict)
-
+            
+            # Close the environments
             envs.close()
 
     return rollout_fn
 
 
 def get_actor_thread(
-    env_builder: EnvFactory,
+    env_factory: EnvFactory,
     actor_device: jax.Device,
     params_source: ParamsSource,
     pipeline: Pipeline,
     apply_fns: Tuple[ActorApply, CriticApply],
-    key: chex.PRNGKey,
+    rng_key: chex.PRNGKey,
     config: DictConfig,
     seeds: List[int],
     thread_lifetime: ThreadLifetime,
     name: str,
 ):
-    """Get the actor thread."""
-    rng = jax.device_put(key, actor_device)
+    """Get the actor thread that once started will collect data from the environment and send it to the pipeline."""
+    rng_key = jax.device_put(rng_key, actor_device)
 
     rollout_fn = get_rollout_fn(
-        env_builder,
+        env_factory,
         actor_device,
         params_source,
         pipeline,
@@ -181,7 +193,7 @@ def get_actor_thread(
 
     actor = threading.Thread(
         target=rollout_fn,
-        args=(rng,),
+        args=(rng_key,),
         name=name,
     )
 
@@ -193,7 +205,8 @@ def get_learner_update_fn(
     update_fns: Tuple[optax.TransformUpdateFn, optax.TransformUpdateFn],
     config: DictConfig,
 ) -> SebulbaLearnerFn[LearnerState, PPOTransition]:
-    """Get the sebulba learner function."""
+    """Get the learner update function which is used to update the actor and critic networks. 
+    This function is used by the learner thread to update the networks."""
 
     # Get apply and update functions for actor and critic networks.
     actor_apply_fn, critic_apply_fn = apply_fns
@@ -394,35 +407,49 @@ def get_learner_rollout_fn(
     pipeline: Pipeline,
     params_sources: Sequence[ParamsSource],
 ):
+    """Get the learner rollout function that is used by the learner thread to update the networks. 
+    This function is what is actually run by the learner thread. It gets the data from the pipeline and
+    uses the learner update function to update the networks. It then sends these intermediate network parameters 
+    to a queue for evaluation."""
+    
     def learner_rollout(learner_state: LearnerState) -> None:
+        # Loop for the total number of evaluations selected to be performed.
         for _ in range(config.arch.num_evaluation):
+            # Create the lists to store metrics and timings for this learning iteration.
             metrics: List[Tuple[Dict, Dict]] = []
             rollout_times: List[Dict] = []
             learn_timings: Dict[str, List[float]] = defaultdict(list)
-
+            # Loop for the number of updates per evaluation
             for _ in range(config.arch.num_updates_per_eval):
+                # Get the trajectory batch from the pipeline
+                # This is blocking so it will wait until the pipeline has data.
                 with RecordTimeTo(learn_timings["rollout_get_time"]):
                     traj_batch, timestep, rollout_time = pipeline.get(block=True)
-
+                # We then replace the timestep in the learner state with the latest timestep
+                # This means the learner has access to the entire trajectory as well as an additional timestep
+                # which it can use to bootstrap.
                 learner_state = learner_state._replace(timestep=timestep)
+                # We then call the update function to update the networks
                 with RecordTimeTo(learn_timings["learning_time"]):
                     learner_state, episode_metrics, train_metrics = learn(learner_state, traj_batch)
 
+                # We store the metrics and timings for this update
                 metrics.append((episode_metrics, train_metrics))
                 rollout_times.append(rollout_time)
-
+                
+                # After the update we need to update the params sources with the new params 
                 unreplicated_params = unreplicate(learner_state.params)
-
+                # We loop over all params sources and update them with the new params
+                # This is so that all the actors can get the latest params
                 for source in params_sources:
                     source.update(unreplicated_params)
 
-            # Pass to the evaluator
+            # We then pass all the environment metrics, training metrics, current learner state and timings to the evaluation queue
+            # This is so the evaluator correctly evaluates the performance of the networks at this point in time.
             episode_metrics, train_metrics = jax.tree.map(lambda *x: np.asarray(x), *metrics)
-
             rollout_times = jax.tree.map(lambda *x: np.mean(x), *rollout_times)
             timing_dict = rollout_times | learn_timings
             timing_dict = jax.tree.map(np.mean, timing_dict, is_leaf=lambda x: isinstance(x, list))
-
             eval_queue.put((episode_metrics, train_metrics, learner_state, timing_dict))
 
     return learner_rollout
@@ -436,6 +463,7 @@ def get_learner_thread(
     pipeline: Pipeline,
     params_sources: Sequence[ParamsSource],
 ):
+    """Get the learner thread that is used to update the networks."""
 
     learner_rollout_fn = get_learner_rollout_fn(learn, config, eval_queue, pipeline, params_sources)
 
@@ -454,8 +482,9 @@ def learner_setup(
     learner_devices: Sequence[jax.Device],
     config: DictConfig,
 ) -> Tuple[LearnerFn[LearnerState], Actor, LearnerState]:
-
-    # Create a single environment to get the observation and action shapes.
+    """Setup for the learner state and networks."""
+    
+    # Create a single environment just to get the observation and action specs.
     env = env_factory(num_envs=1)
     # Get number/dimension of actions.
     num_actions = int(env.action_spec().num_values)
@@ -507,7 +536,8 @@ def learner_setup(
 
     # Pack params.
     params = ActorCriticParams(actor_params, critic_params)
-
+    
+    # Extract apply functions.
     actor_network_apply_fn = actor_network.apply
     critic_network_apply_fn = critic_network.apply
 
@@ -530,11 +560,11 @@ def learner_setup(
         # Update the params
         params = restored_params
 
-    # Define params to be replicated across devices and batches.
+    # Define params to be replicated across learner devices.
     opt_states = ActorCriticOptStates(actor_opt_state, critic_opt_state)
     replicate_learner = (params, opt_states)
 
-    # Duplicate learner across devices.
+    # Duplicate across learner devices.
     replicate_learner = flax.jax_utils.replicate(replicate_learner, devices=learner_devices)
 
     # Initialise learner state.
@@ -699,27 +729,27 @@ def run_experiment(_config: DictConfig) -> float:
 
         logger.log(train_metrics, t, eval_step, LogEvent.TRAIN)
 
-        unreplicated_actor_params = unreplicate(learner_state.params.actor_params)
-        key, eval_key = jax.random.split(key, 2)
-        eval_metrics = evaluator(unreplicated_actor_params, eval_key)
-        logger.log(eval_metrics, t, eval_step, LogEvent.EVAL)
+        # unreplicated_actor_params = unreplicate(learner_state.params.actor_params)
+        # key, eval_key = jax.random.split(key, 2)
+        # eval_metrics = evaluator(unreplicated_actor_params, eval_key)
+        # logger.log(eval_metrics, t, eval_step, LogEvent.EVAL)
 
-        episode_return = jnp.mean(eval_metrics["episode_return"])
+        # episode_return = jnp.mean(eval_metrics["episode_return"])
 
-        if save_checkpoint:
-            # Save checkpoint of learner state
-            checkpointer.save(
-                timestep=steps_per_rollout * (eval_step + 1),
-                unreplicated_learner_state=learner_state,
-                episode_return=episode_return,
-            )
+        # if save_checkpoint:
+        #     # Save checkpoint of learner state
+        #     checkpointer.save(
+        #         timestep=steps_per_rollout * (eval_step + 1),
+        #         unreplicated_learner_state=learner_state,
+        #         episode_return=episode_return,
+        #     )
 
-        if config.arch.absolute_metric and max_episode_return <= episode_return:
-            best_params = copy.deepcopy(unreplicated_actor_params)
-            max_episode_return = episode_return
+        # if config.arch.absolute_metric and max_episode_return <= episode_return:
+        #     best_params = copy.deepcopy(unreplicated_actor_params)
+        #     max_episode_return = episode_return
 
-    evaluator_envs.close()
-    eval_performance = float(jnp.mean(eval_metrics[config.env.eval_metric]))
+    # evaluator_envs.close()
+    # eval_performance = float(jnp.mean(eval_metrics[config.env.eval_metric]))
 
     # Make sure all of the Threads are closed.
     actors_lifetime.stop()
@@ -750,7 +780,7 @@ def run_experiment(_config: DictConfig) -> float:
     # Stop the logger.
     logger.stop()
 
-    return eval_performance
+    # return eval_performance
 
 
 @hydra.main(config_path="../../../configs", config_name="default_ff_ppo.yaml", version_base="1.2")
