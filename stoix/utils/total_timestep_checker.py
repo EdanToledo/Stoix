@@ -7,14 +7,14 @@ def check_total_timesteps(config: DictConfig) -> DictConfig:
 
     # Check if the number of devices is set in the config
     # If not, it is assumed that the number of devices is 1
-    # For the case of using a sebulba config, the number of 
+    # For the case of using a sebulba config, the number of
     # devices is set to 1 for the calculation
     # of the number of environments per device, etc
     if "num_devices" not in config:
         num_devices = 1
     else:
         num_devices = num_devices
-    # If update_batch_size is not in the config, usualyl this means a sebulba config is being used.
+    # If update_batch_size is not in the config, usually this means a sebulba config is being used.
     if "update_batch_size" not in config.arch:
         update_batch_size = 1
     else:

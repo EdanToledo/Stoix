@@ -1,16 +1,10 @@
-import sys
-import traceback
-import warnings
-from multiprocessing import Queue
-from multiprocessing.connection import Connection
-from typing import Any, Callable, Dict, Optional, Tuple, Union
+from typing import Any, Dict, Optional
 
-import envpool
-import jax
 import numpy as np
+from jumanji.specs import Array, DiscreteArray, Spec
 from jumanji.types import StepType, TimeStep
 from numpy.typing import NDArray
-from jumanji.specs import Array, Spec, DiscreteArray
+
 from stoix.base_types import Observation
 
 
@@ -29,7 +23,7 @@ class EnvPoolToJumanji:
         self.running_count_episode_length = np.zeros(self.num_envs, dtype=int)
         self.episode_return = np.zeros(self.num_envs, dtype=float)
         self.episode_length = np.zeros(self.num_envs, dtype=int)
-    
+
     def reset(
         self, *, seed: Optional[list[int]] = None, options: Optional[list[dict]] = None
     ) -> TimeStep:
@@ -38,20 +32,20 @@ class EnvPoolToJumanji:
         ep_done = np.zeros(self.num_envs, dtype=float)
         rewards = np.zeros(self.num_envs, dtype=float)
         terminated = np.zeros(self.num_envs, dtype=float)
-        
+
         # Reset the metrics
         self.running_count_episode_return = np.zeros(self.num_envs, dtype=float)
         self.running_count_episode_length = np.zeros(self.num_envs, dtype=int)
         self.episode_return = np.zeros(self.num_envs, dtype=float)
         self.episode_length = np.zeros(self.num_envs, dtype=int)
-        
+
         # Create the metrics dict
         metrics = {
             "episode_return": np.zeros(self.num_envs, dtype=float),
             "episode_length": np.zeros(self.num_envs, dtype=int),
             "is_terminal_step": np.zeros(self.num_envs, dtype=bool),
         }
-        
+
         info["metrics"] = metrics
 
         timestep = self._create_timestep(obs, ep_done, terminated, rewards, info)
@@ -62,13 +56,13 @@ class EnvPoolToJumanji:
         obs, rewards, terminated, truncated, info = self.env.step(action)
         ep_done = np.logical_or(terminated, truncated)
         not_done = 1 - ep_done
-        
+
         # Counting episode return and length.
         if "reward" in info:
             metric_reward = info["reward"]
         else:
             metric_reward = rewards
-            
+
         # Counting episode return and length.
         new_episode_return = self.running_count_episode_return + metric_reward
         new_episode_length = self.running_count_episode_length + 1
@@ -85,11 +79,11 @@ class EnvPoolToJumanji:
         info["metrics"] = metrics
 
         # Update the metrics
-        self.running_count_episode_return=new_episode_return * not_done
-        self.running_count_episode_length=new_episode_length * not_done
-        self.episode_return=episode_return_info
-        self.episode_length=episode_length_info
-        
+        self.running_count_episode_return = new_episode_return * not_done
+        self.running_count_episode_length = new_episode_length * not_done
+        self.episode_return = episode_return_info
+        self.episode_length = episode_length_info
+
         timestep = self._create_timestep(obs, ep_done, terminated, rewards, info)
 
         return timestep
@@ -112,7 +106,7 @@ class EnvPoolToJumanji:
             observation=obs,
             extras=extras,
         )
-        
+
     def observation_spec(self) -> Spec:
         agent_view_spec = Array(shape=self.obs_shape, dtype=float)
         return Spec(
@@ -125,6 +119,6 @@ class EnvPoolToJumanji:
 
     def action_spec(self) -> Spec:
         return DiscreteArray(num_values=self.num_actions)
-    
+
     def close(self) -> None:
         self.env.close()

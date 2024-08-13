@@ -1,6 +1,5 @@
 import copy
 import threading
-import time
 from collections import defaultdict
 from queue import Queue
 from typing import Any, Dict, List, Sequence, Tuple
@@ -15,7 +14,6 @@ import optax
 from colorama import Fore, Style
 from flax.core.frozen_dict import FrozenDict
 from flax.jax_utils import unreplicate
-from jumanji.env import Environment
 from omegaconf import DictConfig, OmegaConf
 from rich.pretty import pprint
 
@@ -24,29 +22,19 @@ from stoix.base_types import (
     ActorCriticOptStates,
     ActorCriticParams,
     CriticApply,
-    EnvFactory,
     ExperimentOutput,
     LearnerFn,
     LearnerState,
-    Observation,
     SebulbaLearnerFn,
 )
-from stoix.evaluator import (
-    evaluator_setup,
-    get_distribution_act_fn,
-    get_sebulba_eval_fn,
-)
+from stoix.evaluator import get_distribution_act_fn, get_sebulba_eval_fn
 from stoix.networks.base import FeedForwardActor as Actor
 from stoix.networks.base import FeedForwardCritic as Critic
 from stoix.systems.ppo.ppo_types import PPOTransition
 from stoix.utils import make_env as environments
 from stoix.utils.checkpointing import Checkpointer
-from stoix.utils.env_factory import EnvPoolFactory, GymnasiumFactory
-from stoix.utils.jax_utils import (
-    merge_leading_dims,
-    unreplicate_batch_dim,
-    unreplicate_n_dims,
-)
+from stoix.utils.env_factory import EnvFactory
+from stoix.utils.jax_utils import merge_leading_dims
 from stoix.utils.logger import LogEvent, StoixLogger
 from stoix.utils.loss import clipped_value_loss, ppo_clip_loss
 from stoix.utils.multistep import batch_truncated_generalized_advantage_estimation
@@ -78,7 +66,9 @@ def get_rollout_fn(
     critic_apply_fn = jax.jit(critic_apply_fn, device=actor_device)
     cpu = jax.devices("cpu")[0]
     split_key_fn = jax.jit(jax.random.split, device=actor_device)
-    move_to_device = lambda tree: jax.tree_map(lambda x: jax.device_put(x, actor_device), tree)
+    move_to_device = lambda tree: jax.tree_util.tree_map(
+        lambda x: jax.device_put(x, actor_device), tree
+    )
     move_to_device = jax.jit(move_to_device)
     # Build the environments
     envs = env_factory(config.arch.actor.envs_per_actor)
@@ -115,7 +105,7 @@ def get_rollout_fn(
                         cached_next_dones = move_to_device(next_dones)
                         cached_next_trunc = move_to_device(next_trunc)
 
-                        # Run the actor and critic networks to get the action, value and log_prob
+                        # Run the actor and critic networks to get the action, value and log_prob
                         with RecordTimeTo(timings_dict["compute_action_time"]):
                             rng_key, policy_key = split_key_fn(rng_key)
                             pi = actor_apply_fn(params.actor_params, cached_next_obs)
@@ -126,7 +116,7 @@ def get_rollout_fn(
                         # Move the action to the CPU
                         with RecordTimeTo(timings_dict["put_action_on_cpu_time"]):
                             action_cpu = np.asarray(jax.device_put(action, cpu))
-                        
+
                         # Step the environment
                         with RecordTimeTo(timings_dict["env_step_time"]):
                             timestep = envs.step(action_cpu)
@@ -158,8 +148,8 @@ def get_rollout_fn(
                 # Send the trajectory to the pipeline
                 with RecordTimeTo(timings_dict["rollout_put_time"]):
                     pipeline.put(traj, timestep, timings_dict)
-            
-            # Close the environments
+
+            # Close the environments
             envs.close()
 
     return rollout_fn
@@ -205,7 +195,7 @@ def get_learner_update_fn(
     update_fns: Tuple[optax.TransformUpdateFn, optax.TransformUpdateFn],
     config: DictConfig,
 ) -> SebulbaLearnerFn[LearnerState, PPOTransition]:
-    """Get the learner update function which is used to update the actor and critic networks. 
+    """Get the learner update function which is used to update the actor and critic networks.
     This function is used by the learner thread to update the networks."""
 
     # Get apply and update functions for actor and critic networks.
@@ -407,11 +397,11 @@ def get_learner_rollout_fn(
     pipeline: Pipeline,
     params_sources: Sequence[ParamsSource],
 ):
-    """Get the learner rollout function that is used by the learner thread to update the networks. 
+    """Get the learner rollout function that is used by the learner thread to update the networks.
     This function is what is actually run by the learner thread. It gets the data from the pipeline and
-    uses the learner update function to update the networks. It then sends these intermediate network parameters 
+    uses the learner update function to update the networks. It then sends these intermediate network parameters
     to a queue for evaluation."""
-    
+
     def learner_rollout(learner_state: LearnerState) -> None:
         # Loop for the total number of evaluations selected to be performed.
         for _ in range(config.arch.num_evaluation):
@@ -419,7 +409,7 @@ def get_learner_rollout_fn(
             metrics: List[Tuple[Dict, Dict]] = []
             rollout_times: List[Dict] = []
             learn_timings: Dict[str, List[float]] = defaultdict(list)
-            # Loop for the number of updates per evaluation
+            # Loop for the number of updates per evaluation
             for _ in range(config.arch.num_updates_per_eval):
                 # Get the trajectory batch from the pipeline
                 # This is blocking so it will wait until the pipeline has data.
@@ -429,15 +419,15 @@ def get_learner_rollout_fn(
                 # This means the learner has access to the entire trajectory as well as an additional timestep
                 # which it can use to bootstrap.
                 learner_state = learner_state._replace(timestep=timestep)
-                # We then call the update function to update the networks
+                # We then call the update function to update the networks
                 with RecordTimeTo(learn_timings["learning_time"]):
                     learner_state, episode_metrics, train_metrics = learn(learner_state, traj_batch)
 
                 # We store the metrics and timings for this update
                 metrics.append((episode_metrics, train_metrics))
                 rollout_times.append(rollout_time)
-                
-                # After the update we need to update the params sources with the new params 
+
+                # After the update we need to update the params sources with the new params
                 unreplicated_params = unreplicate(learner_state.params)
                 # We loop over all params sources and update them with the new params
                 # This is so that all the actors can get the latest params
@@ -483,7 +473,7 @@ def learner_setup(
     config: DictConfig,
 ) -> Tuple[LearnerFn[LearnerState], Actor, LearnerState]:
     """Setup for the learner state and networks."""
-    
+
     # Create a single environment just to get the observation and action specs.
     env = env_factory(num_envs=1)
     # Get number/dimension of actions.
@@ -536,7 +526,7 @@ def learner_setup(
 
     # Pack params.
     params = ActorCriticParams(actor_params, critic_params)
-    
+
     # Extract apply functions.
     actor_network_apply_fn = actor_network.apply
     critic_network_apply_fn = critic_network.apply
@@ -579,17 +569,17 @@ def learner_setup(
 def run_experiment(_config: DictConfig) -> float:
     """Runs experiment."""
     config = copy.deepcopy(_config)
-    
+
     # Perform some checks on the config
     # This additionally calculates certains
     # values based on the config
     config = check_total_timesteps(config)
-    
+
     assert (
         config.arch.num_updates > config.arch.num_evaluation
     ), "Number of updates per evaluation must be less than total number of updates."
-    
-    # Calculate the number of updates per evaluation
+
+    # Calculate the number of updates per evaluation
     config.arch.num_updates_per_eval = int(config.arch.num_updates // config.arch.num_evaluation)
 
     # Get the learner and actor devices
@@ -598,7 +588,7 @@ def run_experiment(_config: DictConfig) -> float:
     assert len(local_devices) == len(
         global_devices
     ), "Local and global devices must be the same for now. We dont support multihost just yet"
-    # Extract the actor and learner devices
+    # Extract the actor and learner devices
     actor_devices = [local_devices[device_id] for device_id in config.arch.actor.device_ids]
     local_learner_devices = [
         local_devices[device_id] for device_id in config.arch.learner.device_ids
@@ -607,13 +597,15 @@ def run_experiment(_config: DictConfig) -> float:
     print(
         f"{Fore.GREEN}{Style.BRIGHT}[Sebulba] Learner devices: {local_learner_devices}{Style.RESET_ALL}"
     )
-    # Set the number of learning and acting devices in the config
+    # Set the number of learning and acting devices in the config
     # useful for keeping track of experimental setup
     config.num_learning_devices = len(local_learner_devices)
     config.num_actor_actor_devices = len(actor_devices)
 
     # Calculate the number of envs per actor
-    assert config.arch.num_envs == config.arch.total_num_envs, ("arch.num_envs must equal arch.total_num_envs for Sebulba architectures")
+    assert (
+        config.arch.num_envs == config.arch.total_num_envs
+    ), "arch.num_envs must equal arch.total_num_envs for Sebulba architectures"
     # We first simply take the total number of envs and divide by the number of actor devices
     # to get the number of envs per actor device
     num_envs_per_actor_device = config.arch.total_num_envs // len(actor_devices)
@@ -629,11 +621,10 @@ def run_experiment(_config: DictConfig) -> float:
     ), "The number of envs per actor must be divisible by the number of learner devices"
 
     # Create the environment factory.
-    # env_factory = EnvPoolFactory(
-    #     "CartPole-v1",
-    #     config.arch.seed
-    # )
-    env_factory = GymnasiumFactory("CartPole-v1")
+    env_factory = environments.make(config)
+    assert isinstance(
+        env_factory, EnvFactory
+    ), "Environment factory must be an instance of EnvFactory"
 
     # PRNG keys.
     key, key_e, actor_net_key, critic_net_key = jax.random.split(
@@ -654,6 +645,7 @@ def run_experiment(_config: DictConfig) -> float:
         np_rng,
         absolute_metric=False,
     )
+    evaluator_envs.close()
 
     # Logger setup
     logger = StoixLogger(config)

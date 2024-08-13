@@ -396,7 +396,7 @@ def get_sebulba_eval_fn(
         )
 
     def eval_fn(params: FrozenDict, key: chex.PRNGKey) -> Dict:
-        """Evaluates the given params on an environment and returns relevent metrics.
+        """Evaluates the given params on an environment and returns relevant metrics.
 
         Metrics are collected by the `RecordEpisodeMetrics` wrapper: episode return and length,
         also win rate for environments that support it.
@@ -431,7 +431,7 @@ def get_sebulba_eval_fn(
             # care about subsequent steps because we only the results from the first episode
             done_idx = np.argmax(timesteps.last(), axis=0)
             metrics = jax.tree_map(lambda m: m[done_idx, np.arange(n_parallel_envs)], metrics)
-            del metrics["is_terminal_step"]  # uneeded for logging
+            del metrics["is_terminal_step"]  # unneeded for logging
 
             return key, metrics
 

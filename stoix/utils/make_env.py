@@ -1,5 +1,5 @@
 import copy
-from typing import Tuple
+from typing import Tuple, Union
 
 import gymnax
 import hydra
@@ -25,6 +25,7 @@ from popjym.registration import REGISTERED_ENVS as POPJYM_REGISTRY
 from xminigrid.registration import _REGISTRY as XMINIGRID_REGISTRY
 
 from stoix.utils.debug_env import IdentityGame, SequenceGame
+from stoix.utils.env_factory import EnvFactory, EnvPoolFactory, GymnasiumFactory
 from stoix.wrappers import GymnaxWrapper, JumanjiWrapper, RecordEpisodeMetrics
 from stoix.wrappers.brax import BraxJumanjiWrapper
 from stoix.wrappers.jaxmarl import JaxMarlWrapper, MabraxWrapper, SmaxWrapper
@@ -371,7 +372,21 @@ def make_navix_env(env_name: str, config: DictConfig) -> Tuple[Environment, Envi
     return env, eval_env
 
 
-def make(config: DictConfig) -> Tuple[Environment, Environment]:
+def make_gymnasium_factory(env_name: str, config: DictConfig) -> GymnasiumFactory:
+
+    env_factory = GymnasiumFactory(env_name, init_seed=config.arch.seed, **config.env.kwargs)
+
+    return env_factory
+
+
+def make_envpool_factory(env_name: str, config: DictConfig) -> EnvPoolFactory:
+
+    env_factory = EnvPoolFactory(env_name, init_seed=config.arch.seed, **config.env.kwargs)
+
+    return env_factory
+
+
+def make(config: DictConfig) -> Union[EnvFactory, Tuple[Environment, Environment]]:
     """
     Create environments for training and evaluation..
 
@@ -379,11 +394,16 @@ def make(config: DictConfig) -> Tuple[Environment, Environment]:
         config (Dict): The configuration of the environment.
 
     Returns:
-        A tuple of the environments.
+        training and evaluation environments or a factory to create them.
     """
     env_name = config.env.scenario.name
+    suite_name = config.env.env_name
 
-    if env_name in gymnax_environments:
+    if "envpool" in suite_name:
+        return make_envpool_factory(env_name, config)
+    elif "gymnasium" in suite_name:
+        return make_gymnasium_factory(env_name, config)
+    elif env_name in gymnax_environments:
         envs = make_gymnax_env(env_name, config)
     elif env_name in JUMANJI_REGISTRY:
         envs = make_jumanji_env(env_name, config)

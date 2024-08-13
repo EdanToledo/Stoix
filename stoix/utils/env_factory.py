@@ -13,8 +13,8 @@ class EnvFactory(abc.ABC):
     """
     Abstract class to create environments
     """
-    
-    def __init__(self, task_id : str, init_seed: int = 42, **kwargs: Any):
+
+    def __init__(self, task_id: str, init_seed: int = 42, **kwargs: Any):
         self.task_id = task_id
         self.seed = init_seed
         # a lock is needed because this object will be used from different threads.
@@ -36,13 +36,23 @@ class EnvPoolFactory(EnvFactory):
         with self.lock:
             seed = self.seed
             self.seed += num_envs
-            return EnvPoolToJumanji(envpool.make(task_id=self.task_id, env_type="gymnasium", num_envs=num_envs, seed=seed, gym_reset_return_info=True, **self.kwargs))
+            return EnvPoolToJumanji(
+                envpool.make(
+                    task_id=self.task_id,
+                    env_type="gymnasium",
+                    num_envs=num_envs,
+                    seed=seed,
+                    gym_reset_return_info=True,
+                    **self.kwargs
+                )
+            )
+
 
 class GymnasiumFactory(EnvFactory):
     """
     Create environments using gymnasium
     """
-    
+
     def __call__(self, num_envs: int) -> Any:
         with self.lock:
             vec_env = gymnasium.make_vec(id=self.task_id, num_envs=num_envs, **self.kwargs)

@@ -1,18 +1,17 @@
-from typing import Any, Callable, Dict, Optional, Tuple, Union
+from typing import Dict, Optional
 
 import gymnasium
-import jax
 import numpy as np
+from jumanji.specs import Array, DiscreteArray, Spec
 from jumanji.types import StepType, TimeStep
 from numpy.typing import NDArray
-from jumanji.specs import Array, Spec, DiscreteArray
 
 from stoix.base_types import Observation
 
 
 class VecGymToJumanji:
     """Converts from a Vectorised Gymnasium environment to Jumanji's API."""
-    
+
     def __init__(self, env: gymnasium.vector.AsyncVectorEnv):
         self.env = env
         self.num_envs = int(self.env.num_envs)
@@ -30,7 +29,7 @@ class VecGymToJumanji:
         self.running_count_episode_length = np.zeros(self.num_envs, dtype=int)
         self.episode_return = np.zeros(self.num_envs, dtype=float)
         self.episode_length = np.zeros(self.num_envs, dtype=int)
-        
+
     def reset(
         self, *, seed: Optional[list[int]] = None, options: Optional[list[dict]] = None
     ) -> TimeStep:
@@ -39,20 +38,20 @@ class VecGymToJumanji:
         ep_done = np.zeros(self.num_envs, dtype=float)
         rewards = np.zeros(self.num_envs, dtype=float)
         terminated = np.zeros(self.num_envs, dtype=float)
-        
+
         # Reset the metrics
         self.running_count_episode_return = np.zeros(self.num_envs, dtype=float)
         self.running_count_episode_length = np.zeros(self.num_envs, dtype=int)
         self.episode_return = np.zeros(self.num_envs, dtype=float)
         self.episode_length = np.zeros(self.num_envs, dtype=int)
-        
+
         # Create the metrics dict
         metrics = {
             "episode_return": np.zeros(self.num_envs, dtype=float),
             "episode_length": np.zeros(self.num_envs, dtype=int),
             "is_terminal_step": np.zeros(self.num_envs, dtype=bool),
         }
-        
+
         info["metrics"] = metrics
 
         timestep = self._create_timestep(obs, ep_done, terminated, rewards, info)
@@ -67,7 +66,7 @@ class VecGymToJumanji:
         truncated = np.asarray(truncated)
         ep_done = np.logical_or(terminated, truncated)
         not_done = 1 - ep_done
-        
+
         # Counting episode return and length.
         new_episode_return = self.running_count_episode_return + rewards
         new_episode_length = self.running_count_episode_length + 1
@@ -84,10 +83,10 @@ class VecGymToJumanji:
         info["metrics"] = metrics
 
         # Update the metrics
-        self.running_count_episode_return=new_episode_return * not_done
-        self.running_count_episode_length=new_episode_length * not_done
-        self.episode_return=episode_return_info
-        self.episode_length=episode_length_info
+        self.running_count_episode_return = new_episode_return * not_done
+        self.running_count_episode_length = new_episode_length * not_done
+        self.episode_return = episode_return_info
+        self.episode_length = episode_length_info
 
         timestep = self._create_timestep(obs, ep_done, terminated, rewards, info)
 
@@ -111,7 +110,7 @@ class VecGymToJumanji:
             observation=obs,
             extras=extras,
         )
-        
+
     def observation_spec(self) -> Spec:
         agent_view_spec = Array(shape=self.obs_shape, dtype=float)
         return Spec(

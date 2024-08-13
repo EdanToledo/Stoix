@@ -6,7 +6,6 @@ from typing import Any, Dict, List, Sequence, Tuple, Union
 import jax
 import jax.numpy as jnp
 from jumanji.types import TimeStep
-from omegaconf import DictConfig
 
 from stoix.base_types import Parameters, StoixTransition
 
