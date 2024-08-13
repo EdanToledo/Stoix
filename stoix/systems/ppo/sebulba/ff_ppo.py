@@ -142,6 +142,16 @@ def get_rollout_fn(
                         # Append PPOTransition to the trajectory list
                         reward = timestep.reward
                         info = timestep.extras
+                        print(PPOTransition(
+                                cached_next_dones,
+                                cached_next_trunc,
+                                action,
+                                value,
+                                reward,
+                                log_prob,
+                                cached_next_obs,
+                                info,
+                            ))
                         traj.append(
                             PPOTransition(
                                 cached_next_dones,
@@ -579,10 +589,17 @@ def learner_setup(
 def run_experiment(_config: DictConfig) -> float:
     """Runs experiment."""
     config = copy.deepcopy(_config)
+    
+    # Perform some checks on the config
+    # This additionally calculates certains
+    # values based on the config
     config = check_total_timesteps(config)
+    
     assert (
         config.arch.num_updates > config.arch.num_evaluation
     ), "Number of updates per evaluation must be less than total number of updates."
+    
+    # Calculate the number of updates per evaluation
     config.arch.num_updates_per_eval = int(config.arch.num_updates // config.arch.num_evaluation)
 
     # Get the learner and actor devices
@@ -591,7 +608,7 @@ def run_experiment(_config: DictConfig) -> float:
     assert len(local_devices) == len(
         global_devices
     ), "Local and global devices must be the same for now. We dont support multihost just yet"
-
+    # Extract the actor and learner devices
     actor_devices = [local_devices[device_id] for device_id in config.arch.actor.device_ids]
     local_learner_devices = [
         local_devices[device_id] for device_id in config.arch.learner.device_ids
@@ -600,25 +617,33 @@ def run_experiment(_config: DictConfig) -> float:
     print(
         f"{Fore.GREEN}{Style.BRIGHT}[Sebulba] Learner devices: {local_learner_devices}{Style.RESET_ALL}"
     )
-
+    # Set the number of learning and acting devices in the config
+    # useful for keeping track of experimental setup
     config.num_learning_devices = len(local_learner_devices)
     config.num_actor_actor_devices = len(actor_devices)
 
     # Calculate the number of envs per actor
+    assert config.arch.num_envs == config.arch.total_num_envs, ("arch.num_envs must equal arch.total_num_envs for Sebulba architectures")
+    # We first simply take the total number of envs and divide by the number of actor devices
+    # to get the number of envs per actor device
     num_envs_per_actor_device = config.arch.total_num_envs // len(actor_devices)
+    # We then divide this by the number of actors per device to get the number of envs per actor
     num_envs_per_actor = num_envs_per_actor_device // config.arch.actor.actor_per_device
     config.arch.actor.envs_per_actor = num_envs_per_actor
 
+    # We then perform a simple check to ensure that the number of envs per actor is divisible by the number of learner devices
+    # This is because we shard the envs per actor across the learner devices
+    # This check is mainly relevant for on-policy algorithms
     assert (
         num_envs_per_actor % len(local_learner_devices) == 0
     ), "The number of envs per actor must be divisible by the number of learner devices"
 
-    # Create the environments for train and eval.
-    env_factory = EnvPoolFactory(
-        "CartPole-v1",
-        config.arch.seed
-    )
-    # env_factory = GymnasiumFactory("CartPole-v1")
+    # Create the environment factory.
+    # env_factory = EnvPoolFactory(
+    #     "CartPole-v1",
+    #     config.arch.seed
+    # )
+    env_factory = GymnasiumFactory("CartPole-v1")
 
     # PRNG keys.
     key, key_e, actor_net_key, critic_net_key = jax.random.split(

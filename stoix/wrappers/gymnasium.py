@@ -1,8 +1,3 @@
-import sys
-import traceback
-import warnings
-from multiprocessing import Queue
-from multiprocessing.connection import Connection
 from typing import Any, Callable, Dict, Optional, Tuple, Union
 
 import gymnasium
@@ -14,124 +9,51 @@ from jumanji.specs import Array, Spec, DiscreteArray
 
 from stoix.base_types import Observation
 
-# Filter out the warnings
-warnings.filterwarnings("ignore", module="gymnasium.utils.passive_env_checker")
 
-
-class GymnasiumWrapper(gymnasium.Wrapper):
-    """Base wrapper for gymnasium environments."""
-
-    def __init__(
-        self,
-        env: gymnasium.Env,
-    ):
-        """Initialise the gym wrapper
-        Args:
-            env (gymnasium.env): gymnasium env instance.
-        """
-        super().__init__(env)
-        self._env = env
-        if isinstance(self._env.action_space, gymnasium.spaces.Discrete):
-            self.num_actions = self._env.action_space.n
-        else:
-            self.num_actions = self._env.action_space.shape[0]
-
-        self.default_action_mask = np.ones(self.num_actions, dtype=np.float32)
-
-    def reset(
-        self, *, seed: int | None = None, options: dict[str, Any] | None = None
-    ) -> Tuple[NDArray, Dict]:
-
-        agents_view, info = self._env.reset(seed=seed, options=options)
-
-        return np.array(agents_view), info
-
-    def step(self, actions: NDArray) -> Tuple[NDArray, NDArray, NDArray, NDArray, Dict]:
-        agents_view, reward, terminated, truncated, info = self._env.step(actions)
-
-        agents_view = np.asarray(agents_view)
-        reward = np.asarray(reward)
-        terminated = np.asarray(terminated)
-        truncated = np.asarray(truncated)
-
-        return agents_view, reward, terminated, truncated, info
-
-
-class GymRecordEpisodeMetrics(gymnasium.Wrapper):
-    """Record the episode returns and lengths."""
-
-    def __init__(self, env: gymnasium.Env):
-        super().__init__(env)
-        self._env = env
-        self.running_count_episode_return = 0.0
-        self.running_count_episode_length = 0.0
-
-    def reset(
-        self, *, seed: int | None = None, options: dict[str, Any] | None = None
-    ) -> Tuple[NDArray, Dict]:
-        agents_view, info = self._env.reset(seed=seed, options=options)
-
-        # Create the metrics dict
-        metrics = {
-            "episode_return": self.running_count_episode_return,
-            "episode_length": self.running_count_episode_length,
-            "is_terminal_step": True,
-        }
-
-        # Reset the metrics
-        self.running_count_episode_return = 0.0
-        self.running_count_episode_length = 0
-
-        if "won_episode" in info:
-            metrics["won_episode"] = info["won_episode"]
-
-        info["metrics"] = metrics
-
-        return agents_view, info
-
-    def step(self, actions: NDArray) -> Tuple[NDArray, NDArray, NDArray, NDArray, Dict]:
-        agents_view, reward, terminated, truncated, info = self._env.step(actions)
-
-        self.running_count_episode_return += reward
-        self.running_count_episode_length += 1
-
-        metrics = {
-            "episode_return": self.running_count_episode_return,
-            "episode_length": self.running_count_episode_length,
-            "is_terminal_step": False,
-        }
-        if "won_episode" in info:
-            metrics["won_episode"] = info["won_episode"]
-
-        info["metrics"] = metrics
-
-        return agents_view, reward, terminated, truncated, info
-
-
-class GymToJumanji(gymnasium.Wrapper):
-    """Converts from the Gym API to the dm_env API, using Jumanji's Timestep type."""
+class VecGymToJumanji:
+    """Converts from a Vectorised Gymnasium environment to Jumanji's API."""
     
     def __init__(self, env: gymnasium.vector.AsyncVectorEnv):
-        super().__init__(env)
         self.env = env
-        self.num_envs = self.env.num_envs
+        self.num_envs = int(self.env.num_envs)
         if isinstance(self.env.single_action_space, gymnasium.spaces.Discrete):
             self.num_actions = self.env.single_action_space.n
+            self.discrete = True
         else:
             self.num_actions = self.env.single_action_space.shape[0]
+            self.discrete = False
         self.obs_shape = self.env.single_observation_space.shape
-        self.default_action_mask = np.ones((self.num_envs, self.num_actions), dtype=np.float32)
-    
+        self._default_action_mask = np.ones((self.num_envs, self.num_actions), dtype=np.float32)
+
+        # Create the metrics
+        self.running_count_episode_return = np.zeros(self.num_envs, dtype=float)
+        self.running_count_episode_length = np.zeros(self.num_envs, dtype=int)
+        self.episode_return = np.zeros(self.num_envs, dtype=float)
+        self.episode_length = np.zeros(self.num_envs, dtype=int)
+        
     def reset(
-        self, seed: Optional[list[int]] = None, options: Optional[list[dict]] = None
+        self, *, seed: Optional[list[int]] = None, options: Optional[list[dict]] = None
     ) -> TimeStep:
         obs, info = self.env.reset(seed=seed, options=options)
-
-        num_envs = int(self.env.num_envs)
-
-        ep_done = np.zeros(num_envs, dtype=float)
-        rewards = np.zeros(num_envs, dtype=float)
-        terminated = np.zeros(num_envs, dtype=float)
+        obs = np.asarray(obs)
+        ep_done = np.zeros(self.num_envs, dtype=float)
+        rewards = np.zeros(self.num_envs, dtype=float)
+        terminated = np.zeros(self.num_envs, dtype=float)
+        
+        # Reset the metrics
+        self.running_count_episode_return = np.zeros(self.num_envs, dtype=float)
+        self.running_count_episode_length = np.zeros(self.num_envs, dtype=int)
+        self.episode_return = np.zeros(self.num_envs, dtype=float)
+        self.episode_length = np.zeros(self.num_envs, dtype=int)
+        
+        # Create the metrics dict
+        metrics = {
+            "episode_return": np.zeros(self.num_envs, dtype=float),
+            "episode_length": np.zeros(self.num_envs, dtype=int),
+            "is_terminal_step": np.zeros(self.num_envs, dtype=bool),
+        }
+        
+        info["metrics"] = metrics
 
         timestep = self._create_timestep(obs, ep_done, terminated, rewards, info)
 
@@ -139,15 +61,40 @@ class GymToJumanji(gymnasium.Wrapper):
 
     def step(self, action: list) -> TimeStep:
         obs, rewards, terminated, truncated, info = self.env.step(action)
-
+        obs = np.asarray(obs)
+        rewards = np.asarray(rewards)
+        terminated = np.asarray(terminated)
+        truncated = np.asarray(truncated)
         ep_done = np.logical_or(terminated, truncated)
+        not_done = 1 - ep_done
+        
+        # Counting episode return and length.
+        new_episode_return = self.running_count_episode_return + rewards
+        new_episode_length = self.running_count_episode_length + 1
+
+        # Previous episode return/length until done and then the next episode return.
+        episode_return_info = self.episode_return * not_done + new_episode_return * ep_done
+        episode_length_info = self.episode_length * not_done + new_episode_length * ep_done
+
+        metrics = {
+            "episode_return": episode_return_info,
+            "episode_length": episode_length_info,
+            "is_terminal_step": ep_done,
+        }
+        info["metrics"] = metrics
+
+        # Update the metrics
+        self.running_count_episode_return=new_episode_return * not_done
+        self.running_count_episode_length=new_episode_length * not_done
+        self.episode_return=episode_return_info
+        self.episode_length=episode_length_info
 
         timestep = self._create_timestep(obs, ep_done, terminated, rewards, info)
 
         return timestep
 
     def _format_observation(self, obs: NDArray, info: Dict) -> Observation:
-        action_mask = self.default_action_mask
+        action_mask = self._default_action_mask
         return Observation(agent_view=obs, action_mask=action_mask)
 
     def _create_timestep(
@@ -176,4 +123,10 @@ class GymToJumanji(gymnasium.Wrapper):
         )
 
     def action_spec(self) -> Spec:
-        return DiscreteArray(num_values=self.num_actions)
+        if self.discrete:
+            return DiscreteArray(num_values=self.num_actions)
+        else:
+            return Array(shape=(self.num_actions,), dtype=float)
+
+    def close(self):
+        self.env.close()

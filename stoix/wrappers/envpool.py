@@ -60,7 +60,6 @@ class EnvPoolToJumanji:
 
     def step(self, action: list) -> TimeStep:
         obs, rewards, terminated, truncated, info = self.env.step(action)
-        # print("shapes", obs.shape, rewards.shape, terminated.shape, truncated.shape)
         ep_done = np.logical_or(terminated, truncated)
         not_done = 1 - ep_done
         

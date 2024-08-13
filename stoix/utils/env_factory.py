@@ -4,10 +4,9 @@ from typing import Any
 
 import envpool
 import gymnasium
-from omegaconf import DictConfig
 
 from stoix.wrappers.envpool import EnvPoolToJumanji
-from stoix.wrappers.gymnasium import GymRecordEpisodeMetrics, GymToJumanji, GymnasiumWrapper
+from stoix.wrappers.gymnasium import VecGymToJumanji
 
 
 class EnvFactory(abc.ABC):
@@ -44,15 +43,7 @@ class GymnasiumFactory(EnvFactory):
     Create environments using gymnasium
     """
     
-    def create_single_gym_env(self) -> gymnasium.Env:
-        env = gymnasium.make(id=self.task_id, **self.kwargs)
-        env = GymnasiumWrapper(env)
-        env = GymRecordEpisodeMetrics(env)
-        return env
-    
     def __call__(self, num_envs: int) -> Any:
         with self.lock:
-            envs = gymnasium.vector.AsyncVectorEnv(
-                [self.create_single_gym_env for _ in range(num_envs)],
-            )
-            return GymToJumanji(envs)
+            vec_env = gymnasium.make_vec(id=self.task_id, num_envs=num_envs, **self.kwargs)
+            return VecGymToJumanji(vec_env)
