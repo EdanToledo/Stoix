@@ -81,7 +81,7 @@ def get_rollout_fn(
     move_to_device = jax.jit(lambda x: jax.device_put(x, actor_device))
 
     # Create the rollout function
-    def rollout(rng: chex.PRNGKey) -> None:
+    def rollout_fn(rng: chex.PRNGKey) -> None:
         with jax.default_device(actor_device):
             # Reset the environment
             timestep = envs.reset(seed=seeds)
@@ -150,7 +150,7 @@ def get_rollout_fn(
 
             envs.close()
 
-    return rollout
+    return rollout_fn
 
 
 def get_actor_thread(

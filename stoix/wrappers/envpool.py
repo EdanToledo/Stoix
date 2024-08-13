@@ -31,7 +31,7 @@ class EnvPoolToJumanji:
         self.episode_length = np.zeros(self.num_envs, dtype=int)
     
     def reset(
-        self, seed: Optional[list[int]] = None, options: Optional[list[dict]] = None
+        self, *, seed: Optional[list[int]] = None, options: Optional[list[dict]] = None
     ) -> TimeStep:
         obs, info = self.env.reset()
 
@@ -47,8 +47,8 @@ class EnvPoolToJumanji:
         
         # Create the metrics dict
         metrics = {
-            "episode_return": self.episode_return,
-            "episode_length": self.episode_length,
+            "episode_return": np.zeros(self.num_envs, dtype=float),
+            "episode_length": np.zeros(self.num_envs, dtype=int),
             "is_terminal_step": np.zeros(self.num_envs, dtype=bool),
         }
         
@@ -60,7 +60,7 @@ class EnvPoolToJumanji:
 
     def step(self, action: list) -> TimeStep:
         obs, rewards, terminated, truncated, info = self.env.step(action)
-
+        # print("shapes", obs.shape, rewards.shape, terminated.shape, truncated.shape)
         ep_done = np.logical_or(terminated, truncated)
         not_done = 1 - ep_done
         
@@ -69,6 +69,8 @@ class EnvPoolToJumanji:
             metric_reward = info["reward"]
         else:
             metric_reward = rewards
+            
+        # Counting episode return and length.
         new_episode_return = self.running_count_episode_return + metric_reward
         new_episode_length = self.running_count_episode_length + 1
 
@@ -76,14 +78,18 @@ class EnvPoolToJumanji:
         episode_return_info = self.episode_return * not_done + new_episode_return * ep_done
         episode_length_info = self.episode_length * not_done + new_episode_length * ep_done
 
-        # Create the metrics dict
         metrics = {
             "episode_return": episode_return_info,
             "episode_length": episode_length_info,
             "is_terminal_step": ep_done,
         }
-        
         info["metrics"] = metrics
+
+        # Update the metrics
+        self.running_count_episode_return=new_episode_return * not_done
+        self.running_count_episode_length=new_episode_length * not_done
+        self.episode_return=episode_return_info
+        self.episode_length=episode_length_info
         
         timestep = self._create_timestep(obs, ep_done, terminated, rewards, info)
 
