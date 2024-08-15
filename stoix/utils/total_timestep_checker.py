@@ -40,7 +40,7 @@ def check_total_timesteps(config: DictConfig) -> DictConfig:
             * config.arch.num_envs
         )
         print(
-            f"{Fore.YELLOW}{Style.BRIGHT} Changing the total number of timesteps "
+            f"{Fore.YELLOW}{Style.BRIGHT}Changing the total number of timesteps "
             + f"to {config.arch.total_timesteps}: If you want to train"
             + " for a specific number of timesteps, please set num_updates to None!"
             + f"{Style.RESET_ALL}"
@@ -54,7 +54,7 @@ def check_total_timesteps(config: DictConfig) -> DictConfig:
             // num_devices
         )
         print(
-            f"{Fore.YELLOW}{Style.BRIGHT} Changing the number of updates "
+            f"{Fore.YELLOW}{Style.BRIGHT}Changing the number of updates "
             + f"to {config.arch.num_updates}: If you want to train"
             + " for a specific number of updates, please set total_timesteps to None!"
             + f"{Style.RESET_ALL}"
