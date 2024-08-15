@@ -395,7 +395,7 @@ def get_sebulba_eval_fn(
     # Warnings if num eval episodes is not divisible by num parallel envs.
     if eval_episodes % n_parallel_envs != 0:
         print(
-            f"{Fore.YELLOW}{Style.BRIGHT} Number of evaluation episodes ({eval_episodes}) is not divisible by `num_envs`. Some extra evaluations will be executed. New number of evaluation episodes = {episode_loops * n_parallel_envs}{Style.RESET_ALL}"
+            f"{Fore.YELLOW}{Style.BRIGHT}Number of evaluation episodes ({eval_episodes}) is not divisible by `num_envs`. Some extra evaluations will be executed. New number of evaluation episodes = {episode_loops * n_parallel_envs}{Style.RESET_ALL}"
         )
 
     def eval_fn(params: FrozenDict, key: chex.PRNGKey) -> Dict:

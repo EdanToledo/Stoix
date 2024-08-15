@@ -797,18 +797,16 @@ def run_experiment(_config: DictConfig) -> float:
     # Now we stop the actors and params sources
     for actor in actor_threads:
         actor.join()
-    print(f"{Fore.CYAN}{Style.BRIGHT}All actors stopped{Style.RESET_ALL}")
-
-    print(f"{Fore.CYAN}{Style.BRIGHT}Learner stopped{Style.RESET_ALL}")
+    
     # Stop the pipeline
     pipeline_lifetime.stop()
     pipeline.join()
-    print(f"{Fore.CYAN}{Style.BRIGHT}Pipeline stopped{Style.RESET_ALL}")
+    
     # Stop the params sources
     params_sources_lifetime.stop()
     for param_source in params_sources:
         param_source.join()
-    print(f"{Fore.CYAN}{Style.BRIGHT}Params sources stopped{Style.RESET_ALL}")
+    
     # Measure absolute metric.
     if config.arch.absolute_metric:
         abs_metric_evaluator, abs_metric_evaluator_envs = get_sebulba_eval_fn(
