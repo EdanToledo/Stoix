@@ -443,3 +443,5 @@ def make_factory(config: DictConfig) -> Union[GymnasiumFactory, EnvPoolFactory]:
         return make_envpool_factory(env_name, config)
     elif "gymnasium" in suite_name:
         return make_gymnasium_factory(env_name, config)
+    else:
+        raise ValueError(f"{suite_name} is not a supported suite.")

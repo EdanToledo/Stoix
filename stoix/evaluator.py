@@ -1,6 +1,6 @@
 import math
 import time
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Callable, Dict, Optional, Tuple, Union
 
 import chex
 import flax.linen as nn
@@ -358,6 +358,8 @@ def evaluator_setup(
 
 ##### THIS IS TEMPORARY
 
+SebulbaEvalFn = Callable[[FrozenDict, chex.PRNGKey], Dict[str, chex.Array]]
+
 
 def get_sebulba_eval_fn(
     env_factory: EnvFactory,
@@ -366,7 +368,7 @@ def get_sebulba_eval_fn(
     np_rng: np.random.Generator,
     device: jax.Device,
     eval_multiplier: float = 1.0,
-) -> Tuple[EvalFn, Any]:
+) -> Tuple[SebulbaEvalFn, Any]:
     """Creates a function that can be used to evaluate agents on a given environment.
 
     Args:

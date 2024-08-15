@@ -25,7 +25,6 @@ from stoix.base_types import (
     ActorCriticParams,
     CriticApply,
     ExperimentOutput,
-    LearnerFn,
     LearnerState,
     Observation,
     SebulbaLearnerFn,
@@ -62,7 +61,7 @@ def get_act_fn(
 
     def actor_fn(
         params: ActorCriticParams, observation: Observation, rng_key: chex.PRNGKey
-    ) -> Tuple[chex.Array, chex.Array]:
+    ) -> Tuple[chex.Array, chex.Array, chex.Array]:
         """Get the action, value and log_prob from the actor and critic networks."""
         rng_key, policy_key = jax.random.split(rng_key)
         pi = actor_apply_fn(params.actor_params, observation)
@@ -83,7 +82,7 @@ def get_rollout_fn(
     config: DictConfig,
     seeds: List[int],
     thread_lifetime: ThreadLifetime,
-):
+) -> Callable[[chex.PRNGKey], None]:
     """Get the rollout function that is used by the actor threads."""
     # Unpack and set up the functions
     act_fn = get_act_fn(apply_fns)
@@ -185,7 +184,7 @@ def get_actor_thread(
     seeds: List[int],
     thread_lifetime: ThreadLifetime,
     name: str,
-):
+) -> threading.Thread:
     """Get the actor thread that once started will collect data from the
     environment and send it to the pipeline."""
     rng_key = jax.device_put(rng_key, actor_device)
@@ -416,7 +415,7 @@ def get_learner_rollout_fn(
     eval_queue: Queue,
     pipeline: Pipeline,
     params_sources: Sequence[ParamsSource],
-):
+) -> Callable[[LearnerState], None]:
     """Get the learner rollout function that is used by the learner thread to update the networks.
     This function is what is actually run by the learner thread. It gets the data from the pipeline
     and uses the learner update function to update the networks. It then sends these intermediate
@@ -434,7 +433,7 @@ def get_learner_rollout_fn(
                 # Get the trajectory batch from the pipeline
                 # This is blocking so it will wait until the pipeline has data.
                 with RecordTimeTo(learn_timings["rollout_get_time"]):
-                    traj_batch, timestep, rollout_time = pipeline.get(block=True)
+                    traj_batch, timestep, rollout_time = pipeline.get(block=True)  # type: ignore
                 # We then replace the timestep in the learner state with the latest timestep
                 # This means the learner has access to the entire trajectory as well as
                 # an additional timestep which it can use to bootstrap.
@@ -473,7 +472,7 @@ def get_learner_thread(
     eval_queue: Queue,
     pipeline: Pipeline,
     params_sources: Sequence[ParamsSource],
-):
+) -> threading.Thread:
     """Get the learner thread that is used to update the networks."""
 
     learner_rollout_fn = get_learner_rollout_fn(learn, config, eval_queue, pipeline, params_sources)
@@ -492,7 +491,9 @@ def learner_setup(
     keys: chex.Array,
     learner_devices: Sequence[jax.Device],
     config: DictConfig,
-) -> Tuple[LearnerFn[LearnerState], Actor, LearnerState]:
+) -> Tuple[
+    SebulbaLearnerFn[LearnerState, PPOTransition], Tuple[ActorApply, CriticApply], LearnerState
+]:
     """Setup for the learner state and networks."""
 
     # Create a single environment just to get the observation and action specs.
