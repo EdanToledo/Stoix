@@ -63,7 +63,7 @@ def get_act_fn(
     def actor_fn(
         params: ActorCriticParams, observation: Observation, rng_key: chex.PRNGKey
     ) -> Tuple[chex.Array, chex.Array]:
-        """Takes in the actor params, observation and rng_key and returns the action, value and log prob."""
+        """Get the action, value and log_prob from the actor and critic networks."""
         rng_key, policy_key = jax.random.split(rng_key)
         pi = actor_apply_fn(params.actor_params, observation)
         value = critic_apply_fn(params.critic_params, observation)
@@ -186,7 +186,8 @@ def get_actor_thread(
     thread_lifetime: ThreadLifetime,
     name: str,
 ):
-    """Get the actor thread that once started will collect data from the environment and send it to the pipeline."""
+    """Get the actor thread that once started will collect data from the
+    environment and send it to the pipeline."""
     rng_key = jax.device_put(rng_key, actor_device)
 
     rollout_fn = get_rollout_fn(
@@ -417,9 +418,9 @@ def get_learner_rollout_fn(
     params_sources: Sequence[ParamsSource],
 ):
     """Get the learner rollout function that is used by the learner thread to update the networks.
-    This function is what is actually run by the learner thread. It gets the data from the pipeline and
-    uses the learner update function to update the networks. It then sends these intermediate network parameters
-    to a queue for evaluation."""
+    This function is what is actually run by the learner thread. It gets the data from the pipeline
+    and uses the learner update function to update the networks. It then sends these intermediate
+    network parameters to a queue for evaluation."""
 
     def learner_rollout(learner_state: LearnerState) -> None:
         # Loop for the total number of evaluations selected to be performed.
@@ -435,8 +436,8 @@ def get_learner_rollout_fn(
                 with RecordTimeTo(learn_timings["rollout_get_time"]):
                     traj_batch, timestep, rollout_time = pipeline.get(block=True)
                 # We then replace the timestep in the learner state with the latest timestep
-                # This means the learner has access to the entire trajectory as well as an additional timestep
-                # which it can use to bootstrap.
+                # This means the learner has access to the entire trajectory as well as
+                # an additional timestep which it can use to bootstrap.
                 learner_state = learner_state._replace(timestep=timestep)
                 # We then call the update function to update the networks
                 with RecordTimeTo(learn_timings["learning_time"]):
@@ -453,8 +454,9 @@ def get_learner_rollout_fn(
                 for source in params_sources:
                     source.update(unreplicated_params)
 
-            # We then pass all the environment metrics, training metrics, current learner state and timings to the evaluation queue
-            # This is so the evaluator correctly evaluates the performance of the networks at this point in time.
+            # We then pass all the environment metrics, training metrics, current learner state
+            # and timings to the evaluation queue. This is so the evaluator correctly evaluates
+            # the performance of the networks at this point in time.
             episode_metrics, train_metrics = jax.tree.map(lambda *x: np.asarray(x), *metrics)
             rollout_times = jax.tree.map(lambda *x: np.mean(x), *rollout_times)
             timing_dict = rollout_times | learn_timings
@@ -614,13 +616,9 @@ def run_experiment(_config: DictConfig) -> float:
     local_learner_devices = [
         local_devices[device_id] for device_id in config.arch.learner.device_ids
     ]
-    print(f"{Fore.BLUE}{Style.BRIGHT}[Sebulba] Actors devices: {actor_devices}{Style.RESET_ALL}")
-    print(
-        f"{Fore.GREEN}{Style.BRIGHT}[Sebulba] Learner devices: {local_learner_devices}{Style.RESET_ALL}"
-    )
-    print(
-        f"{Fore.MAGENTA}{Style.BRIGHT}[Sebulba] Global devices: {global_devices}{Style.RESET_ALL}"
-    )
+    print(f"{Fore.BLUE}{Style.BRIGHT}Actors devices: {actor_devices}{Style.RESET_ALL}")
+    print(f"{Fore.GREEN}{Style.BRIGHT}Learner devices: {local_learner_devices}{Style.RESET_ALL}")
+    print(f"{Fore.MAGENTA}{Style.BRIGHT}Global devices: {global_devices}{Style.RESET_ALL}")
     # Set the number of learning and acting devices in the config
     # useful for keeping track of experimental setup
     config.num_learning_devices = len(local_learner_devices)
@@ -637,15 +635,16 @@ def run_experiment(_config: DictConfig) -> float:
     num_envs_per_actor = int(num_envs_per_actor_device // config.arch.actor.actor_per_device)
     config.arch.actor.envs_per_actor = num_envs_per_actor
 
-    # We then perform a simple check to ensure that the number of envs per actor is divisible by the number of learner devices
-    # This is because we shard the envs per actor across the learner devices
-    # This check is mainly relevant for on-policy algorithms
+    # We then perform a simple check to ensure that the number of envs per actor is
+    # divisible by the number of learner devices. This is because we shard the envs
+    # per actor across the learner devices This check is mainly relevant for on-policy
+    # algorithms
     assert (
         num_envs_per_actor % len(local_learner_devices) == 0
     ), "The number of envs per actor must be divisible by the number of learner devices"
 
     # Create the environment factory.
-    env_factory = environments.make(config)
+    env_factory = environments.make_factory(config)
     assert isinstance(
         env_factory, EnvFactory
     ), "Environment factory must be an instance of EnvFactory"
@@ -706,7 +705,8 @@ def run_experiment(_config: DictConfig) -> float:
     params_sources: List[ParamsSource] = []
     actor_threads: List[threading.Thread] = []
     for actor_device in actor_devices:
-        # Create 1 params source per actor device as this will be used to pass the params to the actors
+        # Create 1 params source per actor device as this will be used
+        # to pass the params to the actors
         params_source = ParamsSource(initial_params, actor_device, params_sources_lifetime)
         params_source.start()
         params_sources.append(params_source)
@@ -797,16 +797,16 @@ def run_experiment(_config: DictConfig) -> float:
     # Now we stop the actors and params sources
     for actor in actor_threads:
         actor.join()
-    
+
     # Stop the pipeline
     pipeline_lifetime.stop()
     pipeline.join()
-    
+
     # Stop the params sources
     params_sources_lifetime.stop()
     for param_source in params_sources:
         param_source.join()
-    
+
     # Measure absolute metric.
     if config.arch.absolute_metric:
         abs_metric_evaluator, abs_metric_evaluator_envs = get_sebulba_eval_fn(

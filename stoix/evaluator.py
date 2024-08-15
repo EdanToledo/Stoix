@@ -1,6 +1,5 @@
 import math
 import time
-import warnings
 from typing import Any, Dict, Optional, Tuple, Union
 
 import chex
@@ -377,7 +376,8 @@ def get_sebulba_eval_fn(
                 and returns actions and optionally a state (see `EvalActFn`).
         config: the system config.
         np_rng: a numpy random number generator.
-        eval_multiplier: a scalar that will increase the number of evaluation episodes by a fixed factor.
+        eval_multiplier: a scalar that will increase the number of evaluation episodes
+            by a fixed factor.
     """
     eval_episodes = config.arch.num_eval_episodes * eval_multiplier
 
@@ -394,9 +394,13 @@ def get_sebulba_eval_fn(
 
     # Warnings if num eval episodes is not divisible by num parallel envs.
     if eval_episodes % n_parallel_envs != 0:
-        print(
-            f"{Fore.YELLOW}{Style.BRIGHT}Number of evaluation episodes ({eval_episodes}) is not divisible by `num_envs`. Some extra evaluations will be executed. New number of evaluation episodes = {episode_loops * n_parallel_envs}{Style.RESET_ALL}"
+        msg = (
+            f"Please note that the number of evaluation episodes ({eval_episodes}) is not "
+            f"evenly divisible by `num_envs`. As a result, some additional evaluations will be "
+            f"conducted. The adjusted number of evaluation episodes is now "
+            f"{episode_loops * n_parallel_envs}."
         )
+        print(f"{Fore.YELLOW}{Style.BRIGHT}{msg}{Style.RESET_ALL}")
 
     def eval_fn(params: FrozenDict, key: chex.PRNGKey) -> Dict:
         """Evaluates the given params on an environment and returns relevant metrics.

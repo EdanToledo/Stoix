@@ -76,13 +76,16 @@ class Pipeline(threading.Thread):
         # [(num_envs / num_learner_devices, ...)] * num_learner_devices
         sharded_timestep = jax.tree.map(self.shard_split_playload, timestep)
 
-        # We block on the put to ensure that actors wait for the learners to catch up. This does two things:
-        # 1. It ensures that the actors don't get too far ahead of the learners, which could lead to off-policy data.
-        # 2. It ensures that the actors don't in a sense "waste" samples and their time by generating samples that
-        #    the learners can't consume.
-        # However, we put a timeout of 90 seconds to avoid deadlocks in case the learner is not consuming the data.
-        # This is a safety measure and should not be hit in normal operation.
-        # We use a try-finally since the lock has to be released even if an exception is raised.
+        # We block on the put to ensure that actors wait for the learners to catch up. This does two
+        # things:
+        # 1. It ensures that the actors don't get too far ahead of the learners, which could lead to
+        # off-policy data.
+        # 2. It ensures that the actors don't in a sense "waste" samples and their time by
+        # generating samples that the learners can't consume.
+        # However, we put a timeout of 90 seconds to avoid deadlocks in case the learner
+        # is not consuming the data. This is a safety measure and should not be hit in normal
+        # operation. We use a try-finally since the lock has to be released even if an exception
+        # is raised.
         try:
             self._queue.put((sharded_traj, sharded_timestep, timings_dict), block=True, timeout=90)
         finally:

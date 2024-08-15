@@ -127,5 +127,5 @@ class VecGymToJumanji:
         else:
             return Array(shape=(self.num_actions,), dtype=float)
 
-    def close(self):
+    def close(self) -> None:
         self.env.close()

@@ -17,7 +17,7 @@ learner:
   device_ids: [1,2] # Define which devices to use for the learner.
 
 # Size of the queue for the pipeline where actors push data and the learner pulls data.
-pipeline_queue_size: 20
+pipeline_queue_size: 10
 
 # --- Evaluation ---
 evaluation_greedy: False # Evaluate the policy greedily. If True the policy will select
