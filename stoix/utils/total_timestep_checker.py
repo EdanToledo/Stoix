@@ -13,12 +13,15 @@ def check_total_timesteps(config: DictConfig) -> DictConfig:
     if "num_devices" not in config:
         num_devices = 1
     else:
-        num_devices = num_devices
+        num_devices = config.num_devices
+
     # If update_batch_size is not in the config, usually this means a sebulba config is being used.
     if "update_batch_size" not in config.arch:
         update_batch_size = 1
+        print(f"{Fore.YELLOW}{Style.BRIGHT}Using Sebulba System!{Style.RESET_ALL}")
     else:
-        update_batch_size = update_batch_size
+        update_batch_size = config.arch.update_batch_size
+        print(f"{Fore.YELLOW}{Style.BRIGHT}Using Anakin System!{Style.RESET_ALL}")
 
     assert config.arch.total_num_envs % (num_devices * update_batch_size) == 0, (
         f"{Fore.RED}{Style.BRIGHT}The total number of environments "
