@@ -394,7 +394,7 @@ def make(config: DictConfig) -> Tuple[Environment, Environment]:
         config (Dict): The configuration of the environment.
 
     Returns:
-        training and evaluation environments or a factory to create them.
+        training and evaluation environments.
     """
     env_name = config.env.scenario.name
 
