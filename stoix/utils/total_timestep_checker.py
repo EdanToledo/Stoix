@@ -22,7 +22,7 @@ def check_total_timesteps(config: DictConfig) -> DictConfig:
 
     assert config.arch.total_num_envs % (num_devices * update_batch_size) == 0, (
         f"{Fore.RED}{Style.BRIGHT}The total number of environments "
-        + "should be divisible by the n_devices*update_batch_size!{Style.RESET_ALL}"
+        + f"should be divisible by the n_devices*update_batch_size!{Style.RESET_ALL}"
     )
     config.arch.num_envs = int(
         config.arch.total_num_envs // (num_devices * update_batch_size)

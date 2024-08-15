@@ -8,6 +8,7 @@ import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import numpy as np
+from colorama import Fore, Style
 from flax.core.frozen_dict import FrozenDict
 from jumanji.env import Environment
 from omegaconf import DictConfig
@@ -393,10 +394,8 @@ def get_sebulba_eval_fn(
 
     # Warnings if num eval episodes is not divisible by num parallel envs.
     if eval_episodes % n_parallel_envs != 0:
-        warnings.warn(
-            f"Number of evaluation episodes ({eval_episodes}) is not divisible by `num_envs` "
-            f"Some extra evaluations will be executed. New number of evaluation episodes = {episode_loops * n_parallel_envs}",
-            stacklevel=2,
+        print(
+            f"{Fore.YELLOW}{Style.BRIGHT} Number of evaluation episodes ({eval_episodes}) is not divisible by `num_envs`. Some extra evaluations will be executed. New number of evaluation episodes = {episode_loops * n_parallel_envs}{Style.RESET_ALL}"
         )
 
     def eval_fn(params: FrozenDict, key: chex.PRNGKey) -> Dict:

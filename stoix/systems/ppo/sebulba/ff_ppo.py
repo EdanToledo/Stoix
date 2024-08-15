@@ -698,10 +698,13 @@ def run_experiment(_config: DictConfig) -> float:
     # Start the pipeline
     pipeline.start()
 
-    params_sources: List[ParamsSource] = []
-    actor_threads: List[threading.Thread] = []
+    # Create a single lifetime for all the actors and params sources
     actors_lifetime = ThreadLifetime()
     params_sources_lifetime = ThreadLifetime()
+
+    # Create the params sources and actor threads
+    params_sources: List[ParamsSource] = []
+    actor_threads: List[threading.Thread] = []
     for actor_device in actor_devices:
         # Create 1 params source per actor device as this will be used to pass the params to the actors
         params_source = ParamsSource(initial_params, actor_device, params_sources_lifetime)
@@ -743,8 +746,9 @@ def run_experiment(_config: DictConfig) -> float:
     # This loop waits for the learner to finish an update before evaluation and logging.
     for eval_step in range(config.arch.num_evaluation):
         # Get the next set of params and metrics from the learner
-        episode_metrics, train_metrics, learner_state, timings_dict = eval_queue.get()
+        episode_metrics, train_metrics, learner_state, timings_dict = eval_queue.get(block=True)
 
+        # Log the metrics and timings
         t = int(steps_per_rollout * (eval_step + 1))
         timings_dict["timestep"] = t
         logger.log(timings_dict, t, eval_step, LogEvent.MISC)
@@ -758,6 +762,7 @@ def run_experiment(_config: DictConfig) -> float:
 
         logger.log(train_metrics, t, eval_step, LogEvent.TRAIN)
 
+        # Evaluate the current model and log the metrics
         unreplicated_actor_params = unreplicate(learner_state.params.actor_params)
         key, eval_key = jax.random.split(key, 2)
         eval_metrics = evaluator(unreplicated_actor_params, eval_key)
@@ -769,7 +774,7 @@ def run_experiment(_config: DictConfig) -> float:
             # Save checkpoint of learner state
             checkpointer.save(
                 timestep=steps_per_rollout * (eval_step + 1),
-                unreplicated_learner_state=learner_state,
+                unreplicated_learner_state=unreplicate(learner_state),
                 episode_return=episode_return,
             )
 
@@ -780,20 +785,30 @@ def run_experiment(_config: DictConfig) -> float:
     evaluator_envs.close()
     eval_performance = float(jnp.mean(eval_metrics[config.env.eval_metric]))
 
-    # Make sure all of the Threads are closed.
-    actors_lifetime.stop()
-    for actor in actor_threads:
-        actor.join()
-
+    # Now we stop the learner
     learner_thread.join()
 
+    # First we stop all actors
+    actors_lifetime.stop()
+
+    # Now we clear the pipeline
+    pipeline.clear()
+
+    # Now we stop the actors and params sources
+    for actor in actor_threads:
+        actor.join()
+    print(f"{Fore.CYAN}{Style.BRIGHT}All actors stopped{Style.RESET_ALL}")
+
+    print(f"{Fore.CYAN}{Style.BRIGHT}Learner stopped{Style.RESET_ALL}")
+    # Stop the pipeline
     pipeline_lifetime.stop()
     pipeline.join()
-
+    print(f"{Fore.CYAN}{Style.BRIGHT}Pipeline stopped{Style.RESET_ALL}")
+    # Stop the params sources
     params_sources_lifetime.stop()
     for param_source in params_sources:
         param_source.join()
-
+    print(f"{Fore.CYAN}{Style.BRIGHT}Params sources stopped{Style.RESET_ALL}")
     # Measure absolute metric.
     if config.arch.absolute_metric:
         abs_metric_evaluator, abs_metric_evaluator_envs = get_sebulba_eval_fn(

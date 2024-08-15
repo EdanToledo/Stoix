@@ -103,6 +103,11 @@ class Pipeline(threading.Thread):
         split_payload = jnp.split(payload, len(self.learner_devices), axis=axis)
         return jax.device_put_sharded(split_payload, devices=self.learner_devices)
 
+    def clear(self) -> None:
+        """Clear the pipeline."""
+        while not self._queue.empty():
+            self._queue.get()
+
 
 class ParamsSource(threading.Thread):
     """A `ParamSource` is a component that allows networks params to be passed from a
