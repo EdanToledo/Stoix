@@ -76,16 +76,18 @@ class Pipeline(threading.Thread):
         # [(num_envs / num_learner_devices, ...)] * num_learner_devices
         sharded_timestep = jax.tree.map(self.shard_split_playload, timestep)
 
-        # If the queue gets full at any point we prioritize taking removing the oldest rollouts.
-        # This also prevents the pipeline from  stalling if the learner thread terminates
-        # with a full queue blocking the actors from placing items in it.
-        if self._queue.full():
-            self._queue.get()  # throw away the transition
-
-        self._queue.put((sharded_traj, sharded_timestep, timings_dict))
-
-        with end_condition:
-            end_condition.notify()  # tell we have finish
+        # We block on the put to ensure that actors wait for the learners to catch up. This does two things:
+        # 1. It ensures that the actors don't get too far ahead of the learners, which could lead to off-policy data.
+        # 2. It ensures that the actors don't in a sense "waste" samples and their time by generating samples that
+        #    the learners can't consume.
+        # However, we put a timeout of 90 seconds to avoid deadlocks in case the learner is not consuming the data.
+        # This is a safety measure and should not be hit in normal operation.
+        # We use a try-finally since the lock has to be released even if an exception is raised.
+        try:
+            self._queue.put((sharded_traj, sharded_timestep, timings_dict), block=True, timeout=90)
+        finally:
+            with end_condition:
+                end_condition.notify()  # tell we have finish
 
     def qsize(self) -> int:
         """Returns the number of trajectories in the pipeline."""
