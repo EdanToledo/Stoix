@@ -3,6 +3,7 @@ import threading
 import time
 from typing import Any, Dict, List, Sequence, Tuple, Union
 
+from colorama import Fore, Style
 import jax
 import jax.numpy as jnp
 from jumanji.types import TimeStep
@@ -82,12 +83,12 @@ class Pipeline(threading.Thread):
         # off-policy data.
         # 2. It ensures that the actors don't in a sense "waste" samples and their time by
         # generating samples that the learners can't consume.
-        # However, we put a timeout of 90 seconds to avoid deadlocks in case the learner
+        # However, we put a timeout of 180 seconds to avoid deadlocks in case the learner
         # is not consuming the data. This is a safety measure and should not be hit in normal
         # operation. We use a try-finally since the lock has to be released even if an exception
         # is raised.
         try:
-            self._queue.put((sharded_traj, sharded_timestep, timings_dict), block=True, timeout=90)
+            self._queue.put((sharded_traj, sharded_timestep, timings_dict), block=True, timeout=180)
         finally:
             with end_condition:
                 end_condition.notify()  # tell we have finish
@@ -108,8 +109,10 @@ class Pipeline(threading.Thread):
 
     def clear(self) -> None:
         """Clear the pipeline."""
+        num_items = self._queue.qsize()
         while not self._queue.empty():
             self._queue.get()
+        print(f"{Fore.YELLOW}{Style.BRIGHT}Cleared {num_items} items from the pipeline{Style.RESET_ALL}")
 
 
 class ParamsSource(threading.Thread):

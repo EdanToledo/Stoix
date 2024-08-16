@@ -427,6 +427,7 @@ def get_learner_rollout_fn(
             # Create the lists to store metrics and timings for this learning iteration.
             metrics: List[Tuple[Dict, Dict]] = []
             rollout_times: List[Dict] = []
+            q_sizes: List[int] = []
             learn_timings: Dict[str, List[float]] = defaultdict(list)
             # Loop for the number of updates per evaluation
             for _ in range(config.arch.num_updates_per_eval):
@@ -445,6 +446,7 @@ def get_learner_rollout_fn(
                 # We store the metrics and timings for this update
                 metrics.append((episode_metrics, train_metrics))
                 rollout_times.append(rollout_time)
+                q_sizes.append(pipeline.qsize())
 
                 # After the update we need to update the params sources with the new params
                 unreplicated_params = unreplicate(learner_state.params)
@@ -459,6 +461,7 @@ def get_learner_rollout_fn(
             episode_metrics, train_metrics = jax.tree.map(lambda *x: np.asarray(x), *metrics)
             rollout_times = jax.tree.map(lambda *x: np.mean(x), *rollout_times)
             timing_dict = rollout_times | learn_timings
+            timing_dict["pipeline_qsize"] = q_sizes
             timing_dict = jax.tree.map(np.mean, timing_dict, is_leaf=lambda x: isinstance(x, list))
             eval_queue.put((episode_metrics, train_metrics, learner_state, timing_dict))
 
