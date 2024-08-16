@@ -10,14 +10,14 @@ num_updates: ~ # Number of updates
 # Define the number of actors per device and which devices to use.
 actor:
   device_ids: [0,1] # Define which devices to use for the actors.
-  actor_per_device: 8 # number of different threads per actor device.
+  actor_per_device: 4 # number of different threads per actor device.
 
 # Define which devices to use for the learner.
 learner:
   device_ids: [2,3] # Define which devices to use for the learner.
 
 # Size of the queue for the pipeline where actors push data and the learner pulls data.
-pipeline_queue_size: 10
+pipeline_queue_size: 20
 
 # --- Evaluation ---
 evaluation_greedy: False # Evaluate the policy greedily. If True the policy will select

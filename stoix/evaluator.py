@@ -420,7 +420,8 @@ def get_sebulba_eval_fn(
                 seeds = np_rng.integers(np.iinfo(np.int32).max, size=n_parallel_envs).tolist()
                 timestep = envs.reset(seed=seeds)
 
-                all_timesteps = [timestep]
+                all_metrics = [timestep.extras]
+                all_dones = [timestep.last()]
                 finished_eps = timestep.last()
 
                 # Loop until all episodes are done.
@@ -429,17 +430,16 @@ def get_sebulba_eval_fn(
                     action = act_fn(params, timestep.observation, act_key)
                     action_cpu = np.asarray(jax.device_put(action, cpu))
                     timestep = envs.step(action_cpu)
-                    all_timesteps.append(timestep)
-
+                    all_metrics.append(timestep.extras)
+                    all_dones.append(timestep.last())
                     finished_eps = np.logical_or(finished_eps, timestep.last())
 
-                all_timesteps = jax.tree.map(lambda *x: np.stack(x), *all_timesteps)
-
-                metrics = all_timesteps.extras
+                metrics = jax.tree.map(lambda *x: np.stack(x), *all_metrics)
+                dones = np.stack(all_dones)
 
                 # find the first instance of done to get the metrics at that timestep, we don't
                 # care about subsequent steps because we only the results from the first episode
-                done_idx = np.argmax(all_timesteps.last(), axis=0)
+                done_idx = np.argmax(dones, axis=0)
                 metrics = jax.tree_map(lambda m: m[done_idx, np.arange(n_parallel_envs)], metrics)
                 del metrics["is_terminal_step"]  # unneeded for logging
 

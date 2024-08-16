@@ -115,15 +115,14 @@ class VisualResNetTorso(nn.Module):
 
     @nn.compact
     def __call__(self, observation: chex.Array) -> chex.Array:
-        
 
         if observation.ndim > 4:
             return nn.batch_apply.BatchApply(self.__call__)(observation)
 
-        # If the input is in the form of [B, C, H, W], we need to transpose it to [B, H, W, C]
+        # If the input is in the form of [B, C, H, W], we need to transpose it to [B, H, W, C]
         if self.channel_first:
             observation = observation.transpose((0, 2, 3, 1))
-            
+
         assert (
             observation.ndim == 4
         ), f"Expected inputs to have shape [B, H, W, C] but got shape {observation.shape}."

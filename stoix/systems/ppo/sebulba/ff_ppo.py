@@ -615,11 +615,11 @@ def run_experiment(_config: DictConfig) -> float:
     ), "Local and global devices must be the same for now. We dont support multihost just yet"
     # Extract the actor and learner devices
     actor_devices = [local_devices[device_id] for device_id in config.arch.actor.device_ids]
-    # For evaluation we simply use the first actor device as its less computationally intensive
-    evaluator_device = actor_devices[0]
     local_learner_devices = [
         local_devices[device_id] for device_id in config.arch.learner.device_ids
     ]
+    # For evaluation we simply use the first learner device
+    evaluator_device = local_learner_devices[0]
     print(f"{Fore.BLUE}{Style.BRIGHT}Actors devices: {actor_devices}{Style.RESET_ALL}")
     print(f"{Fore.GREEN}{Style.BRIGHT}Learner devices: {local_learner_devices}{Style.RESET_ALL}")
     print(f"{Fore.MAGENTA}{Style.BRIGHT}Global devices: {global_devices}{Style.RESET_ALL}")

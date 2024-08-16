@@ -3,9 +3,9 @@ import threading
 import time
 from typing import Any, Dict, List, Sequence, Tuple, Union
 
-from colorama import Fore, Style
 import jax
 import jax.numpy as jnp
+from colorama import Fore, Style
 from jumanji.types import TimeStep
 
 from stoix.base_types import Parameters, StoixTransition
@@ -109,10 +109,12 @@ class Pipeline(threading.Thread):
 
     def clear(self) -> None:
         """Clear the pipeline."""
-        num_items = self._queue.qsize()
+        n_items = self._queue.qsize()
         while not self._queue.empty():
             self._queue.get()
-        print(f"{Fore.YELLOW}{Style.BRIGHT}Cleared {num_items} items from the pipeline{Style.RESET_ALL}")
+        print(
+            f"{Fore.YELLOW}{Style.BRIGHT}Cleared {n_items} items from the pipeline{Style.RESET_ALL}"
+        )
 
 
 class ParamsSource(threading.Thread):
