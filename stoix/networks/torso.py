@@ -63,11 +63,15 @@ class CNNTorso(nn.Module):
     activation: str = "relu"
     use_layer_norm: bool = False
     kernel_init: Initializer = orthogonal(np.sqrt(2.0))
+    channel_first: bool = False
 
     @nn.compact
     def __call__(self, observation: chex.Array) -> chex.Array:
         """Forward pass."""
         x = observation
+        # Move channels to the last dimension if they are first
+        if self.channel_first:
+            x = x.transpose((0, 2, 3, 1))
         for channel, kernel, stride in zip(self.channel_sizes, self.kernel_sizes, self.strides):
             x = nn.Conv(channel, (kernel, kernel), (stride, stride))(x)
             if self.use_layer_norm:

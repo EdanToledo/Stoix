@@ -6,6 +6,7 @@ actor_network:
     blocks_per_group: [2, 2, 2]
     use_layer_norm: False
     activation: silu
+    channel_first: True
   action_head:
     _target_: stoix.networks.heads.CategoricalHead
 
@@ -16,5 +17,6 @@ critic_network:
     blocks_per_group: [2, 2, 2]
     use_layer_norm: False
     activation: silu
+    channel_first: True
   critic_head:
     _target_: stoix.networks.heads.ScalarCriticHead
