@@ -1,6 +1,7 @@
 import queue
 import threading
 import time
+from functools import partial
 from typing import Any, Dict, List, Sequence, Tuple, Union
 
 import jax
@@ -69,7 +70,7 @@ class Pipeline(threading.Thread):
             start_condition.wait()  # wait to be allowed to start
 
         # [Transition(num_envs)] * rollout_len --> Transition[(rollout_len, num_envs,)
-        traj = jax.tree_map(lambda *x: jnp.stack(x, axis=0), *traj)
+        traj = self.stack_trajectory(traj)
         # Split trajectory on the num envs axis so each learner device gets a valid full rollout
         sharded_traj = jax.tree.map(lambda x: self.shard_split_playload(x, axis=1), traj)
 
@@ -89,6 +90,11 @@ class Pipeline(threading.Thread):
         # is raised.
         try:
             self._queue.put((sharded_traj, sharded_timestep, timings_dict), block=True, timeout=180)
+        except queue.Full:
+            print(
+                f"{Fore.RED}{Style.BRIGHT}Pipeline is full and actor has timed out, "
+                f"this should not happen. A deadlock might be occurring{Style.RESET_ALL}"
+            )
         finally:
             with end_condition:
                 end_condition.notify()  # tell we have finish
@@ -102,6 +108,12 @@ class Pipeline(threading.Thread):
     ) -> Tuple[StoixTransition, TimeStep, Dict]:
         """Get a trajectory from the pipeline."""
         return self._queue.get(block, timeout)  # type: ignore
+
+    @partial(jax.jit, static_argnums=(0,))
+    def stack_trajectory(self, trajectory: List[StoixTransition]) -> StoixTransition:
+        """Stack a list of parallel_env transitions into a single
+        transition of shape [rollout_len, num_envs, ...]."""
+        return jax.tree_map(lambda *x: jnp.stack(x, axis=0), *trajectory)  # type: ignore
 
     def shard_split_playload(self, payload: Any, axis: int = 0) -> Any:
         split_payload = jnp.split(payload, len(self.learner_devices), axis=axis)

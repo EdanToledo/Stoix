@@ -10,7 +10,7 @@ num_updates: ~ # Number of updates
 # Define the number of actors per device and which devices to use.
 actor:
   device_ids: [0,1] # Define which devices to use for the actors.
-  actor_per_device: 4 # number of different threads per actor device.
+  actor_per_device: 8 # number of different threads per actor device.
 
 # Define which devices to use for the learner.
 learner:

@@ -209,7 +209,7 @@ def get_actor_thread(
     return actor
 
 
-def get_learner_update_fn(
+def get_learner_step_fn(
     apply_fns: Tuple[ActorApply, CriticApply],
     update_fns: Tuple[optax.TransformUpdateFn, optax.TransformUpdateFn],
     config: DictConfig,
@@ -380,7 +380,7 @@ def get_learner_update_fn(
         metric = traj_batch.info
         return learner_state, (metric, loss_info)
 
-    def learner_fn(
+    def learner_step_fn(
         learner_state: LearnerState, traj_batch: PPOTransition
     ) -> ExperimentOutput[LearnerState]:
         """Learner function.
@@ -406,11 +406,11 @@ def get_learner_update_fn(
             train_metrics=loss_info,
         )
 
-    return learner_fn
+    return learner_step_fn
 
 
 def get_learner_rollout_fn(
-    learn: SebulbaLearnerFn[LearnerState, PPOTransition],
+    learn_step: SebulbaLearnerFn[LearnerState, PPOTransition],
     config: DictConfig,
     eval_queue: Queue,
     pipeline: Pipeline,
@@ -441,7 +441,9 @@ def get_learner_rollout_fn(
                 learner_state = learner_state._replace(timestep=timestep)
                 # We then call the update function to update the networks
                 with RecordTimeTo(learn_timings["learning_time"]):
-                    learner_state, episode_metrics, train_metrics = learn(learner_state, traj_batch)
+                    learner_state, episode_metrics, train_metrics = learn_step(
+                        learner_state, traj_batch
+                    )
 
                 # We store the metrics and timings for this update
                 metrics.append((episode_metrics, train_metrics))
@@ -561,8 +563,8 @@ def learner_setup(
     update_fns = (actor_optim.update, critic_optim.update)
 
     # Get batched iterated update and replicate it to pmap it over cores.
-    learn = get_learner_update_fn(apply_fns, update_fns, config)
-    learn = jax.pmap(learn, axis_name="device")
+    learn_step = get_learner_step_fn(apply_fns, update_fns, config)
+    learn_step = jax.pmap(learn_step, axis_name="device")
 
     # Load model from checkpoint if specified.
     if config.logger.checkpointing.load_model:
@@ -588,7 +590,7 @@ def learner_setup(
     step_keys = jax.random.split(step_key, len(learner_devices))
     init_learner_state = LearnerState(params, opt_states, step_keys, None, None)
 
-    return learn, apply_fns, init_learner_state
+    return learn_step, apply_fns, init_learner_state
 
 
 def run_experiment(_config: DictConfig) -> float:
@@ -660,7 +662,7 @@ def run_experiment(_config: DictConfig) -> float:
     np_rng = np.random.default_rng(config.arch.seed)
 
     # Setup learner.
-    learn, apply_fns, learner_state = learner_setup(
+    learn_step, apply_fns, learner_state = learner_setup(
         env_factory, (key, actor_net_key, critic_net_key), local_learner_devices, config
     )
     actor_apply_fn, _ = apply_fns
@@ -737,8 +739,9 @@ def run_experiment(_config: DictConfig) -> float:
 
     # Create the evaluation queue
     eval_queue: Queue = Queue()
+    # Create the learner thread
     learner_thread = get_learner_thread(
-        learn, learner_state, config, eval_queue, pipeline, params_sources
+        learn_step, learner_state, config, eval_queue, pipeline, params_sources
     )
     learner_thread.start()
 
