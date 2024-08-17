@@ -123,7 +123,6 @@ class OnPolicyPipeline(threading.Thread):
         """Clear the pipeline."""
         while not self._queue.empty():
             self._queue.get()
-        
 
 
 class ParamsSource(threading.Thread):

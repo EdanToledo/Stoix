@@ -109,6 +109,7 @@ class VisualResNetTorso(nn.Module):
     channels_per_group: Sequence[int] = (16, 32, 32)
     blocks_per_group: Sequence[int] = (2, 2, 2)
     downsampling_strategies: Sequence[DownsamplingStrategy] = (DownsamplingStrategy.CONV,) * 3
+    hidden_sizes: Sequence[int] = (256,)
     use_layer_norm: bool = False
     activation: str = "relu"
     channel_first: bool = False
@@ -144,7 +145,12 @@ class VisualResNetTorso(nn.Module):
                     non_linearity=parse_activation_fn(self.activation),
                 )(output)
 
-        return output.reshape(*observation.shape[:-3], -1)
+        output = output.reshape(*observation.shape[:-3], -1)
+        for num_hidden_units in self.hidden_sizes:
+            output = nn.Dense(features=num_hidden_units)(output)
+            output = parse_activation_fn(self.activation)(output)
+
+        return output
 
 
 class ResNetTorso(nn.Module):

@@ -18,11 +18,21 @@ class EnvPoolToJumanji:
         self.obs_shape = obs.shape[1:]
         self.num_actions = self.env.action_space.n
         self._default_action_mask = np.ones((self.num_envs, self.num_actions), dtype=np.float32)
+
         # Create the metrics
         self.running_count_episode_return = np.zeros(self.num_envs, dtype=float)
         self.running_count_episode_length = np.zeros(self.num_envs, dtype=int)
         self.episode_return = np.zeros(self.num_envs, dtype=float)
         self.episode_length = np.zeros(self.num_envs, dtype=int)
+
+        # See if the env has lives - Atari specific
+        info = self.env.step(np.zeros(self.num_envs, dtype=int))[-1]
+        if info["lives"].sum() > 0:
+            print("Env has lives")
+            self.has_lives = True
+        else:
+            self.has_lives = False
+        self.env.close()
 
     def reset(
         self, *, seed: Optional[list[int]] = None, options: Optional[list[dict]] = None
@@ -68,21 +78,43 @@ class EnvPoolToJumanji:
         new_episode_length = self.running_count_episode_length + 1
 
         # Previous episode return/length until done and then the next episode return.
-        episode_return_info = self.episode_return * not_done + new_episode_return * ep_done
-        episode_length_info = self.episode_length * not_done + new_episode_length * ep_done
+        # If the env has lives (Atari), we only consider the return and length of the episode
+        # every time all lives are exhausted.
+        if self.has_lives:
+            all_lives_exhausted = info["lives"] == 0
+            not_all_lives_exhausted = 1 - all_lives_exhausted
+            # Update the episode return and length if all lives are exhausted otherwise
+            # keep the previous values
+            episode_return_info = (
+                self.episode_return * not_all_lives_exhausted
+                + new_episode_return * all_lives_exhausted
+            )
+            episode_length_info = (
+                self.episode_length * not_all_lives_exhausted
+                + new_episode_length * all_lives_exhausted
+            )
+            # Update the running count
+            self.running_count_episode_return = new_episode_return * not_all_lives_exhausted
+            self.running_count_episode_length = new_episode_length * not_all_lives_exhausted
+        else:
+            # Update the episode return and length if the episode is done otherwise
+            # keep the previous values
+            episode_return_info = self.episode_return * not_done + new_episode_return * ep_done
+            episode_length_info = self.episode_length * not_done + new_episode_length * ep_done
+            # Update the running count
+            self.running_count_episode_return = new_episode_return * not_done
+            self.running_count_episode_length = new_episode_length * not_done
 
+        self.episode_return = episode_return_info
+        self.episode_length = episode_length_info
+
+        # Create the metrics dict
         metrics = {
             "episode_return": episode_return_info,
             "episode_length": episode_length_info,
             "is_terminal_step": ep_done,
         }
         info["metrics"] = metrics
-
-        # Update the metrics
-        self.running_count_episode_return = new_episode_return * not_done
-        self.running_count_episode_length = new_episode_length * not_done
-        self.episode_return = episode_return_info
-        self.episode_length = episode_length_info
 
         timestep = self._create_timestep(obs, ep_done, terminated, rewards, info)
 

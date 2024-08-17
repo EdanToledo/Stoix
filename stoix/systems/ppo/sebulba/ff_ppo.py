@@ -41,8 +41,8 @@ from stoix.utils.logger import LogEvent, StoixLogger
 from stoix.utils.loss import clipped_value_loss, ppo_clip_loss
 from stoix.utils.multistep import batch_truncated_generalized_advantage_estimation
 from stoix.utils.sebulba_utils import (
-    ParamsSource,
     OnPolicyPipeline,
+    ParamsSource,
     RecordTimeTo,
     ThreadLifetime,
 )
@@ -468,7 +468,9 @@ def get_learner_rollout_fn(
                 # We add a timeout mainly for sanity checks
                 # If the queue is full for more than 60 seconds we kill the learner thread
                 # This should never happen
-                eval_queue.put((episode_metrics, train_metrics, learner_state, timing_dict), timeout=60)
+                eval_queue.put(
+                    (episode_metrics, train_metrics, learner_state, timing_dict), timeout=60
+                )
             except queue.Full:
                 warnings.warn(
                     "Waited too long to add to the evaluation queue, killing the learner thread. "
@@ -657,10 +659,10 @@ def run_experiment(_config: DictConfig) -> float:
     # divisible by the number of learner devices. This is because we shard the envs
     # per actor across the learner devices This check is mainly relevant for on-policy
     # algorithms
-    assert (
-        num_envs_per_actor % len(local_learner_devices) == 0
-    ), (f"The number of envs per actor must be divisible by the number of learner devices. " 
-    f"Got {num_envs_per_actor} envs per actor and {len(local_learner_devices)} learner devices")
+    assert num_envs_per_actor % len(local_learner_devices) == 0, (
+        f"The number of envs per actor must be divisible by the number of learner devices. "
+        f"Got {num_envs_per_actor} envs per actor and {len(local_learner_devices)} learner devices"
+    )
 
     # Create the environment factory.
     env_factory = environments.make_factory(config)
@@ -712,7 +714,9 @@ def run_experiment(_config: DictConfig) -> float:
     # First we create the lifetime so we can stop the pipeline when we want
     pipeline_lifetime = ThreadLifetime()
     # Now we create the pipeline
-    pipeline = OnPolicyPipeline(config.arch.pipeline_queue_size, local_learner_devices, pipeline_lifetime)
+    pipeline = OnPolicyPipeline(
+        config.arch.pipeline_queue_size, local_learner_devices, pipeline_lifetime
+    )
     # Start the pipeline
     pipeline.start()
 
