@@ -42,7 +42,7 @@ from stoix.utils.loss import clipped_value_loss, ppo_clip_loss
 from stoix.utils.multistep import batch_truncated_generalized_advantage_estimation
 from stoix.utils.sebulba_utils import (
     ParamsSource,
-    Pipeline,
+    OnPolicyPipeline,
     RecordTimeTo,
     ThreadLifetime,
 )
@@ -77,7 +77,7 @@ def get_rollout_fn(
     env_factory: EnvFactory,
     actor_device: jax.Device,
     params_source: ParamsSource,
-    pipeline: Pipeline,
+    pipeline: OnPolicyPipeline,
     apply_fns: Tuple[ActorApply, CriticApply],
     config: DictConfig,
     seeds: List[int],
@@ -176,7 +176,7 @@ def get_actor_thread(
     env_factory: EnvFactory,
     actor_device: jax.Device,
     params_source: ParamsSource,
-    pipeline: Pipeline,
+    pipeline: OnPolicyPipeline,
     apply_fns: Tuple[ActorApply, CriticApply],
     rng_key: chex.PRNGKey,
     config: DictConfig,
@@ -412,7 +412,7 @@ def get_learner_rollout_fn(
     learn_step: SebulbaLearnerFn[CoreLearnerState, PPOTransition],
     config: DictConfig,
     eval_queue: Queue,
-    pipeline: Pipeline,
+    pipeline: OnPolicyPipeline,
     params_sources: Sequence[ParamsSource],
 ) -> Callable[[CoreLearnerState], None]:
     """Get the learner rollout function that is used by the learner thread to update the networks.
@@ -485,7 +485,7 @@ def get_learner_thread(
     learner_state: CoreLearnerState,
     config: DictConfig,
     eval_queue: Queue,
-    pipeline: Pipeline,
+    pipeline: OnPolicyPipeline,
     params_sources: Sequence[ParamsSource],
 ) -> threading.Thread:
     """Get the learner thread that is used to update the networks."""
@@ -712,7 +712,7 @@ def run_experiment(_config: DictConfig) -> float:
     # First we create the lifetime so we can stop the pipeline when we want
     pipeline_lifetime = ThreadLifetime()
     # Now we create the pipeline
-    pipeline = Pipeline(config.arch.pipeline_queue_size, local_learner_devices, pipeline_lifetime)
+    pipeline = OnPolicyPipeline(config.arch.pipeline_queue_size, local_learner_devices, pipeline_lifetime)
     # Start the pipeline
     pipeline.start()
 
@@ -805,6 +805,7 @@ def run_experiment(_config: DictConfig) -> float:
     evaluator_envs.close()
     eval_performance = float(jnp.mean(eval_metrics[config.env.eval_metric]))
 
+    print(f"{Fore.MAGENTA}{Style.BRIGHT}Closing learner...{Style.RESET_ALL}")
     # Now we stop the learner
     learner_thread.join()
 
@@ -812,16 +813,19 @@ def run_experiment(_config: DictConfig) -> float:
     actors_lifetime.stop()
 
     # Now we stop the actors and params sources
+    print(f"{Fore.MAGENTA}{Style.BRIGHT}Closing actors...{Style.RESET_ALL}")
     for actor in actor_threads:
         # We clear the pipeline before stopping each actor thread
         # since actors can be blocked on the pipeline
         pipeline.clear()
         actor.join()
 
+    print(f"{Fore.MAGENTA}{Style.BRIGHT}Closing pipeline...{Style.RESET_ALL}")
     # Stop the pipeline
     pipeline_lifetime.stop()
     pipeline.join()
 
+    print(f"{Fore.MAGENTA}{Style.BRIGHT}Closing params sources...{Style.RESET_ALL}")
     # Stop the params sources
     params_sources_lifetime.stop()
     for param_source in params_sources:
@@ -829,6 +833,7 @@ def run_experiment(_config: DictConfig) -> float:
 
     # Measure absolute metric.
     if config.arch.absolute_metric:
+        print(f"{Fore.MAGENTA}{Style.BRIGHT}Measuring absolute metric...{Style.RESET_ALL}")
         abs_metric_evaluator, abs_metric_evaluator_envs = get_sebulba_eval_fn(
             env_factory, eval_act_fn, config, np_rng, evaluator_device, eval_multiplier=10
         )

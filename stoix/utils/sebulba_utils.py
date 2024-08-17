@@ -26,7 +26,7 @@ class ThreadLifetime:
         self._stop = True
 
 
-class Pipeline(threading.Thread):
+class OnPolicyPipeline(threading.Thread):
     """
     The `Pipeline` shards trajectories into `learner_devices`,
     ensuring trajectories are consumed in the right order to avoid being off-policy
