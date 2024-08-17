@@ -464,7 +464,18 @@ def get_learner_rollout_fn(
             timing_dict = rollout_times | learn_timings
             timing_dict["pipeline_qsize"] = q_sizes
             timing_dict = jax.tree.map(np.mean, timing_dict, is_leaf=lambda x: isinstance(x, list))
-            eval_queue.put((episode_metrics, train_metrics, learner_state, timing_dict))
+            try:
+                # We add a timeout mainly for sanity checks
+                # If the queue is full for more than 60 seconds we kill the learner thread
+                # This should never happen
+                eval_queue.put((episode_metrics, train_metrics, learner_state, timing_dict), timeout=60)
+            except queue.Full:
+                warnings.warn(
+                    "Waited too long to add to the evaluation queue, killing the learner thread. "
+                    "This should not happen.",
+                    stacklevel=2,
+                )
+                break
 
     return learner_rollout
 
@@ -648,7 +659,8 @@ def run_experiment(_config: DictConfig) -> float:
     # algorithms
     assert (
         num_envs_per_actor % len(local_learner_devices) == 0
-    ), "The number of envs per actor must be divisible by the number of learner devices"
+    ), (f"The number of envs per actor must be divisible by the number of learner devices. " 
+    f"Got {num_envs_per_actor} envs per actor and {len(local_learner_devices)} learner devices")
 
     # Create the environment factory.
     env_factory = environments.make_factory(config)
@@ -739,7 +751,7 @@ def run_experiment(_config: DictConfig) -> float:
             actor_threads.append(actor_thread)
 
     # Create the evaluation queue
-    eval_queue: Queue = Queue()
+    eval_queue: Queue = Queue(maxsize=config.arch.num_evaluation)
     # Create the learner thread
     learner_thread = get_learner_thread(
         learn_step, learner_state, config, eval_queue, pipeline, params_sources

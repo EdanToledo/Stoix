@@ -121,12 +121,9 @@ class Pipeline(threading.Thread):
 
     def clear(self) -> None:
         """Clear the pipeline."""
-        n_items = self._queue.qsize()
         while not self._queue.empty():
             self._queue.get()
-        print(
-            f"{Fore.YELLOW}{Style.BRIGHT}Cleared {n_items} items from the pipeline{Style.RESET_ALL}"
-        )
+        
 
 
 class ParamsSource(threading.Thread):
