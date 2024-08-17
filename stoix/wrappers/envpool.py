@@ -7,6 +7,7 @@ from numpy.typing import NDArray
 
 from stoix.base_types import Observation
 
+NEXT_OBS_KEY_IN_EXTRAS = "next_obs"
 
 class EnvPoolToJumanji:
     """Converts from the Gymnasium envpool API to Jumanji's API."""
@@ -27,12 +28,15 @@ class EnvPoolToJumanji:
 
         # See if the env has lives - Atari specific
         info = self.env.step(np.zeros(self.num_envs, dtype=int))[-1]
-        if info["lives"].sum() > 0:
+        if "lives" in info and info["lives"].sum() > 0:
             print("Env has lives")
             self.has_lives = True
         else:
             self.has_lives = False
         self.env.close()
+
+        # Set the flag to use the gym autoreset API
+        self._use_gym_autoreset_api = True
 
     def reset(
         self, *, seed: Optional[list[int]] = None, options: Optional[list[dict]] = None
@@ -57,6 +61,7 @@ class EnvPoolToJumanji:
         }
 
         info["metrics"] = metrics
+        info[NEXT_OBS_KEY_IN_EXTRAS] = obs.copy()
 
         timestep = self._create_timestep(obs, ep_done, terminated, rewards, info)
 
@@ -66,6 +71,19 @@ class EnvPoolToJumanji:
         obs, rewards, terminated, truncated, info = self.env.step(action)
         ep_done = np.logical_or(terminated, truncated)
         not_done = 1 - ep_done
+        info[NEXT_OBS_KEY_IN_EXTRAS] = obs.copy()
+        if self._use_gym_autoreset_api:
+            env_ids_to_reset = np.where(ep_done)[0]
+            if len(env_ids_to_reset) > 0:
+                (
+                    reset_obs,
+                    _,
+                    _,
+                    _,
+                    _,
+                ) = self.env.step(np.zeros_like(action), env_ids_to_reset)
+                obs[env_ids_to_reset] = reset_obs
+            
 
         # Counting episode return and length.
         if "reward" in info:
@@ -129,6 +147,7 @@ class EnvPoolToJumanji:
     ) -> TimeStep:
         obs = self._format_observation(obs, info)
         extras = info["metrics"]
+        extras[NEXT_OBS_KEY_IN_EXTRAS] = self._format_observation(info[NEXT_OBS_KEY_IN_EXTRAS], info)
         step_type = np.where(ep_done, StepType.LAST, StepType.MID)
 
         return TimeStep(
