@@ -106,8 +106,18 @@ class ActorCriticHiddenStates(NamedTuple):
     critic_hidden_state: HiddenState
 
 
-class LearnerState(NamedTuple):
-    """State of the learner."""
+class CoreLearnerState(NamedTuple):
+    """Base state of the learner. Can be used for both on-policy and off-policy learners.
+    Mainly used for sebulba systems since we dont store env state."""
+
+    params: Parameters
+    opt_states: OptStates
+    key: chex.PRNGKey
+    timestep: TimeStep
+
+
+class OnPolicyLearnerState(NamedTuple):
+    """State of the learner. Used for on-policy learners."""
 
     params: Parameters
     opt_states: OptStates

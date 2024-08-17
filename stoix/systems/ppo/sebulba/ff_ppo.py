@@ -23,9 +23,9 @@ from stoix.base_types import (
     ActorApply,
     ActorCriticOptStates,
     ActorCriticParams,
+    CoreLearnerState,
     CriticApply,
     ExperimentOutput,
-    LearnerState,
     Observation,
     SebulbaLearnerFn,
 )
@@ -88,10 +88,8 @@ def get_rollout_fn(
     act_fn = get_act_fn(apply_fns)
     act_fn = jax.jit(act_fn, device=actor_device)
     cpu = jax.devices("cpu")[0]
-    move_to_device = lambda tree: jax.tree_util.tree_map(
-        lambda x: jax.device_put(x, actor_device), tree
-    )
-    move_to_device = jax.jit(move_to_device)
+    move_to_device = lambda tree: jax.tree.map(lambda x: jax.device_put(x, actor_device), tree)
+    split_key_fn = jax.jit(jax.random.split, device=actor_device)
     # Build the environments
     envs = env_factory(config.arch.actor.envs_per_actor)
 
@@ -121,7 +119,8 @@ def get_rollout_fn(
 
                         # Run the actor and critic networks to get the action, value and log_prob
                         with RecordTimeTo(timings_dict["compute_action_time"]):
-                            action, value, log_prob = act_fn(params, cached_obs, rng_key)
+                            rng_key, policy_key = split_key_fn(rng_key)
+                            action, value, log_prob = act_fn(params, cached_obs, policy_key)
 
                         # Move the action to the CPU
                         action_cpu = np.asarray(jax.device_put(action, cpu))
@@ -213,7 +212,7 @@ def get_learner_step_fn(
     apply_fns: Tuple[ActorApply, CriticApply],
     update_fns: Tuple[optax.TransformUpdateFn, optax.TransformUpdateFn],
     config: DictConfig,
-) -> SebulbaLearnerFn[LearnerState, PPOTransition]:
+) -> SebulbaLearnerFn[CoreLearnerState, PPOTransition]:
     """Get the learner update function which is used to update the actor and critic networks.
     This function is used by the learner thread to update the networks."""
 
@@ -222,11 +221,11 @@ def get_learner_step_fn(
     actor_update_fn, critic_update_fn = update_fns
 
     def _update_step(
-        learner_state: LearnerState, traj_batch: PPOTransition
-    ) -> Tuple[LearnerState, Tuple]:
+        learner_state: CoreLearnerState, traj_batch: PPOTransition
+    ) -> Tuple[CoreLearnerState, Tuple]:
 
         # CALCULATE ADVANTAGE
-        params, opt_states, key, _, last_timestep = learner_state
+        params, opt_states, key, last_timestep = learner_state
         last_val = critic_apply_fn(params.critic_params, last_timestep.observation)
 
         r_t = traj_batch.reward
@@ -376,13 +375,13 @@ def get_learner_step_fn(
         )
 
         params, opt_states, traj_batch, advantages, targets, key = update_state
-        learner_state = LearnerState(params, opt_states, key, None, last_timestep)
+        learner_state = CoreLearnerState(params, opt_states, key, last_timestep)
         metric = traj_batch.info
         return learner_state, (metric, loss_info)
 
     def learner_step_fn(
-        learner_state: LearnerState, traj_batch: PPOTransition
-    ) -> ExperimentOutput[LearnerState]:
+        learner_state: CoreLearnerState, traj_batch: PPOTransition
+    ) -> ExperimentOutput[CoreLearnerState]:
         """Learner function.
 
         This function represents the learner, it updates the network parameters
@@ -410,18 +409,18 @@ def get_learner_step_fn(
 
 
 def get_learner_rollout_fn(
-    learn_step: SebulbaLearnerFn[LearnerState, PPOTransition],
+    learn_step: SebulbaLearnerFn[CoreLearnerState, PPOTransition],
     config: DictConfig,
     eval_queue: Queue,
     pipeline: Pipeline,
     params_sources: Sequence[ParamsSource],
-) -> Callable[[LearnerState], None]:
+) -> Callable[[CoreLearnerState], None]:
     """Get the learner rollout function that is used by the learner thread to update the networks.
     This function is what is actually run by the learner thread. It gets the data from the pipeline
     and uses the learner update function to update the networks. It then sends these intermediate
     network parameters to a queue for evaluation."""
 
-    def learner_rollout(learner_state: LearnerState) -> None:
+    def learner_rollout(learner_state: CoreLearnerState) -> None:
         # Loop for the total number of evaluations selected to be performed.
         for _ in range(config.arch.num_evaluation):
             # Create the lists to store metrics and timings for this learning iteration.
@@ -471,8 +470,8 @@ def get_learner_rollout_fn(
 
 
 def get_learner_thread(
-    learn: SebulbaLearnerFn[LearnerState, PPOTransition],
-    learner_state: LearnerState,
+    learn: SebulbaLearnerFn[CoreLearnerState, PPOTransition],
+    learner_state: CoreLearnerState,
     config: DictConfig,
     eval_queue: Queue,
     pipeline: Pipeline,
@@ -497,7 +496,9 @@ def learner_setup(
     learner_devices: Sequence[jax.Device],
     config: DictConfig,
 ) -> Tuple[
-    SebulbaLearnerFn[LearnerState, PPOTransition], Tuple[ActorApply, CriticApply], LearnerState
+    SebulbaLearnerFn[CoreLearnerState, PPOTransition],
+    Tuple[ActorApply, CriticApply],
+    CoreLearnerState,
 ]:
     """Setup for the learner state and networks."""
 
@@ -588,7 +589,7 @@ def learner_setup(
     params, opt_states = replicate_learner
     key, step_key = jax.random.split(key)
     step_keys = jax.random.split(step_key, len(learner_devices))
-    init_learner_state = LearnerState(params, opt_states, step_keys, None, None)
+    init_learner_state = CoreLearnerState(params, opt_states, step_keys, None)
 
     return learn_step, apply_fns, init_learner_state
 
@@ -798,11 +799,11 @@ def run_experiment(_config: DictConfig) -> float:
     # First we stop all actors
     actors_lifetime.stop()
 
-    # Now we clear the pipeline
-    pipeline.clear()
-
     # Now we stop the actors and params sources
     for actor in actor_threads:
+        # We clear the pipeline before stopping each actor thread
+        # since actors can be blocked on the pipeline
+        pipeline.clear()
         actor.join()
 
     # Stop the pipeline

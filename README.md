@@ -160,6 +160,8 @@ python stoix/systems/q_learning/ff_c51.py network=mlp_dueling_c51
 
 2. Due to the way Stoix is set up, you are not guaranteed to run for exactly the number of timesteps you set. A warning is given at the beginning of a run on the actual number of timesteps that will be run. This value will always be less than or equal to the specified sample budget. To get the exact number of transitions to run, ensure that the number of timesteps is divisible by the rollout length * total_num_envs and additionally ensure that the number of evaluations spaced out throughout training perfectly divide the number of updates to be performed. To see the exact calculation, see the file total_timestep_checker.py. This will give an indication of how the actual number of timesteps is calculated and how you can easily set it up to run the exact amount you desire. Its relatively trivial to do so but it is important to keep in mind.
 
+3. Optimising the performance and speed for Sebulba systems can be a little tricky as you need to balance the pipeline size, the number of actor threads, etc so keep this in mind when applying an algorithm to a new problem.
+
 ## Contributing 🤝
 
 Please read our [contributing docs](docs/CONTRIBUTING.md) for details on how to submit pull requests, our Contributor License Agreement and community guidelines.

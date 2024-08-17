@@ -21,7 +21,7 @@ from stoix.base_types import (
     CriticApply,
     ExperimentOutput,
     LearnerFn,
-    LearnerState,
+    OnPolicyLearnerState,
 )
 from stoix.evaluator import evaluator_setup, get_distribution_act_fn
 from stoix.networks.base import FeedForwardActor as Actor
@@ -47,14 +47,16 @@ def get_learner_fn(
     apply_fns: Tuple[ActorApply, CriticApply],
     update_fns: Tuple[optax.TransformUpdateFn, optax.TransformUpdateFn],
     config: DictConfig,
-) -> LearnerFn[LearnerState]:
+) -> LearnerFn[OnPolicyLearnerState]:
     """Get the learner function."""
 
     # Get apply and update functions for actor and critic networks.
     actor_apply_fn, critic_apply_fn = apply_fns
     actor_update_fn, critic_update_fn = update_fns
 
-    def _update_step(learner_state: LearnerState, _: Any) -> Tuple[LearnerState, Tuple]:
+    def _update_step(
+        learner_state: OnPolicyLearnerState, _: Any
+    ) -> Tuple[OnPolicyLearnerState, Tuple]:
         """A single update of the network.
 
         This function steps the environment and records the trajectory batch for
@@ -72,7 +74,9 @@ def get_learner_fn(
             _ (Any): The current metrics info.
         """
 
-        def _env_step(learner_state: LearnerState, _: Any) -> Tuple[LearnerState, PPOTransition]:
+        def _env_step(
+            learner_state: OnPolicyLearnerState, _: Any
+        ) -> Tuple[OnPolicyLearnerState, PPOTransition]:
             """Step the environment."""
             params, opt_states, key, env_state, last_timestep = learner_state
 
@@ -101,7 +105,7 @@ def get_learner_fn(
                 last_timestep.observation,
                 info,
             )
-            learner_state = LearnerState(params, opt_states, key, env_state, timestep)
+            learner_state = OnPolicyLearnerState(params, opt_states, key, env_state, timestep)
             return learner_state, transition
 
         # STEP ENVIRONMENT FOR ROLLOUT LENGTH
@@ -276,11 +280,11 @@ def get_learner_fn(
         )
 
         params, opt_states, traj_batch, advantages, targets, key = update_state
-        learner_state = LearnerState(params, opt_states, key, env_state, last_timestep)
+        learner_state = OnPolicyLearnerState(params, opt_states, key, env_state, last_timestep)
         metric = traj_batch.info
         return learner_state, (metric, loss_info)
 
-    def learner_fn(learner_state: LearnerState) -> ExperimentOutput[LearnerState]:
+    def learner_fn(learner_state: OnPolicyLearnerState) -> ExperimentOutput[OnPolicyLearnerState]:
         """Learner function.
 
         This function represents the learner, it updates the network parameters
@@ -312,7 +316,7 @@ def get_learner_fn(
 
 def learner_setup(
     env: Environment, keys: chex.Array, config: DictConfig
-) -> Tuple[LearnerFn[LearnerState], Actor, LearnerState]:
+) -> Tuple[LearnerFn[OnPolicyLearnerState], Actor, OnPolicyLearnerState]:
     """Initialise learner_fn, network, optimiser, environment and states."""
     # Get available TPU cores.
     n_devices = len(jax.devices())
@@ -419,7 +423,7 @@ def learner_setup(
 
     # Initialise learner state.
     params, opt_states = replicate_learner
-    init_learner_state = LearnerState(params, opt_states, step_keys, env_states, timesteps)
+    init_learner_state = OnPolicyLearnerState(params, opt_states, step_keys, env_states, timesteps)
 
     return learn, actor_network, init_learner_state
 
