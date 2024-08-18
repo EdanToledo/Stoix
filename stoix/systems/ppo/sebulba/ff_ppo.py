@@ -141,7 +141,7 @@ def get_rollout_fn(
 
                         # Append PPOTransition to the trajectory list
                         reward = timestep.reward
-                        info = timestep.extras
+                        metrics = timestep.extras["metrics"]
                         traj.append(
                             PPOTransition(
                                 cached_next_dones,
@@ -151,7 +151,7 @@ def get_rollout_fn(
                                 reward,
                                 log_prob,
                                 cached_obs,
-                                info,
+                                metrics,
                             )
                         )
 
@@ -376,8 +376,8 @@ def get_learner_step_fn(
 
         params, opt_states, traj_batch, advantages, targets, key = update_state
         learner_state = CoreLearnerState(params, opt_states, key, last_timestep)
-        metric = traj_batch.info
-        return learner_state, (metric, loss_info)
+        metrics = traj_batch.info
+        return learner_state, (metrics, loss_info)
 
     def learner_step_fn(
         learner_state: CoreLearnerState, traj_batch: PPOTransition

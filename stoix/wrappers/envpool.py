@@ -9,6 +9,7 @@ from stoix.base_types import Observation
 
 NEXT_OBS_KEY_IN_EXTRAS = "next_obs"
 
+
 class EnvPoolToJumanji:
     """Converts from the Gymnasium envpool API to Jumanji's API."""
 
@@ -36,6 +37,7 @@ class EnvPoolToJumanji:
         self.env.close()
 
         # Set the flag to use the gym autoreset API
+        # since envpool does auto resetting slightly differently
         self._use_gym_autoreset_api = True
 
     def reset(
@@ -83,7 +85,6 @@ class EnvPoolToJumanji:
                     _,
                 ) = self.env.step(np.zeros_like(action), env_ids_to_reset)
                 obs[env_ids_to_reset] = reset_obs
-            
 
         # Counting episode return and length.
         if "reward" in info:
@@ -146,8 +147,10 @@ class EnvPoolToJumanji:
         self, obs: NDArray, ep_done: NDArray, terminated: NDArray, rewards: NDArray, info: Dict
     ) -> TimeStep:
         obs = self._format_observation(obs, info)
-        extras = info["metrics"]
-        extras[NEXT_OBS_KEY_IN_EXTRAS] = self._format_observation(info[NEXT_OBS_KEY_IN_EXTRAS], info)
+        extras = {"metrics": info["metrics"]}
+        extras[NEXT_OBS_KEY_IN_EXTRAS] = self._format_observation(
+            info[NEXT_OBS_KEY_IN_EXTRAS], info
+        )
         step_type = np.where(ep_done, StepType.LAST, StepType.MID)
 
         return TimeStep(

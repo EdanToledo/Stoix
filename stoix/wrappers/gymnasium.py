@@ -8,6 +8,8 @@ from numpy.typing import NDArray
 
 from stoix.base_types import Observation
 
+NEXT_OBS_KEY_IN_EXTRAS = "next_obs"
+
 
 class VecGymToJumanji:
     """Converts from a Vectorised Gymnasium environment to Jumanji's API."""
@@ -51,8 +53,16 @@ class VecGymToJumanji:
             "episode_length": np.zeros(self.num_envs, dtype=int),
             "is_terminal_step": np.zeros(self.num_envs, dtype=bool),
         }
+        if "final_observation" in info:
+            real_next_obs = info["final_observation"]
+            real_next_obs = np.asarray(
+                [obs[i] if x is None else np.asarray(x) for i, x in enumerate(real_next_obs)]
+            )
+        else:
+            real_next_obs = obs
 
         info["metrics"] = metrics
+        info[NEXT_OBS_KEY_IN_EXTRAS] = real_next_obs
 
         timestep = self._create_timestep(obs, ep_done, terminated, rewards, info)
 
@@ -82,6 +92,17 @@ class VecGymToJumanji:
         }
         info["metrics"] = metrics
 
+        if "final_observation" in info:
+            real_next_obs = info["final_observation"]
+            real_next_obs = np.asarray(
+                [obs[i] if x is None else np.asarray(x) for i, x in enumerate(real_next_obs)]
+            )
+        else:
+            real_next_obs = obs
+
+        info["metrics"] = metrics
+        info[NEXT_OBS_KEY_IN_EXTRAS] = real_next_obs
+
         # Update the metrics
         self.running_count_episode_return = new_episode_return * not_done
         self.running_count_episode_length = new_episode_length * not_done
@@ -100,7 +121,10 @@ class VecGymToJumanji:
         self, obs: NDArray, ep_done: NDArray, terminated: NDArray, rewards: NDArray, info: Dict
     ) -> TimeStep:
         obs = self._format_observation(obs, info)
-        extras = info["metrics"]
+        extras = {"metrics": info["metrics"]}
+        extras[NEXT_OBS_KEY_IN_EXTRAS] = self._format_observation(
+            info[NEXT_OBS_KEY_IN_EXTRAS], info
+        )
         step_type = np.where(ep_done, StepType.LAST, StepType.MID)
 
         return TimeStep(

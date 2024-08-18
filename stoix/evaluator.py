@@ -420,7 +420,7 @@ def get_sebulba_eval_fn(
                 seeds = np_rng.integers(np.iinfo(np.int32).max, size=n_parallel_envs).tolist()
                 timestep = envs.reset(seed=seeds)
 
-                all_metrics = [timestep.extras]
+                all_metrics = [timestep.extras["metrics"]]
                 all_dones = [timestep.last()]
                 finished_eps = timestep.last()
 
@@ -430,7 +430,7 @@ def get_sebulba_eval_fn(
                     action = act_fn(params, timestep.observation, act_key)
                     action_cpu = np.asarray(jax.device_put(action, cpu))
                     timestep = envs.step(action_cpu)
-                    all_metrics.append(timestep.extras)
+                    all_metrics.append(timestep.extras["metrics"])
                     all_dones.append(timestep.last())
                     finished_eps = np.logical_or(finished_eps, timestep.last())
 
