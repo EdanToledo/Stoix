@@ -1,5 +1,5 @@
 import copy
-from typing import Tuple
+from typing import Tuple, Union
 
 import gymnax
 import hydra
@@ -25,6 +25,7 @@ from popjym.registration import REGISTERED_ENVS as POPJYM_REGISTRY
 from xminigrid.registration import _REGISTRY as XMINIGRID_REGISTRY
 
 from stoix.utils.debug_env import IdentityGame, SequenceGame
+from stoix.utils.env_factory import EnvPoolFactory, GymnasiumFactory
 from stoix.wrappers import GymnaxWrapper, JumanjiWrapper, RecordEpisodeMetrics
 from stoix.wrappers.brax import BraxJumanjiWrapper
 from stoix.wrappers.jaxmarl import JaxMarlWrapper, MabraxWrapper, SmaxWrapper
@@ -371,6 +372,20 @@ def make_navix_env(env_name: str, config: DictConfig) -> Tuple[Environment, Envi
     return env, eval_env
 
 
+def make_gymnasium_factory(env_name: str, config: DictConfig) -> GymnasiumFactory:
+
+    env_factory = GymnasiumFactory(env_name, init_seed=config.arch.seed, **config.env.kwargs)
+
+    return env_factory
+
+
+def make_envpool_factory(env_name: str, config: DictConfig) -> EnvPoolFactory:
+
+    env_factory = EnvPoolFactory(env_name, init_seed=config.arch.seed, **config.env.kwargs)
+
+    return env_factory
+
+
 def make(config: DictConfig) -> Tuple[Environment, Environment]:
     """
     Create environments for training and evaluation..
@@ -379,7 +394,7 @@ def make(config: DictConfig) -> Tuple[Environment, Environment]:
         config (Dict): The configuration of the environment.
 
     Returns:
-        A tuple of the environments.
+        training and evaluation environments.
     """
     env_name = config.env.scenario.name
 
@@ -409,3 +424,24 @@ def make(config: DictConfig) -> Tuple[Environment, Environment]:
     envs = apply_optional_wrappers(envs, config)
 
     return envs
+
+
+def make_factory(config: DictConfig) -> Union[GymnasiumFactory, EnvPoolFactory]:
+    """
+    Create a env_factory for sebulba systems.
+
+    Args:
+        config (Dict): The configuration of the environment.
+
+    Returns:
+        A factory to create environments.
+    """
+    env_name = config.env.scenario.name
+    suite_name = config.env.env_name
+
+    if "envpool" in suite_name:
+        return make_envpool_factory(env_name, config)
+    elif "gymnasium" in suite_name:
+        return make_gymnasium_factory(env_name, config)
+    else:
+        raise ValueError(f"{suite_name} is not a supported suite.")

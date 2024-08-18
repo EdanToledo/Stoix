@@ -958,7 +958,9 @@ def run_experiment(_config: DictConfig) -> float:
 
 
 @hydra.main(
-    config_path="../../configs", config_name="default_ff_sampled_mz.yaml", version_base="1.2"
+    config_path="../../configs/default/anakin",
+    config_name="default_ff_sampled_mz.yaml",
+    version_base="1.2",
 )
 def hydra_entry_point(cfg: DictConfig) -> float:
     """Experiment entry point."""

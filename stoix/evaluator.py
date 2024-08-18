@@ -1,9 +1,13 @@
-from typing import Dict, Optional, Tuple, Union
+import math
+import time
+from typing import Any, Callable, Dict, Optional, Tuple, Union
 
 import chex
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
+import numpy as np
+from colorama import Fore, Style
 from flax.core.frozen_dict import FrozenDict
 from jumanji.env import Environment
 from omegaconf import DictConfig
@@ -11,6 +15,7 @@ from omegaconf import DictConfig
 from stoix.base_types import (
     ActFn,
     ActorApply,
+    EnvFactory,
     EvalFn,
     EvalState,
     ExperimentOutput,
@@ -349,3 +354,119 @@ def evaluator_setup(
     eval_keys = jnp.stack(eval_keys).reshape(n_devices, -1)
 
     return evaluator, absolute_metric_evaluator, (trained_params, eval_keys)
+
+
+##### THIS IS TEMPORARY
+
+SebulbaEvalFn = Callable[[FrozenDict, chex.PRNGKey], Dict[str, chex.Array]]
+
+
+def get_sebulba_eval_fn(
+    env_factory: EnvFactory,
+    act_fn: ActFn,
+    config: DictConfig,
+    np_rng: np.random.Generator,
+    device: jax.Device,
+    eval_multiplier: float = 1.0,
+) -> Tuple[SebulbaEvalFn, Any]:
+    """Creates a function that can be used to evaluate agents on a given environment.
+
+    Args:
+    ----
+        env: an environment that conforms to the mava environment spec.
+        act_fn: a function that takes in params, timestep, key and optionally a state
+                and returns actions and optionally a state (see `EvalActFn`).
+        config: the system config.
+        np_rng: a numpy random number generator.
+        eval_multiplier: a scalar that will increase the number of evaluation episodes
+            by a fixed factor.
+    """
+    eval_episodes = config.arch.num_eval_episodes * eval_multiplier
+
+    # We calculate here the number of parallel envs we can run in parallel.
+    # If the total number of episodes is less than the number of parallel envs
+    # we will run all episodes in parallel.
+    # Otherwise we will run `num_envs` parallel envs and loop enough times
+    # so that we do at least `eval_episodes` number of episodes.
+    n_parallel_envs = int(min(eval_episodes, config.arch.num_envs))
+    episode_loops = math.ceil(eval_episodes / n_parallel_envs)
+    envs = env_factory(n_parallel_envs)
+    cpu = jax.devices("cpu")[0]
+    act_fn = jax.jit(act_fn, device=device)
+
+    # Warnings if num eval episodes is not divisible by num parallel envs.
+    if eval_episodes % n_parallel_envs != 0:
+        msg = (
+            f"Please note that the number of evaluation episodes ({eval_episodes}) is not "
+            f"evenly divisible by `num_envs`. As a result, some additional evaluations will be "
+            f"conducted. The adjusted number of evaluation episodes is now "
+            f"{episode_loops * n_parallel_envs}."
+        )
+        print(f"{Fore.YELLOW}{Style.BRIGHT}{msg}{Style.RESET_ALL}")
+
+    def eval_fn(params: FrozenDict, key: chex.PRNGKey) -> Dict:
+        """Evaluates the given params on an environment and returns relevant metrics.
+
+        Metrics are collected by the `RecordEpisodeMetrics` wrapper: episode return and length,
+        also win rate for environments that support it.
+
+        Returns: Dict[str, Array] - dictionary of metric name to metric values for each episode.
+        """
+
+        def _run_episodes(key: chex.PRNGKey) -> Tuple[chex.PRNGKey, Dict]:
+            """Simulates `num_envs` episodes."""
+            with jax.default_device(device):
+                # Reset the environment.
+                seeds = np_rng.integers(np.iinfo(np.int32).max, size=n_parallel_envs).tolist()
+                timestep = envs.reset(seed=seeds)
+
+                all_metrics = [timestep.extras["metrics"]]
+                all_dones = [timestep.last()]
+                finished_eps = timestep.last()
+
+                # Loop until all episodes are done.
+                while not finished_eps.all():
+                    key, act_key = jax.random.split(key)
+                    action = act_fn(params, timestep.observation, act_key)
+                    action_cpu = np.asarray(jax.device_put(action, cpu))
+                    timestep = envs.step(action_cpu)
+                    all_metrics.append(timestep.extras["metrics"])
+                    all_dones.append(timestep.last())
+                    finished_eps = np.logical_or(finished_eps, timestep.last())
+
+                metrics = jax.tree.map(lambda *x: np.stack(x), *all_metrics)
+                dones = np.stack(all_dones)
+
+                # find the first instance of done to get the metrics at that timestep, we don't
+                # care about subsequent steps because we only the results from the first episode
+                done_idx = np.argmax(dones, axis=0)
+                metrics = jax.tree_map(lambda m: m[done_idx, np.arange(n_parallel_envs)], metrics)
+                del metrics["is_terminal_step"]  # unneeded for logging
+
+                return key, metrics
+
+        # This loop is important because we don't want too many parallel envs.
+        # So in evaluation we have num_envs parallel envs and loop enough times
+        # so that we do at least `eval_episodes` number of episodes.
+        metrics = []
+        for _ in range(episode_loops):
+            key, metric = _run_episodes(key)
+            metrics.append(metric)
+
+        metrics: Dict = jax.tree_map(
+            lambda *x: np.array(x).reshape(-1), *metrics
+        )  # flatten metrics
+        return metrics
+
+    def timed_eval_fn(params: FrozenDict, key: chex.PRNGKey) -> Any:
+        """Wrapper around eval function to time it and add in steps per second metric."""
+        start_time = time.perf_counter()
+        metrics = eval_fn(params, key)
+        end_time = time.perf_counter()
+
+        total_timesteps = jnp.sum(metrics["episode_length"])
+        metrics["steps_per_second"] = total_timesteps / (end_time - start_time)
+        metrics["evaluator_run_time"] = end_time - start_time
+        return metrics
+
+    return timed_eval_fn, envs
