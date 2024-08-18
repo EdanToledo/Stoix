@@ -11,6 +11,8 @@ defaults:
   - _self_
 
 hydra:
+  searchpath:
+      - file://stoix/configs
   mode: MULTIRUN
   sweeper:
     direction: maximize

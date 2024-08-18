@@ -1,0 +1,11 @@
+defaults:
+  - logger: base_logger
+  - arch: sebulba
+  - system: ff_ppo
+  - network: mlp
+  - env: envpool/cartpole
+  - _self_
+
+hydra:
+  searchpath:
+    - file://stoix/configs

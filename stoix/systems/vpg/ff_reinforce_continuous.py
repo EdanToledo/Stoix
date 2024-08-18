@@ -472,7 +472,7 @@ def run_experiment(_config: DictConfig) -> float:
 
 
 @hydra.main(
-    config_path="../../configs",
+    config_path="../../configs/default/anakin",
     config_name="default_ff_reinforce_continuous.yaml",
     version_base="1.2",
 )

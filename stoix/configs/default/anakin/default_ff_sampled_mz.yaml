@@ -5,3 +5,7 @@ defaults:
   - network: sampled_muzero
   - env: gymnax/pendulum
   - _self_
+
+hydra:
+  searchpath:
+    - file://stoix/configs

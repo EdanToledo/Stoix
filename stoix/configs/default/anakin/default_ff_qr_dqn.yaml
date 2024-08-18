@@ -5,3 +5,7 @@ defaults:
   - network: mlp_qr_dqn
   - env: gymnax/cartpole
   - _self_
+
+hydra:
+  searchpath:
+    - file://stoix/configs

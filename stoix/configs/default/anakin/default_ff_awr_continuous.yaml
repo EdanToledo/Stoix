@@ -1,7 +1,11 @@
 defaults:
   - logger: base_logger
   - arch: anakin
-  - system: ff_reinforce
+  - system: ff_awr
   - network: mlp_continuous
-  - env: gymnax/pendulum
+  - env: brax/ant
   - _self_
+
+hydra:
+  searchpath:
+    - file://stoix/configs
