@@ -147,7 +147,7 @@ python stoix/systems/ppo/sebulba/ff_ppo.py arch=sebulba env=envpool/pong network
 Stoix makes use of Hydra for config management. In order to see our default system configs please see the `stoix/configs/` directory. A benefit of Hydra is that configs can either be set in config yaml files or overwritten from the terminal on the fly. For an example of running a system on the CartPole environment and changing any hyperparameters, the above code can simply be adapted as follows:
 
 ```bash
-python stoix/systems/ppo/ff_ppo.py env=gymnax/cartpole system.rollout_length=32 system.decay_learning_rates=True
+python stoix/systems/ppo/anakin/ff_ppo.py env=gymnax/cartpole system.rollout_length=32 system.decay_learning_rates=True
 ```
 
 Additionally, certain implementations such as Dueling DQN are decided by the network architecture but the underlying algorithm stays the same. For example, if you wanted to run Dueling DQN you would simply do:
