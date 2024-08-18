@@ -41,7 +41,7 @@ Stoix is fully in JAX with substantial speed improvement compared to other popul
 ## System Design Paradigms
 Stoix offers two primary system design paradigms (Podracer Architectures) to cater to different research and deployment needs:
 
-- **Anakin:** Traditional Stoix implementations are fully end-to-end compiled with JAX, focusing on speed and simplicity with native JAX environments. This design paradigm is ideal for setups where all components, including environments, can be optimized using JAX, leveraging the full power of JAX's pmap and jit. For an illustration of the Anakin architecture, see this [figure](docs/images/anakin_arch.jpg) from the [Mava](mava) technical report.
+- **Anakin:** Traditional Stoix implementations are fully end-to-end compiled with JAX, focusing on speed and simplicity with native JAX environments. This design paradigm is ideal for setups where all components, including environments, can be optimized using JAX, leveraging the full power of JAX's pmap and jit. For an illustration of the Anakin architecture, see this [figure](docs/images/anakin_arch.jpg) from the [Mava][mava] technical report.
 
 - **Sebulba:** The Sebulba system introduces flexibility by allowing different devices to be assigned specifically for learning and acting. In this setup, acting devices serve as inference servers for multiple parallel environments, which can be written in any framework, not just JAX. This enables Stoix to be used with a broader range of environments while still benefiting from JAX's speed. For an illustration of the Sebulba architecture, see this [animation](docs/images/sebulba_arch.gif) from the [InstaDeep Sebulba implementation](https://github.com/instadeepai/sebulba/).
 
@@ -49,7 +49,7 @@ Not all implementations have both Anakin and Sebulba implementations but effort 
 
 ## Code Philosophy 🧘
 
-The current code in Stoix was initially **largely** taken and subsequently adapted from [Mava](mava). As Mava develops, Stoix will hopefully adopt their optimisations that are relevant for single-agent RL. Like Mava, Stoix is not designed to be a highly modular library and is not meant to be imported. Our repository focuses on simplicity and clarity in its implementations while utilising the advantages offered by JAX such as `pmap` and `vmap`, making it an excellent resource for researchers and practitioners to build upon. Stoix follows a similar design philosophy to [CleanRL][cleanrl] and [PureJaxRL][purejaxrl], where we allow for some code duplication to enable readability, easy reuse, and fast adaptation. A notable difference between Stoix and other single-file libraries is that Stoix makes use of abstraction where relevant. It is not intended to be purely educational with research utility as the primary focus. In particular, abstraction is currently used for network architectures, environments, logging, and evaluation.
+The current code in Stoix was initially **largely** taken and subsequently adapted from [Mava][mava]. As Mava develops, Stoix will hopefully adopt their optimisations that are relevant for single-agent RL. Like Mava, Stoix is not designed to be a highly modular library and is not meant to be imported. Our repository focuses on simplicity and clarity in its implementations while utilising the advantages offered by JAX such as `pmap` and `vmap`, making it an excellent resource for researchers and practitioners to build upon. Stoix follows a similar design philosophy to [CleanRL][cleanrl] and [PureJaxRL][purejaxrl], where we allow for some code duplication to enable readability, easy reuse, and fast adaptation. A notable difference between Stoix and other single-file libraries is that Stoix makes use of abstraction where relevant. It is not intended to be purely educational with research utility as the primary focus. In particular, abstraction is currently used for network architectures, environments, logging, and evaluation.
 
 ## Overview 🦜
 
@@ -210,7 +210,7 @@ year = {2024}
 
 ## Acknowledgements 🙏
 
-We would like to thank the authors and developers of [Mava](mava) as this was essentially a port of their repo at the time of creation. This helped set up a lot of the infrastructure of logging, evaluation and other utilities.
+We would like to thank the authors and developers of [Mava][mava] as this was essentially a port of their repo at the time of creation. This helped set up a lot of the infrastructure of logging, evaluation and other utilities.
 
 ## See Also 🔎
 
