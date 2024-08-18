@@ -132,14 +132,22 @@ we advise users to explicitly install the correct JAX version (see the [official
 
 To get started with training your first Stoix system, simply run one of the system files. e.g.,
 
+For an Anakin system:
+
 ```bash
-python stoix/systems/ppo/ff_ppo.py
+python stoix/systems/ppo/anakin/ff_ppo.py
 ```
 
-Stoix makes use of Hydra for config management. In order to see our default system configs please see the `stoix/configs/` directory. A benefit of Hydra is that configs can either be set in config yaml files or overwritten from the terminal on the fly. For an example of running a system on the CartPole environment, the above code can simply be adapted as follows:
+or for a Sebulba system:
 
 ```bash
-python stoix/systems/ppo/ff_ppo.py env=gymnax/cartpole
+python stoix/systems/ppo/sebulba/ff_ppo.py arch=sebulba env=envpool/pong network=visual_resnet
+```
+
+Stoix makes use of Hydra for config management. In order to see our default system configs please see the `stoix/configs/` directory. A benefit of Hydra is that configs can either be set in config yaml files or overwritten from the terminal on the fly. For an example of running a system on the CartPole environment and changing any hyperparameters, the above code can simply be adapted as follows:
+
+```bash
+python stoix/systems/ppo/ff_ppo.py env=gymnax/cartpole system.rollout_length=32 system.decay_learning_rates=True
 ```
 
 Additionally, certain implementations such as Dueling DQN are decided by the network architecture but the underlying algorithm stays the same. For example, if you wanted to run Dueling DQN you would simply do:
