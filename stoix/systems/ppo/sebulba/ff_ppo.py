@@ -25,8 +25,8 @@ from stoix.base_types import (
     ActorCriticParams,
     CoreLearnerState,
     CriticApply,
-    ExperimentOutput,
     Observation,
+    SebulbaExperimentOutput,
     SebulbaLearnerFn,
 )
 from stoix.evaluator import get_distribution_act_fn, get_sebulba_eval_fn
@@ -105,20 +105,21 @@ def get_rollout_fn(
                 # Create the list to store transitions
                 traj: List[PPOTransition] = []
                 # Create the dictionary to store timings for metrics
-                timings_dict: Dict[str, List[float]] = defaultdict(list)
+                actor_timings_dict: Dict[str, List[float]] = defaultdict(list)
+                episode_metrics: List[Dict[str, List[float]]] = []
                 # Rollout the environment
-                with RecordTimeTo(timings_dict["single_rollout_time"]):
+                with RecordTimeTo(actor_timings_dict["single_rollout_time"]):
                     # Loop until the rollout length is reached
                     for _ in range(config.system.rollout_length):
                         # Get the latest parameters from the source
-                        with RecordTimeTo(timings_dict["get_params_time"]):
+                        with RecordTimeTo(actor_timings_dict["get_params_time"]):
                             params = params_source.get()
 
                         # Move the environment data to the actor device
                         cached_obs = move_to_device(timestep.observation)
 
                         # Run the actor and critic networks to get the action, value and log_prob
-                        with RecordTimeTo(timings_dict["compute_action_time"]):
+                        with RecordTimeTo(actor_timings_dict["compute_action_time"]):
                             rng_key, policy_key = split_key_fn(rng_key)
                             action, value, log_prob = act_fn(params, cached_obs, policy_key)
 
@@ -126,7 +127,7 @@ def get_rollout_fn(
                         action_cpu = np.asarray(jax.device_put(action, cpu))
 
                         # Step the environment
-                        with RecordTimeTo(timings_dict["env_step_time"]):
+                        with RecordTimeTo(actor_timings_dict["env_step_time"]):
                             timestep = envs.step(action_cpu)
 
                         # Get the next dones and truncation flags
@@ -154,11 +155,12 @@ def get_rollout_fn(
                                 metrics,
                             )
                         )
+                        episode_metrics.append(metrics)
 
                 # Send the trajectory to the pipeline
-                with RecordTimeTo(timings_dict["rollout_put_time"]):
+                with RecordTimeTo(actor_timings_dict["rollout_put_time"]):
                     try:
-                        pipeline.put(traj, timestep, timings_dict)
+                        pipeline.put(traj, timestep, actor_timings_dict, episode_metrics)
                     except queue.Full:
                         warnings.warn(
                             "Waited too long to add to the rollout queue, killing the actor thread",
@@ -222,7 +224,7 @@ def get_learner_step_fn(
 
     def _update_step(
         learner_state: CoreLearnerState, traj_batch: PPOTransition
-    ) -> Tuple[CoreLearnerState, Tuple]:
+    ) -> Tuple[CoreLearnerState, Dict[str, chex.Array]]:
 
         # CALCULATE ADVANTAGE
         params, opt_states, key, last_timestep = learner_state
@@ -376,12 +378,12 @@ def get_learner_step_fn(
 
         params, opt_states, traj_batch, advantages, targets, key = update_state
         learner_state = CoreLearnerState(params, opt_states, key, last_timestep)
-        metrics = traj_batch.info
-        return learner_state, (metrics, loss_info)
+
+        return learner_state, loss_info
 
     def learner_step_fn(
         learner_state: CoreLearnerState, traj_batch: PPOTransition
-    ) -> ExperimentOutput[CoreLearnerState]:
+    ) -> SebulbaExperimentOutput[CoreLearnerState]:
         """Learner function.
 
         This function represents the learner, it updates the network parameters
@@ -397,11 +399,10 @@ def get_learner_step_fn(
                 - timesteps (TimeStep): The initial timestep in the initial trajectory.
         """
 
-        learner_state, (episode_info, loss_info) = _update_step(learner_state, traj_batch)
+        learner_state, loss_info = _update_step(learner_state, traj_batch)
 
-        return ExperimentOutput(
+        return SebulbaExperimentOutput(
             learner_state=learner_state,
-            episode_metrics=episode_info,
             train_metrics=loss_info,
         )
 
@@ -425,28 +426,33 @@ def get_learner_rollout_fn(
         for _ in range(config.arch.num_evaluation):
             # Create the lists to store metrics and timings for this learning iteration.
             metrics: List[Tuple[Dict, Dict]] = []
-            rollout_times: List[Dict] = []
+            actor_timings: List[Dict] = []
+            learner_timings: Dict[str, List[float]] = defaultdict(list)
             q_sizes: List[int] = []
-            learn_timings: Dict[str, List[float]] = defaultdict(list)
             # Loop for the number of updates per evaluation
             for _ in range(config.arch.num_updates_per_eval):
                 # Get the trajectory batch from the pipeline
                 # This is blocking so it will wait until the pipeline has data.
-                with RecordTimeTo(learn_timings["rollout_get_time"]):
-                    traj_batch, timestep, rollout_time = pipeline.get(block=True)  # type: ignore
+                with RecordTimeTo(learner_timings["rollout_get_time"]):
+                    (
+                        traj_batch,
+                        timestep,
+                        actor_times,
+                        episode_metrics,
+                    ) = pipeline.get(  # type: ignore
+                        block=True
+                    )
                 # We then replace the timestep in the learner state with the latest timestep
                 # This means the learner has access to the entire trajectory as well as
                 # an additional timestep which it can use to bootstrap.
                 learner_state = learner_state._replace(timestep=timestep)
                 # We then call the update function to update the networks
-                with RecordTimeTo(learn_timings["learning_time"]):
-                    learner_state, episode_metrics, train_metrics = learn_step(
-                        learner_state, traj_batch
-                    )
+                with RecordTimeTo(learner_timings["learning_time"]):
+                    learner_state, train_metrics = learn_step(learner_state, traj_batch)
 
                 # We store the metrics and timings for this update
                 metrics.append((episode_metrics, train_metrics))
-                rollout_times.append(rollout_time)
+                actor_timings.append(actor_times)
                 q_sizes.append(pipeline.qsize())
 
                 # After the update we need to update the params sources with the new params
@@ -460,8 +466,8 @@ def get_learner_rollout_fn(
             # and timings to the evaluation queue. This is so the evaluator correctly evaluates
             # the performance of the networks at this point in time.
             episode_metrics, train_metrics = jax.tree.map(lambda *x: np.asarray(x), *metrics)
-            rollout_times = jax.tree.map(lambda *x: np.mean(x), *rollout_times)
-            timing_dict = rollout_times | learn_timings
+            actor_timings = jax.tree.map(lambda *x: np.mean(x), *actor_timings)
+            timing_dict = actor_timings | learner_timings
             timing_dict["pipeline_qsize"] = q_sizes
             timing_dict = jax.tree.map(np.mean, timing_dict, is_leaf=lambda x: isinstance(x, list))
             try:

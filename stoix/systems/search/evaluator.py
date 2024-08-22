@@ -7,7 +7,7 @@ from flax.core.frozen_dict import FrozenDict
 from jumanji.env import Environment
 from omegaconf import DictConfig
 
-from stoix.base_types import EvalFn, EvalState, ExperimentOutput
+from stoix.base_types import EvalFn, EvalState, EvaluationOutput
 from stoix.systems.search.search_types import RootFnApply, SearchApply
 from stoix.utils.jax_utils import unreplicate_batch_dim
 
@@ -68,7 +68,7 @@ def get_search_evaluator_fn(
 
         return eval_metrics
 
-    def evaluator_fn(trained_params: FrozenDict, key: chex.PRNGKey) -> ExperimentOutput[EvalState]:
+    def evaluator_fn(trained_params: FrozenDict, key: chex.PRNGKey) -> EvaluationOutput[EvalState]:
         """Evaluator function."""
 
         # Initialise environment states and timesteps.
@@ -99,10 +99,9 @@ def get_search_evaluator_fn(
             axis_name="eval_batch",
         )(trained_params, eval_state)
 
-        return ExperimentOutput(
+        return EvaluationOutput(
             learner_state=eval_state,
             episode_metrics=eval_metrics,
-            train_metrics={},
         )
 
     return evaluator_fn

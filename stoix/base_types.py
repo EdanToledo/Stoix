@@ -161,7 +161,14 @@ StoixTransition = TypeVar(
 )
 
 
-class ExperimentOutput(NamedTuple, Generic[StoixState]):
+class SebulbaExperimentOutput(NamedTuple, Generic[StoixState]):
+    """Experiment output."""
+
+    learner_state: StoixState
+    train_metrics: Dict[str, chex.Array]
+
+
+class AnakinExperimentOutput(NamedTuple, Generic[StoixState]):
     """Experiment output."""
 
     learner_state: StoixState
@@ -169,10 +176,18 @@ class ExperimentOutput(NamedTuple, Generic[StoixState]):
     train_metrics: Dict[str, chex.Array]
 
 
+class EvaluationOutput(NamedTuple, Generic[StoixState]):
+    """Evaluation output."""
+
+    learner_state: StoixState
+    episode_metrics: Dict[str, chex.Array]
+
+
 RNNObservation: TypeAlias = Tuple[Observation, Done]
-LearnerFn = Callable[[StoixState], ExperimentOutput[StoixState]]
-SebulbaLearnerFn = Callable[[StoixState, StoixTransition], ExperimentOutput[StoixState]]
-EvalFn = Callable[[FrozenDict, chex.PRNGKey], ExperimentOutput[StoixState]]
+LearnerFn = Callable[[StoixState], AnakinExperimentOutput[StoixState]]
+SebulbaLearnerFn = Callable[[StoixState, StoixTransition], SebulbaExperimentOutput[StoixState]]
+EvalFn = Callable[[FrozenDict, chex.PRNGKey], EvaluationOutput[StoixState]]
+SebulbaEvalFn = Callable[[FrozenDict, chex.PRNGKey], Dict[str, chex.Array]]
 
 ActorApply = Callable[..., DistributionLike]
 
