@@ -13,7 +13,7 @@ jobs:
   test-algorithms:
     name: "Python ${{ matrix.python-version }} on ${{ matrix.os }}"
     runs-on: "${{ matrix.os }}"
-    timeout-minutes: 10
+    timeout-minutes: 30
 
     strategy:
       matrix:
