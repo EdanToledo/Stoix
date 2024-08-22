@@ -62,7 +62,13 @@ class OnPolicyPipeline(threading.Thread):
             except queue.Empty:
                 continue
 
-    def put(self, traj: Sequence[StoixTransition], timestep: TimeStep, timings_dict: Dict) -> None:
+    def put(
+        self,
+        traj: Sequence[StoixTransition],
+        timestep: TimeStep,
+        actor_timings_dict: Dict[str, List[float]],
+        actor_episode_metrics: List[Dict[str, List[float]]],
+    ) -> None:
         """Put a trajectory on the queue to be consumed by the learner."""
         start_condition, end_condition = (threading.Condition(), threading.Condition())
         with start_condition:
@@ -78,6 +84,9 @@ class OnPolicyPipeline(threading.Thread):
         # [(num_envs / num_learner_devices, ...)] * num_learner_devices
         sharded_timestep = jax.tree.map(self.shard_split_playload, timestep)
 
+        # Concatenate metrics - List[Dict[str, List[float]]] --> Dict[str, List[float]]
+        actor_episode_metrics = self.concatenate_metrics(actor_episode_metrics)
+
         # We block on the put to ensure that actors wait for the learners to catch up. This does two
         # things:
         # 1. It ensures that the actors don't get too far ahead of the learners, which could lead to
@@ -89,7 +98,11 @@ class OnPolicyPipeline(threading.Thread):
         # operation. We use a try-finally since the lock has to be released even if an exception
         # is raised.
         try:
-            self._queue.put((sharded_traj, sharded_timestep, timings_dict), block=True, timeout=180)
+            self._queue.put(
+                (sharded_traj, sharded_timestep, actor_timings_dict, actor_episode_metrics),
+                block=True,
+                timeout=180,
+            )
         except queue.Full:
             print(
                 f"{Fore.RED}{Style.BRIGHT}Pipeline is full and actor has timed out, "
@@ -105,7 +118,7 @@ class OnPolicyPipeline(threading.Thread):
 
     def get(
         self, block: bool = True, timeout: Union[float, None] = None
-    ) -> Tuple[StoixTransition, TimeStep, Dict]:
+    ) -> Tuple[StoixTransition, TimeStep, Dict[str, List[float]], Dict[str, List[float]]]:
         """Get a trajectory from the pipeline."""
         return self._queue.get(block, timeout)  # type: ignore
 
@@ -114,6 +127,13 @@ class OnPolicyPipeline(threading.Thread):
         """Stack a list of parallel_env transitions into a single
         transition of shape [rollout_len, num_envs, ...]."""
         return jax.tree_map(lambda *x: jnp.stack(x, axis=0), *trajectory)  # type: ignore
+
+    @partial(jax.jit, static_argnums=(0,))
+    def concatenate_metrics(
+        self, actor_metrics: List[Dict[str, List[float]]]
+    ) -> Dict[str, List[float]]:
+        """Concatenate a list of actor metrics into a single dictionary."""
+        return jax.tree_map(lambda *x: jnp.concatenate(x, axis=0), *actor_metrics)  # type: ignore
 
     def shard_split_playload(self, payload: Any, axis: int = 0) -> Any:
         split_payload = jnp.split(payload, len(self.learner_devices), axis=axis)

@@ -1,6 +1,6 @@
 import math
 import time
-from typing import Any, Callable, Dict, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple, Union
 
 import chex
 import flax.linen as nn
@@ -18,11 +18,12 @@ from stoix.base_types import (
     EnvFactory,
     EvalFn,
     EvalState,
-    ExperimentOutput,
+    EvaluationOutput,
     RecActFn,
     RecActorApply,
     RNNEvalState,
     RNNObservation,
+    SebulbaEvalFn,
 )
 from stoix.utils.jax_utils import unreplicate_batch_dim
 
@@ -133,7 +134,7 @@ def get_ff_evaluator_fn(
 
         return eval_metrics
 
-    def evaluator_fn(trained_params: FrozenDict, key: chex.PRNGKey) -> ExperimentOutput[EvalState]:
+    def evaluator_fn(trained_params: FrozenDict, key: chex.PRNGKey) -> EvaluationOutput[EvalState]:
         """Evaluator function."""
 
         # Initialise environment states and timesteps.
@@ -164,10 +165,9 @@ def get_ff_evaluator_fn(
             axis_name="eval_batch",
         )(trained_params, eval_state)
 
-        return ExperimentOutput(
+        return EvaluationOutput(
             learner_state=eval_state,
             episode_metrics=eval_metrics,
-            train_metrics={},
         )
 
     return evaluator_fn
@@ -248,7 +248,7 @@ def get_rnn_evaluator_fn(
 
     def evaluator_fn(
         trained_params: FrozenDict, key: chex.PRNGKey
-    ) -> ExperimentOutput[RNNEvalState]:
+    ) -> EvaluationOutput[RNNEvalState]:
         """Evaluator function."""
 
         # Initialise environment states and timesteps.
@@ -289,10 +289,9 @@ def get_rnn_evaluator_fn(
             axis_name="eval_batch",
         )(trained_params, eval_state)
 
-        return ExperimentOutput(
+        return EvaluationOutput(
             learner_state=eval_state,
             episode_metrics=eval_metrics,
-            train_metrics={},
         )
 
     return evaluator_fn
@@ -356,11 +355,6 @@ def evaluator_setup(
     return evaluator, absolute_metric_evaluator, (trained_params, eval_keys)
 
 
-##### THIS IS TEMPORARY
-
-SebulbaEvalFn = Callable[[FrozenDict, chex.PRNGKey], Dict[str, chex.Array]]
-
-
 def get_sebulba_eval_fn(
     env_factory: EnvFactory,
     act_fn: ActFn,
@@ -369,18 +363,7 @@ def get_sebulba_eval_fn(
     device: jax.Device,
     eval_multiplier: float = 1.0,
 ) -> Tuple[SebulbaEvalFn, Any]:
-    """Creates a function that can be used to evaluate agents on a given environment.
 
-    Args:
-    ----
-        env: an environment that conforms to the mava environment spec.
-        act_fn: a function that takes in params, timestep, key and optionally a state
-                and returns actions and optionally a state (see `EvalActFn`).
-        config: the system config.
-        np_rng: a numpy random number generator.
-        eval_multiplier: a scalar that will increase the number of evaluation episodes
-            by a fixed factor.
-    """
     eval_episodes = config.arch.num_eval_episodes * eval_multiplier
 
     # We calculate here the number of parallel envs we can run in parallel.
@@ -405,14 +388,6 @@ def get_sebulba_eval_fn(
         print(f"{Fore.YELLOW}{Style.BRIGHT}{msg}{Style.RESET_ALL}")
 
     def eval_fn(params: FrozenDict, key: chex.PRNGKey) -> Dict:
-        """Evaluates the given params on an environment and returns relevant metrics.
-
-        Metrics are collected by the `RecordEpisodeMetrics` wrapper: episode return and length,
-        also win rate for environments that support it.
-
-        Returns: Dict[str, Array] - dictionary of metric name to metric values for each episode.
-        """
-
         def _run_episodes(key: chex.PRNGKey) -> Tuple[chex.PRNGKey, Dict]:
             """Simulates `num_envs` episodes."""
             with jax.default_device(device):

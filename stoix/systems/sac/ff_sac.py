@@ -19,8 +19,8 @@ from rich.pretty import pprint
 
 from stoix.base_types import (
     ActorApply,
+    AnakinExperimentOutput,
     ContinuousQApply,
-    ExperimentOutput,
     LearnerFn,
     LogEnvState,
     OffPolicyLearnerState,
@@ -321,7 +321,9 @@ def get_learner_fn(
         metric = traj_batch.info
         return learner_state, (metric, loss_info)
 
-    def learner_fn(learner_state: OffPolicyLearnerState) -> ExperimentOutput[OffPolicyLearnerState]:
+    def learner_fn(
+        learner_state: OffPolicyLearnerState,
+    ) -> AnakinExperimentOutput[OffPolicyLearnerState]:
         """Learner function.
 
         This function represents the learner, it updates the network parameters
@@ -334,7 +336,7 @@ def get_learner_fn(
         learner_state, (episode_info, loss_info) = jax.lax.scan(
             batched_update_step, learner_state, None, config.arch.num_updates_per_eval
         )
-        return ExperimentOutput(
+        return AnakinExperimentOutput(
             learner_state=learner_state,
             episode_metrics=episode_info,
             train_metrics=loss_info,
