@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# A simple script to run various algorithms - used for testing purposes
+
 echo "Running All Algorithms..."
 
 python stoix/systems/ppo/anakin/ff_ppo.py arch.total_timesteps=300 arch.total_num_envs=8 arch.num_evaluation=1 system.rollout_length=8
