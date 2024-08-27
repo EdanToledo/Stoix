@@ -30,7 +30,6 @@ class EnvPoolToJumanji:
         # See if the env has lives - Atari specific
         info = self.env.step(np.zeros(self.num_envs, dtype=int))[-1]
         if "lives" in info and info["lives"].sum() > 0:
-            print("Env has lives")
             self.has_lives = True
         else:
             self.has_lives = False

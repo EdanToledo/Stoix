@@ -371,7 +371,7 @@ def get_sebulba_eval_fn(
     # we will run all episodes in parallel.
     # Otherwise we will run `num_envs` parallel envs and loop enough times
     # so that we do at least `eval_episodes` number of episodes.
-    n_parallel_envs = int(min(eval_episodes, config.arch.num_envs))
+    n_parallel_envs = int(min(eval_episodes, config.arch.total_num_envs))
     episode_loops = math.ceil(eval_episodes / n_parallel_envs)
     envs = env_factory(n_parallel_envs)
     cpu = jax.devices("cpu")[0]
