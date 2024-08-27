@@ -429,38 +429,39 @@ def get_learner_rollout_fn(
             actor_timings: List[Dict] = []
             learner_timings: Dict[str, List[float]] = defaultdict(list)
             q_sizes: List[int] = []
-            # Loop for the number of updates per evaluation
-            for _ in range(config.arch.num_updates_per_eval):
-                # Get the trajectory batch from the pipeline
-                # This is blocking so it will wait until the pipeline has data.
-                with RecordTimeTo(learner_timings["rollout_get_time"]):
-                    (
-                        traj_batch,
-                        timestep,
-                        actor_times,
-                        episode_metrics,
-                    ) = pipeline.get(  # type: ignore
-                        block=True
-                    )
-                # We then replace the timestep in the learner state with the latest timestep
-                # This means the learner has access to the entire trajectory as well as
-                # an additional timestep which it can use to bootstrap.
-                learner_state = learner_state._replace(timestep=timestep)
-                # We then call the update function to update the networks
-                with RecordTimeTo(learner_timings["learning_time"]):
-                    learner_state, train_metrics = learn_step(learner_state, traj_batch)
+            with RecordTimeTo(learner_timings["learner_time_per_eval"]):
+                # Loop for the number of updates per evaluation
+                for _ in range(config.arch.num_updates_per_eval):
+                    # Get the trajectory batch from the pipeline
+                    # This is blocking so it will wait until the pipeline has data.
+                    with RecordTimeTo(learner_timings["rollout_get_time"]):
+                        (
+                            traj_batch,
+                            timestep,
+                            actor_times,
+                            episode_metrics,
+                        ) = pipeline.get(  # type: ignore
+                            block=True
+                        )
+                    # We then replace the timestep in the learner state with the latest timestep
+                    # This means the learner has access to the entire trajectory as well as
+                    # an additional timestep which it can use to bootstrap.
+                    learner_state = learner_state._replace(timestep=timestep)
+                    # We then call the update function to update the networks
+                    with RecordTimeTo(learner_timings["learning_time"]):
+                        learner_state, train_metrics = learn_step(learner_state, traj_batch)
 
-                # We store the metrics and timings for this update
-                metrics.append((episode_metrics, train_metrics))
-                actor_timings.append(actor_times)
-                q_sizes.append(pipeline.qsize())
+                    # We store the metrics and timings for this update
+                    metrics.append((episode_metrics, train_metrics))
+                    actor_timings.append(actor_times)
+                    q_sizes.append(pipeline.qsize())
 
-                # After the update we need to update the params sources with the new params
-                unreplicated_params = unreplicate(learner_state.params)
-                # We loop over all params sources and update them with the new params
-                # This is so that all the actors can get the latest params
-                for source in params_sources:
-                    source.update(unreplicated_params)
+                    # After the update we need to update the params sources with the new params
+                    unreplicated_params = unreplicate(learner_state.params)
+                    # We loop over all params sources and update them with the new params
+                    # This is so that all the actors can get the latest params
+                    for source in params_sources:
+                        source.update(unreplicated_params)
 
             # We then pass all the environment metrics, training metrics, current learner state
             # and timings to the evaluation queue. This is so the evaluator correctly evaluates
@@ -711,10 +712,10 @@ def run_experiment(_config: DictConfig) -> float:
     # Get initial parameters
     initial_params = unreplicate(learner_state.params)
 
-    # Get the number of steps per rollout
-    steps_per_rollout = (
-        config.system.rollout_length * config.arch.total_num_envs * config.arch.num_updates_per_eval
-    )
+    # Get the number of steps consumed by the learner per learner step
+    steps_per_learner_step = config.system.rollout_length * config.arch.actor.envs_per_actor
+    # Get the number of steps consumed by the learner per evaluation
+    steps_consumed_per_eval = steps_per_learner_step * config.arch.num_updates_per_eval
 
     # Creating the pipeline
     # First we create the lifetime so we can stop the pipeline when we want
@@ -779,17 +780,25 @@ def run_experiment(_config: DictConfig) -> float:
         episode_metrics, train_metrics, learner_state, timings_dict = eval_queue.get(block=True)
 
         # Log the metrics and timings
-        t = int(steps_per_rollout * (eval_step + 1))
+        t = int(steps_consumed_per_eval * (eval_step + 1))
         timings_dict["timestep"] = t
         logger.log(timings_dict, t, eval_step, LogEvent.MISC)
 
         episode_metrics, ep_completed = get_final_step_metrics(episode_metrics)
+        # Calculate steps per second for actor
+        # Here we use the number of steps pushed to the pipeline each time
+        # and the average time it takes to do a single rollout across
+        # all the updates per evaluation
         episode_metrics["steps_per_second"] = (
-            steps_per_rollout / timings_dict["single_rollout_time"]
+            steps_per_learner_step / timings_dict["single_rollout_time"]
         )
         if ep_completed:
             logger.log(episode_metrics, t, eval_step, LogEvent.ACT)
 
+        train_metrics["learner_step"] = (eval_step + 1) * config.arch.num_updates_per_eval
+        train_metrics["sgd_steps_per_second"] = (config.arch.num_updates_per_eval) / timings_dict[
+            "learner_time_per_eval"
+        ]
         logger.log(train_metrics, t, eval_step, LogEvent.TRAIN)
 
         # Evaluate the current model and log the metrics
@@ -803,7 +812,7 @@ def run_experiment(_config: DictConfig) -> float:
         if save_checkpoint:
             # Save checkpoint of learner state
             checkpointer.save(
-                timestep=steps_per_rollout * (eval_step + 1),
+                timestep=steps_consumed_per_eval * (eval_step + 1),
                 unreplicated_learner_state=unreplicate(learner_state),
                 episode_return=episode_return,
             )
@@ -850,7 +859,7 @@ def run_experiment(_config: DictConfig) -> float:
         key, eval_key = jax.random.split(key, 2)
         eval_metrics = abs_metric_evaluator(best_params, eval_key)
 
-        t = int(steps_per_rollout * (eval_step + 1))
+        t = int(steps_consumed_per_eval * (eval_step + 1))
         logger.log(eval_metrics, t, eval_step, LogEvent.ABSOLUTE)
         abs_metric_evaluator_envs.close()
 
