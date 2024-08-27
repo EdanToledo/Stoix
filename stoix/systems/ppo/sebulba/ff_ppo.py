@@ -857,7 +857,9 @@ def hydra_entry_point(cfg: DictConfig) -> float:
     start = time.monotonic()
     eval_performance = run_experiment(cfg)
     end = time.monotonic()
-    print(f"{Fore.CYAN}{Style.BRIGHT}PPO experiment completed in {end - start:.2f} seconds.{Style.RESET_ALL}")
+    print(
+        f"{Fore.CYAN}{Style.BRIGHT}PPO experiment completed in {end - start:.2f}s.{Style.RESET_ALL}"
+    )
     return eval_performance
 
 
