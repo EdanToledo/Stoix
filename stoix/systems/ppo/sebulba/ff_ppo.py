@@ -807,6 +807,7 @@ def run_experiment(_config: DictConfig) -> float:
 
     # Now we stop the actors and params sources
     print(f"{Fore.MAGENTA}{Style.BRIGHT}Closing actors...{Style.RESET_ALL}")
+    pipeline.clear()
     for actor in actor_threads:
         # We clear the pipeline before stopping each actor thread
         # since actors can be blocked on the pipeline
