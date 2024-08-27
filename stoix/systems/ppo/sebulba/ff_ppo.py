@@ -1,6 +1,7 @@
 import copy
 import queue
 import threading
+import time
 import warnings
 from collections import defaultdict
 from queue import Queue
@@ -91,7 +92,7 @@ def get_rollout_fn(
     move_to_device = lambda tree: jax.tree.map(lambda x: jax.device_put(x, actor_device), tree)
     split_key_fn = jax.jit(jax.random.split, device=actor_device)
     # Build the environments
-    envs = env_factory(config.arch.actor.envs_per_actor)
+    envs = env_factory(config.arch.actor.num_envs_per_actor)
 
     # Create the rollout function
     def rollout_fn(rng_key: chex.PRNGKey) -> None:
@@ -348,7 +349,7 @@ def get_learner_step_fn(
 
             # SHUFFLE MINIBATCHES
             # Since we shard the envs per actor across the devices
-            envs_per_batch = config.arch.actor.envs_per_actor // len(config.arch.learner.device_ids)
+            envs_per_batch = config.arch.actor.num_envs_per_actor // config.num_learner_devices
             batch_size = config.system.rollout_length * envs_per_batch
             permutation = jax.random.permutation(shuffle_key, batch_size)
             batch = (traj_batch, advantages, targets)
@@ -448,7 +449,7 @@ def get_learner_rollout_fn(
                     # an additional timestep which it can use to bootstrap.
                     learner_state = learner_state._replace(timestep=timestep)
                     # We then call the update function to update the networks
-                    with RecordTimeTo(learner_timings["learning_time"]):
+                    with RecordTimeTo(learner_timings["learner_step_time"]):
                         learner_state, train_metrics = learn_step(learner_state, traj_batch)
 
                     # We store the metrics and timings for this update
@@ -618,18 +619,6 @@ def run_experiment(_config: DictConfig) -> float:
     """Runs experiment."""
     config = copy.deepcopy(_config)
 
-    # Perform some checks on the config
-    # This additionally calculates certains
-    # values based on the config
-    config = check_total_timesteps(config)
-
-    assert (
-        config.arch.num_updates > config.arch.num_evaluation
-    ), "Number of updates per evaluation must be less than total number of updates."
-
-    # Calculate the number of updates per evaluation
-    config.arch.num_updates_per_eval = int(config.arch.num_updates // config.arch.num_evaluation)
-
     # Get the learner and actor devices
     local_devices = jax.local_devices()
     global_devices = jax.devices()
@@ -648,28 +637,13 @@ def run_experiment(_config: DictConfig) -> float:
     print(f"{Fore.MAGENTA}{Style.BRIGHT}Global devices: {global_devices}{Style.RESET_ALL}")
     # Set the number of learning and acting devices in the config
     # useful for keeping track of experimental setup
-    config.num_learning_devices = len(local_learner_devices)
-    config.num_actor_actor_devices = len(actor_devices)
+    config.num_learner_devices = len(local_learner_devices)
+    config.num_actor_devices = len(actor_devices)
 
-    # Calculate the number of envs per actor
-    assert (
-        config.arch.num_envs == config.arch.total_num_envs
-    ), "arch.num_envs must equal arch.total_num_envs for Sebulba architectures"
-    # We first simply take the total number of envs and divide by the number of actor devices
-    # to get the number of envs per actor device
-    num_envs_per_actor_device = config.arch.total_num_envs // len(actor_devices)
-    # We then divide this by the number of actors per device to get the number of envs per actor
-    num_envs_per_actor = int(num_envs_per_actor_device // config.arch.actor.actor_per_device)
-    config.arch.actor.envs_per_actor = num_envs_per_actor
-
-    # We then perform a simple check to ensure that the number of envs per actor is
-    # divisible by the number of learner devices. This is because we shard the envs
-    # per actor across the learner devices This check is mainly relevant for on-policy
-    # algorithms
-    assert num_envs_per_actor % len(local_learner_devices) == 0, (
-        f"The number of envs per actor must be divisible by the number of learner devices. "
-        f"Got {num_envs_per_actor} envs per actor and {len(local_learner_devices)} learner devices"
-    )
+    # Perform some checks on the config
+    # This additionally calculates certains
+    # values based on the config
+    config = check_total_timesteps(config)
 
     # Create the environment factory.
     env_factory = environments.make_factory(config)
@@ -713,7 +687,7 @@ def run_experiment(_config: DictConfig) -> float:
     initial_params = unreplicate(learner_state.params)
 
     # Get the number of steps consumed by the learner per learner step
-    steps_per_learner_step = config.system.rollout_length * config.arch.actor.envs_per_actor
+    steps_per_learner_step = config.system.rollout_length * config.arch.actor.num_envs_per_actor
     # Get the number of steps consumed by the learner per evaluation
     steps_consumed_per_eval = steps_per_learner_step * config.arch.num_updates_per_eval
 
@@ -744,7 +718,7 @@ def run_experiment(_config: DictConfig) -> float:
         for i in range(config.arch.actor.actor_per_device):
             key, actors_key = jax.random.split(key)
             seeds = np_rng.integers(
-                np.iinfo(np.int32).max, size=config.arch.actor.envs_per_actor
+                np.iinfo(np.int32).max, size=config.arch.actor.num_envs_per_actor
             ).tolist()
             actor_thread = get_actor_thread(
                 env_factory,
@@ -880,9 +854,10 @@ def hydra_entry_point(cfg: DictConfig) -> float:
     OmegaConf.set_struct(cfg, False)
 
     # Run experiment.
+    start = time.monotonic()
     eval_performance = run_experiment(cfg)
-
-    print(f"{Fore.CYAN}{Style.BRIGHT}PPO experiment completed{Style.RESET_ALL}")
+    end = time.monotonic()
+    print(f"{Fore.CYAN}{Style.BRIGHT}PPO experiment completed in {end - start:.2f} seconds.{Style.RESET_ALL}")
     return eval_performance
 
 
