@@ -203,6 +203,3 @@ RecActFn = Callable[
     [FrozenDict, HiddenState, RNNObservation, chex.PRNGKey], Tuple[HiddenState, chex.Array]
 ]
 RecCriticApply = Callable[[FrozenDict, HiddenState, RNNObservation], Tuple[HiddenState, Value]]
-
-
-EnvFactory = Callable[[int], Any]
