@@ -1,10 +1,14 @@
-from typing import Optional
+import threading
+from typing import Any, Optional
 
 import jax
+import jax.numpy as jnp
 import numpy as np
 from jumanji.env import Environment
 from jumanji.specs import Spec
 from jumanji.types import TimeStep
+
+from stoix.utils.env_factory import EnvFactory
 
 
 class JaxToStateful:
@@ -22,7 +26,9 @@ class JaxToStateful:
         self.episode_length = np.zeros(self.num_envs, dtype=int)
 
         # Create the seeds
-        init_seeds = jax.random.randint(jax.random.PRNGKey(init_seed), (num_envs,), 0, 2**32)
+        max_int = np.iinfo(np.int32).max
+        min_int = np.iinfo(np.int32).min
+        init_seeds = jax.random.randint(jax.random.PRNGKey(init_seed), (num_envs,), min_int, max_int)
         self.rng_keys = jax.vmap(jax.random.PRNGKey)(init_seeds)
 
         # Vmap and compile the reset and step functions
@@ -99,4 +105,24 @@ class JaxToStateful:
         return self.env.action_spec()
 
     def close(self) -> None:
-        self.env.close()
+        pass
+
+
+class JaxEnvFactory(EnvFactory):
+    """
+    Create environments using stoix-ready JAX environments
+    """
+    
+    def __init__(self, jax_env : Environment, init_seed: int):
+        self.jax_env = jax_env
+        self.cpu = jax.devices("cpu")[0]
+        self.seed = init_seed
+        # a lock is needed because this object will be used from different threads.
+        # We want to make sure all seeds are unique
+        self.lock = threading.Lock()
+
+    def __call__(self, num_envs: int) -> JaxToStateful:
+        with self.lock:
+            seed = self.seed
+            self.seed += num_envs
+            return JaxToStateful(self.jax_env, num_envs, self.cpu, seed)

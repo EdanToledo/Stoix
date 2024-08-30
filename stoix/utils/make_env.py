@@ -26,10 +26,10 @@ from popjym.registration import REGISTERED_ENVS as POPJYM_REGISTRY
 from xminigrid.registration import _REGISTRY as XMINIGRID_REGISTRY
 
 from stoix.utils.debug_env import IdentityGame, SequenceGame
-from stoix.utils.env_factory import EnvFactory, EnvPoolFactory, GymnasiumFactory
+from stoix.utils.env_factory import EnvFactory, GymnasiumFactory, EnvPoolFactory
 from stoix.wrappers import GymnaxWrapper, JumanjiWrapper, RecordEpisodeMetrics
 from stoix.wrappers.brax import BraxJumanjiWrapper
-from stoix.wrappers.jax_to_factory import JaxToStateful
+from stoix.wrappers.jax_to_factory import JaxEnvFactory, JaxToStateful
 from stoix.wrappers.jaxmarl import JaxMarlWrapper, MabraxWrapper, SmaxWrapper
 from stoix.wrappers.navix import NavixWrapper
 from stoix.wrappers.pgx import PGXWrapper
@@ -427,19 +427,6 @@ def make(config: DictConfig) -> Tuple[Environment, Environment]:
 
     return envs
 
-
-class JaxEnvFactory(EnvFactory):
-    """
-    Create environments using stoix-ready JAX environments
-    """
-
-    def __call__(self, num_envs: int) -> JaxToStateful:
-        cpu = jax.devices("cpu")[0]
-        with self.lock:
-            train_env, _ = make(self.task_id)
-            return JaxToStateful(train_env, num_envs, cpu, self.seed, **self.kwargs)
-
-
 def make_factory(config: DictConfig) -> EnvFactory:
     """
     Create a env_factory for sebulba systems.
@@ -458,4 +445,4 @@ def make_factory(config: DictConfig) -> EnvFactory:
     elif "gymnasium" in suite_name:
         return make_gymnasium_factory(env_name, config)
     else:
-        return JaxEnvFactory(config, init_seed=config.arch.seed, **config.env.kwargs)
+        return JaxEnvFactory(make(config)[0], init_seed=config.arch.seed)
