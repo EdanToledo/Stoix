@@ -210,7 +210,7 @@ class WandBLogger(BaseLogger):
     def stop(self) -> None:
         if self.upload_json_data:
             self._zip_and_upload_json()
-        wandb.finish()
+        wandb.finish()  # type: ignore
 
     def _zip_and_upload_json(self) -> None:
         # Create the zip file path by replacing '.json' with '.zip'
