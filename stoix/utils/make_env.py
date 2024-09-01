@@ -286,7 +286,7 @@ def apply_optional_wrappers(
         A tuple of the environments.
     """
     envs = list(envs)
-    if "wrapper" in config.env:
+    if "wrapper" in config.env and config.env.wrapper is not None:
         for i in range(len(envs)):
             envs[i] = hydra.utils.instantiate(config.env.wrapper, env=envs[i])
 
