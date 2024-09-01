@@ -1,6 +1,6 @@
-black==24.3.0
+black==24.8.0
 coverage
-flake8==6.1.0
+flake8==7.1.1
 importlib-metadata<5.0
 isort==5.11.5
 livereload
@@ -11,7 +11,7 @@ mkdocs-material==8.2.7
 mkdocs-mermaid2-plugin==0.6.0
 mkdocstrings==0.18.0
 mknotebooks==0.7.1
-mypy==0.991
+mypy==1.11.2
 nbmake
 pre-commit==3.3.3
 promise

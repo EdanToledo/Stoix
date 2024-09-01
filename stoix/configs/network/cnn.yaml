@@ -8,6 +8,7 @@ actor_network:
     use_layer_norm: False
     activation: silu
     channel_first: True
+    hidden_sizes: [128, 128]
   action_head:
     _target_: stoix.networks.heads.CategoricalHead
 
@@ -20,5 +21,6 @@ critic_network:
     use_layer_norm: False
     activation: silu
     channel_first: True
+    hidden_sizes: [128, 128]
   critic_head:
     _target_: stoix.networks.heads.ScalarCriticHead
