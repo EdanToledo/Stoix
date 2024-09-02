@@ -1,0 +1,16 @@
+# ---Environment Configs---
+env_name: xland_minigrid
+scenario:
+  name: MiniGrid-Empty-6x6
+  task_name: minigrid_empty_6x6
+
+kwargs: {}
+
+# Defines the metric that will be used to evaluate the performance of the agent.
+# This metric is returned at the end of an experiment and can be used for hyperparameter tuning.
+eval_metric: episode_return
+
+
+# Optional wrapper to flatten the observation space.
+wrapper:
+  _target_: stoix.wrappers.transforms.FlattenObservationWrapper

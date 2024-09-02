@@ -19,10 +19,10 @@ from stoix.base_types import (
     ActorApply,
     ActorCriticOptStates,
     ActorCriticParams,
+    AnakinExperimentOutput,
     CriticApply,
-    ExperimentOutput,
     LearnerFn,
-    LearnerState,
+    OnPolicyLearnerState,
 )
 from stoix.evaluator import evaluator_setup, get_distribution_act_fn
 from stoix.networks.base import FeedForwardActor as Actor
@@ -43,15 +43,19 @@ def get_learner_fn(
     apply_fns: Tuple[ActorApply, CriticApply],
     update_fns: Tuple[optax.TransformUpdateFn, optax.TransformUpdateFn],
     config: DictConfig,
-) -> LearnerFn[LearnerState]:
+) -> LearnerFn[OnPolicyLearnerState]:
     """Get the learner function."""
 
     # Get apply and update functions for actor and critic networks.
     actor_apply_fn, critic_apply_fn = apply_fns
     actor_update_fn, critic_update_fn = update_fns
 
-    def _update_step(learner_state: LearnerState, _: Any) -> Tuple[LearnerState, Tuple]:
-        def _env_step(learner_state: LearnerState, _: Any) -> Tuple[LearnerState, Transition]:
+    def _update_step(
+        learner_state: OnPolicyLearnerState, _: Any
+    ) -> Tuple[OnPolicyLearnerState, Tuple]:
+        def _env_step(
+            learner_state: OnPolicyLearnerState, _: Any
+        ) -> Tuple[OnPolicyLearnerState, Transition]:
             """Step the environment."""
             params, opt_states, key, env_state, last_timestep = learner_state
 
@@ -71,7 +75,7 @@ def get_learner_fn(
             transition = Transition(
                 done, action, value, timestep.reward, last_timestep.observation, info
             )
-            learner_state = LearnerState(params, opt_states, key, env_state, timestep)
+            learner_state = OnPolicyLearnerState(params, opt_states, key, env_state, timestep)
             return learner_state, transition
 
         # STEP ENVIRONMENT FOR ROLLOUT LENGTH
@@ -188,18 +192,22 @@ def get_learner_fn(
             **critic_loss_info,
         }
 
-        learner_state = LearnerState(new_params, new_opt_state, key, env_state, last_timestep)
+        learner_state = OnPolicyLearnerState(
+            new_params, new_opt_state, key, env_state, last_timestep
+        )
         metric = traj_batch.info
         return learner_state, (metric, loss_info)
 
-    def learner_fn(learner_state: LearnerState) -> ExperimentOutput[LearnerState]:
+    def learner_fn(
+        learner_state: OnPolicyLearnerState,
+    ) -> AnakinExperimentOutput[OnPolicyLearnerState]:
 
         batched_update_step = jax.vmap(_update_step, in_axes=(0, None), axis_name="batch")
 
         learner_state, (episode_info, loss_info) = jax.lax.scan(
             batched_update_step, learner_state, None, config.arch.num_updates_per_eval
         )
-        return ExperimentOutput(
+        return AnakinExperimentOutput(
             learner_state=learner_state,
             episode_metrics=episode_info,
             train_metrics=loss_info,
@@ -210,7 +218,7 @@ def get_learner_fn(
 
 def learner_setup(
     env: Environment, keys: chex.Array, config: DictConfig
-) -> Tuple[LearnerFn[LearnerState], Actor, LearnerState]:
+) -> Tuple[LearnerFn[OnPolicyLearnerState], Actor, OnPolicyLearnerState]:
     """Initialise learner_fn, network, optimiser, environment and states."""
     # Get available TPU cores.
     n_devices = len(jax.devices())
@@ -318,7 +326,7 @@ def learner_setup(
 
     # Initialise learner state.
     params, opt_states = replicate_learner
-    init_learner_state = LearnerState(params, opt_states, step_keys, env_states, timesteps)
+    init_learner_state = OnPolicyLearnerState(params, opt_states, step_keys, env_states, timesteps)
 
     return learn, actor_network, init_learner_state
 
@@ -466,7 +474,7 @@ def run_experiment(_config: DictConfig) -> float:
 
 
 @hydra.main(
-    config_path="../../configs",
+    config_path="../../configs/default/anakin",
     config_name="default_ff_reinforce_continuous.yaml",
     version_base="1.2",
 )

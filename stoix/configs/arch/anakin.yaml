@@ -1,5 +1,5 @@
 # --- Anakin config ---
-
+architecture_name: anakin
 # --- Training ---
 seed: 42  # RNG seed.
 update_batch_size: 1 # Number of vectorised gradient updates per device.

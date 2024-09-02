@@ -7,6 +7,8 @@ actor_network:
     strides: [4, 2, 1]
     use_layer_norm: False
     activation: silu
+    channel_first: True
+    hidden_sizes: [128, 128]
   action_head:
     _target_: stoix.networks.dueling.NoisyDistributionalDuelingQNetwork
     layer_sizes: [512]

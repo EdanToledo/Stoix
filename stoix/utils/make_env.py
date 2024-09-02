@@ -1,11 +1,12 @@
 import copy
-from typing import Tuple
+from typing import Tuple, Union
 
 import gymnax
 import hydra
 import jax.numpy as jnp
 import jaxmarl
 import jumanji
+import navix
 import pgx
 import popjym
 import xminigrid
@@ -18,16 +19,23 @@ from jumanji.env import Environment
 from jumanji.registration import _REGISTRY as JUMANJI_REGISTRY
 from jumanji.specs import BoundedArray, MultiDiscreteArray
 from jumanji.wrappers import AutoResetWrapper, MultiToSingleWrapper
+from navix import registry as navix_registry
 from omegaconf import DictConfig
 from popjym.registration import REGISTERED_ENVS as POPJYM_REGISTRY
 from xminigrid.registration import _REGISTRY as XMINIGRID_REGISTRY
 
 from stoix.utils.debug_env import IdentityGame, SequenceGame
+from stoix.utils.env_factory import EnvPoolFactory, GymnasiumFactory
 from stoix.wrappers import GymnaxWrapper, JumanjiWrapper, RecordEpisodeMetrics
 from stoix.wrappers.brax import BraxJumanjiWrapper
 from stoix.wrappers.jaxmarl import JaxMarlWrapper, MabraxWrapper, SmaxWrapper
+from stoix.wrappers.navix import NavixWrapper
 from stoix.wrappers.pgx import PGXWrapper
-from stoix.wrappers.transforms import MultiBoundedToBounded, MultiDiscreteToDiscrete
+from stoix.wrappers.transforms import (
+    AddStartFlagAndPrevAction,
+    MultiBoundedToBounded,
+    MultiDiscreteToDiscrete,
+)
 from stoix.wrappers.xminigrid import XMiniGridWrapper
 
 
@@ -278,7 +286,7 @@ def apply_optional_wrappers(
         A tuple of the environments.
     """
     envs = list(envs)
-    if "wrapper" in config.env:
+    if "wrapper" in config.env and config.env.wrapper is not None:
         for i in range(len(envs)):
             envs[i] = hydra.utils.instantiate(config.env.wrapper, env=envs[i])
 
@@ -330,10 +338,52 @@ def make_popjym_env(env_name: str, config: DictConfig) -> Tuple[Environment, Env
     env = GymnaxWrapper(env, env_params)
     eval_env = GymnaxWrapper(eval_env, eval_env_params)
 
+    env = AddStartFlagAndPrevAction(env)
+    eval_env = AddStartFlagAndPrevAction(eval_env)
+
     env = AutoResetWrapper(env, next_obs_in_extras=True)
     env = RecordEpisodeMetrics(env)
 
     return env, eval_env
+
+
+def make_navix_env(env_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
+    """
+    Create Navix environments for training and evaluation.
+
+    Args:
+        env_name (str): The name of the environment to create.
+        config (Dict): The configuration of the environment.
+
+    Returns:
+        A tuple of the environments.
+    """
+
+    # Create envs.
+    env = navix.make(env_name, **config.env.kwargs)
+    eval_env = navix.make(env_name, **config.env.kwargs)
+
+    env = NavixWrapper(env)
+    eval_env = NavixWrapper(eval_env)
+
+    env = AutoResetWrapper(env, next_obs_in_extras=True)
+    env = RecordEpisodeMetrics(env)
+
+    return env, eval_env
+
+
+def make_gymnasium_factory(env_name: str, config: DictConfig) -> GymnasiumFactory:
+
+    env_factory = GymnasiumFactory(env_name, init_seed=config.arch.seed, **config.env.kwargs)
+
+    return env_factory
+
+
+def make_envpool_factory(env_name: str, config: DictConfig) -> EnvPoolFactory:
+
+    env_factory = EnvPoolFactory(env_name, init_seed=config.arch.seed, **config.env.kwargs)
+
+    return env_factory
 
 
 def make(config: DictConfig) -> Tuple[Environment, Environment]:
@@ -344,7 +394,7 @@ def make(config: DictConfig) -> Tuple[Environment, Environment]:
         config (Dict): The configuration of the environment.
 
     Returns:
-        A tuple of the environments.
+        training and evaluation environments.
     """
     env_name = config.env.scenario.name
 
@@ -366,9 +416,32 @@ def make(config: DictConfig) -> Tuple[Environment, Environment]:
         envs = make_pgx_env(env_name, config)
     elif env_name in POPJYM_REGISTRY:
         envs = make_popjym_env(env_name, config)
+    elif env_name in navix_registry():
+        envs = make_navix_env(env_name, config)
     else:
         raise ValueError(f"{env_name} is not a supported environment.")
 
     envs = apply_optional_wrappers(envs, config)
 
     return envs
+
+
+def make_factory(config: DictConfig) -> Union[GymnasiumFactory, EnvPoolFactory]:
+    """
+    Create a env_factory for sebulba systems.
+
+    Args:
+        config (Dict): The configuration of the environment.
+
+    Returns:
+        A factory to create environments.
+    """
+    env_name = config.env.scenario.name
+    suite_name = config.env.env_name
+
+    if "envpool" in suite_name:
+        return make_envpool_factory(env_name, config)
+    elif "gymnasium" in suite_name:
+        return make_gymnasium_factory(env_name, config)
+    else:
+        raise ValueError(f"{suite_name} is not a supported suite.")

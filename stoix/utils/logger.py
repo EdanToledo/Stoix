@@ -210,7 +210,7 @@ class WandBLogger(BaseLogger):
     def stop(self) -> None:
         if self.upload_json_data:
             self._zip_and_upload_json()
-        wandb.finish()
+        wandb.finish()  # type: ignore
 
     def _zip_and_upload_json(self) -> None:
         # Create the zip file path by replacing '.json' with '.zip'
@@ -372,7 +372,7 @@ def get_logger_path(config: DictConfig, logger_type: str) -> str:
 def describe(x: ArrayLike) -> Union[Dict[str, ArrayLike], ArrayLike]:
     """Generate summary statistics for an array of metrics (mean, std, min, max)."""
 
-    if not isinstance(x, jax.Array):
+    if not isinstance(x, (jax.Array, np.ndarray)) or x.size <= 1:
         return x
 
     # np instead of jnp because we don't jit here
