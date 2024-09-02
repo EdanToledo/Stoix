@@ -153,6 +153,12 @@ class OnlineAndTarget(NamedTuple):
     target: FrozenDict
 
 
+class OnlineTargetOpponent(NamedTuple):
+    online: FrozenDict
+    target: FrozenDict
+    opponent: FrozenDict
+
+
 StoixState = TypeVar(
     "StoixState",
 )

@@ -23,9 +23,9 @@ from stoix.base_types import (
     LearnerFn,
     LogEnvState,
     OffPolicyLearnerState,
-    OnlineAndTarget,
+    OnlineTargetOpponent,
 )
-from stoix.evaluator import evaluator_setup, get_distribution_act_fn
+from stoix.evaluator import get_distribution_act_fn, selfplay_evaluator_setup
 from stoix.networks.base import FeedForwardActor as Actor
 from stoix.systems.q_learning.dqn_types import Transition
 from stoix.utils import make_env as environments
@@ -188,6 +188,9 @@ def get_learner_fn(
             transition_sample = buffer_sample_fn(buffer_state, sample_key)
             transitions: Transition = transition_sample.experience
 
+            # The opponent params are the online params with a 1-step lag
+            opponent_params = copy.deepcopy(params.online)
+
             # CALCULATE Q LOSS
             q_grad_fn = jax.grad(_q_loss_fn, has_aux=True)
             q_grads, q_loss_info = q_grad_fn(
@@ -210,7 +213,9 @@ def get_learner_fn(
             new_target_q_params = optax.incremental_update(
                 q_new_online_params, params.target, config.system.tau
             )
-            q_new_params = OnlineAndTarget(q_new_online_params, new_target_q_params)
+            q_new_params = OnlineTargetOpponent(
+                q_new_online_params, new_target_q_params, opponent_params
+            )
 
             # PACK NEW PARAMS AND OPTIMISER STATE
             new_params = q_new_params
@@ -273,7 +278,7 @@ def learner_setup(
     config.system.action_dim = action_dim
 
     # PRNG keys.
-    key, q_net_key = keys
+    key, q_net_key, opponent_key = keys
 
     # Define networks and optimiser.
     q_network_torso = hydra.utils.instantiate(config.network.actor_network.pre_torso)
@@ -307,7 +312,10 @@ def learner_setup(
     q_target_params = q_online_params
     q_opt_state = q_optim.init(q_online_params)
 
-    params = OnlineAndTarget(q_online_params, q_target_params)
+    # Initialise opponent parameters
+    opponent_q_params = q_network.init(opponent_key, init_x)
+
+    params = OnlineTargetOpponent(q_online_params, q_target_params, opponent_q_params)
     opt_states = q_opt_state
 
     q_network_apply_fn = q_network.apply
@@ -380,7 +388,7 @@ def learner_setup(
             **config.logger.checkpointing.load_args,  # Other checkpoint args
         )
         # Restore the learner state from the checkpoint
-        restored_params, _ = loaded_checkpoint.restore_params(TParams=OnlineAndTarget)
+        restored_params, _ = loaded_checkpoint.restore_params(TParams=OnlineTargetOpponent)
         # Update the params
         params = restored_params
 
@@ -435,18 +443,25 @@ def run_experiment(_config: DictConfig) -> float:
     env, eval_env = environments.make(config=config)
 
     # PRNG keys.
-    key, key_e, q_net_key = jax.random.split(jax.random.PRNGKey(config.arch.seed), num=3)
+    key, key_e, opponent_key, q_net_key = jax.random.split(
+        jax.random.PRNGKey(config.arch.seed), num=4
+    )
 
     # Setup learner.
-    learn, eval_q_network, learner_state = learner_setup(env, (key, q_net_key), config)
+    learn, eval_q_network, learner_state = learner_setup(
+        env, (key, q_net_key, opponent_key), config
+    )
 
     # Setup evaluator.
-    evaluator, absolute_metric_evaluator, (trained_params, eval_keys) = evaluator_setup(
-        eval_env=eval_env,
-        key_e=key_e,
-        eval_act_fn=get_distribution_act_fn(config, eval_q_network.apply),
-        params=learner_state.params.online,
-        config=config,
+    evaluator, absolute_metric_evaluator, (trained_params, opponent_eval_params, eval_keys) = (
+        selfplay_evaluator_setup(  # TODO: setup selfplay evaluator
+            eval_env=eval_env,
+            key_e=key_e,
+            eval_act_fn=get_distribution_act_fn(config, eval_q_network.apply),
+            params=learner_state.params.online,
+            opponent_params=learner_state.params.opponent,
+            config=config,
+        )
     )
 
     # Calculate number of updates per evaluation.
@@ -557,8 +572,9 @@ def run_experiment(_config: DictConfig) -> float:
 
 
 @hydra.main(
+    # TODO: change back to anakin after testing
     config_path="../../configs/default/anakin",
-    config_name="default_ff_dqn.yaml",
+    config_name="default_ff_dqn_selfplay.yaml",
     version_base="1.2",
 )
 def hydra_entry_point(cfg: DictConfig) -> float:
