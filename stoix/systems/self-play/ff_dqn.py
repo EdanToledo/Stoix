@@ -453,15 +453,17 @@ def run_experiment(_config: DictConfig) -> float:
     )
 
     # Setup evaluator.
-    evaluator, absolute_metric_evaluator, (trained_params, opponent_eval_params, eval_keys) = (
-        selfplay_evaluator_setup(  # TODO: setup selfplay evaluator
-            eval_env=eval_env,
-            key_e=key_e,
-            eval_act_fn=get_distribution_act_fn(config, eval_q_network.apply),
-            params=learner_state.params.online,
-            opponent_params=learner_state.params.opponent,
-            config=config,
-        )
+    (
+        evaluator,
+        absolute_metric_evaluator,
+        (trained_params, opponent_eval_params, eval_keys),
+    ) = selfplay_evaluator_setup(  # TODO: setup selfplay evaluator
+        eval_env=eval_env,
+        key_e=key_e,
+        eval_act_fn=get_distribution_act_fn(config, eval_q_network.apply),
+        params=learner_state.params.online,
+        opponent_params=learner_state.params.opponent,
+        config=config,
     )
 
     # Calculate number of updates per evaluation.
