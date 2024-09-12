@@ -31,9 +31,11 @@ class FlattenObservationWrapper(Wrapper):
         timestep = timestep.replace(
             observation=timestep.observation._replace(agent_view=agent_view),
         )
-        if 'next_obs' in timestep.extras:
-            agent_view = self._flatten(timestep.extras['next_obs'])
-            timestep.extras['next_obs'] = timestep.extras['next_obs']._replace(agent_view=agent_view)
+        if "next_obs" in timestep.extras:
+            agent_view = self._flatten(timestep.extras["next_obs"])
+            timestep.extras["next_obs"] = timestep.extras["next_obs"]._replace(
+                agent_view=agent_view
+            )
         return state, timestep
 
     def step(self, state: State, action: chex.Array) -> Tuple[State, TimeStep]:
@@ -42,9 +44,11 @@ class FlattenObservationWrapper(Wrapper):
         timestep = timestep.replace(
             observation=timestep.observation._replace(agent_view=agent_view),
         )
-        if 'next_obs' in timestep.extras:
-            agent_view = self._flatten(timestep.extras['next_obs'])
-            timestep.extras['next_obs'] = timestep.extras['next_obs']._replace(agent_view=agent_view)
+        if "next_obs" in timestep.extras:
+            agent_view = self._flatten(timestep.extras["next_obs"])
+            timestep.extras["next_obs"] = timestep.extras["next_obs"]._replace(
+                agent_view=agent_view
+            )
         return state, timestep
 
     def observation_spec(self) -> Spec:
