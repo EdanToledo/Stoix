@@ -1,0 +1,40 @@
+# ---Example of chaining arbitrary torsos---
+actor_network:
+  pre_torso:
+    _target_: stoix.networks.base.chained_torsos # we call the chained torsos creation function
+    _recursive_: false  # we disable recursive instantiation for this object as we do the creation manually
+    torso_cfgs:
+
+      - _target_: stoix.networks.resnet.ResNetTorso
+        hidden_units_per_group: [64, 64]
+        blocks_per_group: [1, 1]
+        use_layer_norm: False
+        activation: silu
+
+      - _target_: stoix.networks.torso.MLPTorso
+        layer_sizes: [64, 64]
+        use_layer_norm: False
+        activation: relu
+
+  action_head:
+    _target_: stoix.networks.heads.CategoricalHead
+
+critic_network:
+  pre_torso:
+    _target_: stoix.networks.base.chained_torsos # we call the chained torsos creation function
+    _recursive_: false # we disable recursive instantiation for this object as we do the creation manually
+    torso_cfgs:
+
+      - _target_: stoix.networks.resnet.ResNetTorso
+        hidden_units_per_group: [64, 64]
+        blocks_per_group: [1, 1]
+        use_layer_norm: False
+        activation: silu
+
+      - _target_: stoix.networks.torso.MLPTorso
+        layer_sizes: [64, 64]
+        use_layer_norm: False
+        activation: relu
+
+  critic_head:
+    _target_: stoix.networks.heads.ScalarCriticHead
