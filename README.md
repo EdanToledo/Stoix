@@ -199,6 +199,7 @@ If you use Stoix in your work, please cite us:
 ```bibtex
 @software{toledo2024stoix,
 author = {Toledo, Edan},
+month = apr,
 doi = {10.5281/zenodo.10916257},
 title = {{Stoix: Distributed Single-Agent Reinforcement Learning End-to-End in JAX}},
 url = {https://github.com/EdanToledo/Stoix},
