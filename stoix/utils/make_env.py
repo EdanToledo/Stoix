@@ -1,5 +1,5 @@
 import copy
-from typing import Tuple, Union
+from typing import Tuple
 
 import gymnax
 import hydra
@@ -25,9 +25,10 @@ from popjym.registration import REGISTERED_ENVS as POPJYM_REGISTRY
 from xminigrid.registration import _REGISTRY as XMINIGRID_REGISTRY
 
 from stoix.utils.debug_env import IdentityGame, SequenceGame
-from stoix.utils.env_factory import EnvPoolFactory, GymnasiumFactory
+from stoix.utils.env_factory import EnvFactory, EnvPoolFactory, GymnasiumFactory
 from stoix.wrappers import GymnaxWrapper, JumanjiWrapper, RecordEpisodeMetrics
 from stoix.wrappers.brax import BraxJumanjiWrapper
+from stoix.wrappers.jax_to_factory import JaxEnvFactory
 from stoix.wrappers.jaxmarl import JaxMarlWrapper, MabraxWrapper, SmaxWrapper
 from stoix.wrappers.navix import NavixWrapper
 from stoix.wrappers.pgx import PGXWrapper
@@ -426,7 +427,7 @@ def make(config: DictConfig) -> Tuple[Environment, Environment]:
     return envs
 
 
-def make_factory(config: DictConfig) -> Union[GymnasiumFactory, EnvPoolFactory]:
+def make_factory(config: DictConfig) -> EnvFactory:
     """
     Create a env_factory for sebulba systems.
 
@@ -444,4 +445,4 @@ def make_factory(config: DictConfig) -> Union[GymnasiumFactory, EnvPoolFactory]:
     elif "gymnasium" in suite_name:
         return make_gymnasium_factory(env_name, config)
     else:
-        raise ValueError(f"{suite_name} is not a supported suite.")
+        return JaxEnvFactory(make(config)[0], init_seed=config.arch.seed)

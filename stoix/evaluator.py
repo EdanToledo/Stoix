@@ -15,7 +15,6 @@ from omegaconf import DictConfig
 from stoix.base_types import (
     ActFn,
     ActorApply,
-    EnvFactory,
     EvalFn,
     EvalState,
     EvaluationOutput,
@@ -25,6 +24,7 @@ from stoix.base_types import (
     RNNObservation,
     SebulbaEvalFn,
 )
+from stoix.utils.env_factory import EnvFactory
 from stoix.utils.jax_utils import unreplicate_batch_dim
 
 
