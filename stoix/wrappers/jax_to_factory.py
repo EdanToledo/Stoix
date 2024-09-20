@@ -1,8 +1,7 @@
 import threading
-from typing import Any, Optional
+from typing import Optional
 
 import jax
-import jax.numpy as jnp
 import numpy as np
 from jumanji.env import Environment
 from jumanji.specs import Spec
@@ -28,7 +27,9 @@ class JaxToStateful:
         # Create the seeds
         max_int = np.iinfo(np.int32).max
         min_int = np.iinfo(np.int32).min
-        init_seeds = jax.random.randint(jax.random.PRNGKey(init_seed), (num_envs,), min_int, max_int)
+        init_seeds = jax.random.randint(
+            jax.random.PRNGKey(init_seed), (num_envs,), min_int, max_int
+        )
         self.rng_keys = jax.vmap(jax.random.PRNGKey)(init_seeds)
 
         # Vmap and compile the reset and step functions
@@ -112,8 +113,8 @@ class JaxEnvFactory(EnvFactory):
     """
     Create environments using stoix-ready JAX environments
     """
-    
-    def __init__(self, jax_env : Environment, init_seed: int):
+
+    def __init__(self, jax_env: Environment, init_seed: int):
         self.jax_env = jax_env
         self.cpu = jax.devices("cpu")[0]
         self.seed = init_seed

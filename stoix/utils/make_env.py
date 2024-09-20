@@ -3,7 +3,6 @@ from typing import Tuple
 
 import gymnax
 import hydra
-import jax
 import jax.numpy as jnp
 import jaxmarl
 import jumanji
@@ -26,10 +25,10 @@ from popjym.registration import REGISTERED_ENVS as POPJYM_REGISTRY
 from xminigrid.registration import _REGISTRY as XMINIGRID_REGISTRY
 
 from stoix.utils.debug_env import IdentityGame, SequenceGame
-from stoix.utils.env_factory import EnvFactory, GymnasiumFactory, EnvPoolFactory
+from stoix.utils.env_factory import EnvFactory, EnvPoolFactory, GymnasiumFactory
 from stoix.wrappers import GymnaxWrapper, JumanjiWrapper, RecordEpisodeMetrics
 from stoix.wrappers.brax import BraxJumanjiWrapper
-from stoix.wrappers.jax_to_factory import JaxEnvFactory, JaxToStateful
+from stoix.wrappers.jax_to_factory import JaxEnvFactory
 from stoix.wrappers.jaxmarl import JaxMarlWrapper, MabraxWrapper, SmaxWrapper
 from stoix.wrappers.navix import NavixWrapper
 from stoix.wrappers.pgx import PGXWrapper
@@ -426,6 +425,7 @@ def make(config: DictConfig) -> Tuple[Environment, Environment]:
     envs = apply_optional_wrappers(envs, config)
 
     return envs
+
 
 def make_factory(config: DictConfig) -> EnvFactory:
     """
