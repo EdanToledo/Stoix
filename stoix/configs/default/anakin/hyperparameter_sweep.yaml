@@ -3,7 +3,7 @@
 defaults:
   - logger: base_logger
   - arch: anakin
-  - system: ff_ppo
+  - system: ppo/ff_ppo
   - network: mlp
   - env: gymnax/cartpole
   - override hydra/sweeper: optuna

@@ -1,7 +1,7 @@
 defaults:
   - logger: base_logger
   - arch: anakin
-  - system: ff_td3
+  - system: ddpg/ff_td3
   - network: mlp_ddpg
   - env: brax/ant
   - _self_

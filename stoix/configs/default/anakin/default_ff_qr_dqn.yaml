@@ -1,7 +1,7 @@
 defaults:
   - logger: base_logger
   - arch: anakin
-  - system: ff_qr_dqn
+  - system: q_learning/ff_qr_dqn
   - network: mlp_qr_dqn
   - env: gymnax/cartpole
   - _self_

@@ -1,7 +1,7 @@
 defaults:
   - logger: base_logger
   - arch: anakin
-  - system: ff_mpo
+  - system: mpo/ff_mpo
   - network: mlp_mpo
   - env: gymnax/cartpole
   - _self_
