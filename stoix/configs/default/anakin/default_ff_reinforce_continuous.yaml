@@ -1,7 +1,7 @@
 defaults:
   - logger: base_logger
   - arch: anakin
-  - system: ff_reinforce
+  - system: vpg/ff_reinforce
   - network: mlp_continuous
   - env: gymnax/pendulum
   - _self_
