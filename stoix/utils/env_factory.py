@@ -2,7 +2,18 @@ import abc
 import threading
 from typing import Any
 
-import envpool
+from colorama import Fore, Style
+
+# Envpool is not usable on certain platforms, so we need to handle the ImportError
+try:
+    import envpool
+except ImportError:
+    envpool = None
+    print(
+        f"{Fore.MAGENTA}{Style.BRIGHT}Envpool not installed. "
+        f"Please install it to use the Envpool factory{Style.RESET_ALL}"
+    )
+
 import gymnasium
 
 from stoix.wrappers.envpool import EnvPoolToJumanji
@@ -43,7 +54,7 @@ class EnvPoolFactory(EnvFactory):
                     num_envs=num_envs,
                     seed=seed,
                     gym_reset_return_info=True,
-                    **self.kwargs
+                    **self.kwargs,
                 )
             )
 
