@@ -29,7 +29,7 @@ wm_network:
     use_layer_norm: False
     activation: silu
 
-  # This can be seen as the dyanmics network.
+  # This can be seen as the dynamics network.
   rnn_size: 256
   num_stacked_rnn_layers: 2
   rnn_cell_type: "gru"
