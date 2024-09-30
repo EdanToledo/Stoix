@@ -202,7 +202,7 @@ If you use Stoix in your work, please cite us:
     doi = {10.5281/zenodo.10916257},
     author={Edan Toledo},
     year = {2024},
-    url = {https://github.com/EdanToledo/Stoix/},
+    url = {https://github.com/EdanToledo/Stoix},
 }
 ```
 
