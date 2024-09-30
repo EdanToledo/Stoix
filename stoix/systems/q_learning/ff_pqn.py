@@ -37,6 +37,8 @@ from stoix.utils.total_timestep_checker import check_total_timesteps
 from stoix.utils.training import make_learning_rate
 from stoix.wrappers.episode_metrics import get_final_step_metrics
 
+# Remember to run PQN with layernorm turned on in the network config file.
+
 
 def get_learner_fn(
     env: Environment,
