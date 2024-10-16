@@ -39,7 +39,6 @@ class IdentityGame(Environment):
         return state, timestep
 
     def step(self, state: chex, action: chex.Array) -> Tuple[GameState, TimeStep]:
-
         reward = jnp.where(action == state.state, 1.0, 0.0).squeeze()
         state_key, rng_key = jax.random.split(state.key)
         state_val = jax.random.randint(rng_key, shape=(1,), minval=0, maxval=self.num_actions)
@@ -88,7 +87,6 @@ class SequenceGame(Environment):
         return state, timestep
 
     def step(self, state: chex, action: chex.Array) -> Tuple[GameState, TimeStep]:
-
         reward = jnp.where(action == state.state, 1.0, 0.0).squeeze()
         state_key, _ = jax.random.split(state.key)
         state_val = (state.state + 1) % self.num_actions

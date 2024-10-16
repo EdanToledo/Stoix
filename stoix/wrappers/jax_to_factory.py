@@ -40,7 +40,6 @@ class JaxToStateful:
         self, *, seed: Optional[list[int]] = None, options: Optional[list[dict]] = None
     ) -> TimeStep:
         with jax.default_device(self.device):
-
             self.state, timestep = self.vmapped_reset(self.rng_keys)
 
             # Reset the metrics

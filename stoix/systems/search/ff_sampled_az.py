@@ -95,7 +95,6 @@ def make_root_fn(
         env_state: chex.ArrayTree,
         rng_key: chex.PRNGKey,
     ) -> mctx.RootFnOutput:
-
         sample_key, noise_key = jax.random.split(rng_key, 2)
 
         pi = actor_apply_fn(params.actor_params, observation)
@@ -151,7 +150,6 @@ def make_recurrent_fn(
         action_index: chex.Array,
         search_tree_state: chex.ArrayTree,
     ) -> Tuple[mctx.RecurrentFnOutput, chex.ArrayTree]:
-
         env_state = search_tree_state["env_state"]
         batch_size = action_index.shape[0]
         batch_indices = jnp.arange(batch_size)
@@ -204,7 +202,6 @@ def make_sampled_search_apply_fn(
     config: DictConfig,
     model_recurrent_fn: mctx.RecurrentFn,
 ) -> SearchApply:
-
     search_method = parse_search_method(config)
     mctx_search_apply_fn = functools.partial(
         search_method,
@@ -238,7 +235,6 @@ def get_warmup_fn(
     buffer_add_fn: Callable,
     config: DictConfig,
 ) -> Callable:
-
     _, _, root_fn, search_apply_fn = apply_fns
 
     def warmup(
@@ -652,9 +648,12 @@ def learner_setup(
     env_states, timesteps = jax.vmap(env.reset, in_axes=(0))(
         jnp.stack(env_keys),
     )
-    reshape_states = lambda x: x.reshape(
-        (n_devices, config.arch.update_batch_size, config.arch.num_envs) + x.shape[1:]
-    )
+
+    def reshape_states(x: chex.Array) -> chex.Array:
+        return x.reshape(
+            (n_devices, config.arch.update_batch_size, config.arch.num_envs) + x.shape[1:]
+        )
+
     # (devices, update batch size, num_envs, ...)
     env_states = jax.tree_util.tree_map(reshape_states, env_states)
     timesteps = jax.tree_util.tree_map(reshape_states, timesteps)
@@ -674,14 +673,19 @@ def learner_setup(
     key, step_key, warmup_key = jax.random.split(key, num=3)
     step_keys = jax.random.split(step_key, n_devices * config.arch.update_batch_size)
     warmup_keys = jax.random.split(warmup_key, n_devices * config.arch.update_batch_size)
-    reshape_keys = lambda x: x.reshape((n_devices, config.arch.update_batch_size) + x.shape[1:])
+
+    def reshape_keys(x: chex.Array) -> chex.Array:
+        return x.reshape((n_devices, config.arch.update_batch_size) + x.shape[1:])
+
     step_keys = reshape_keys(jnp.stack(step_keys))
     warmup_keys = reshape_keys(jnp.stack(warmup_keys))
     opt_states = ActorCriticOptStates(actor_opt_state, critic_opt_state)
     replicate_learner = (params, opt_states, buffer_states)
 
     # Duplicate learner for update_batch_size.
-    broadcast = lambda x: jnp.broadcast_to(x, (config.arch.update_batch_size,) + x.shape)
+    def broadcast(x: chex.Array) -> chex.Array:
+        return jnp.broadcast_to(x, (config.arch.update_batch_size,) + x.shape)
+
     replicate_learner = jax.tree_util.tree_map(broadcast, replicate_learner)
 
     # Duplicate learner across devices.

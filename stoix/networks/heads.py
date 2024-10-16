@@ -41,7 +41,6 @@ class CategoricalHead(nn.Module):
 
 
 class NormalAffineTanhDistributionHead(nn.Module):
-
     action_dim: int
     minimum: float
     maximum: float
@@ -50,7 +49,6 @@ class NormalAffineTanhDistributionHead(nn.Module):
 
     @nn.compact
     def __call__(self, embedding: chex.Array) -> Independent:
-
         loc = nn.Dense(self.action_dim, kernel_init=self.kernel_init)(embedding)
         scale = (
             jax.nn.softplus(nn.Dense(self.action_dim, kernel_init=self.kernel_init)(embedding))
@@ -65,7 +63,6 @@ class NormalAffineTanhDistributionHead(nn.Module):
 
 
 class BetaDistributionHead(nn.Module):
-
     action_dim: int
     minimum: float
     maximum: float
@@ -73,7 +70,6 @@ class BetaDistributionHead(nn.Module):
 
     @nn.compact
     def __call__(self, embedding: chex.Array) -> Independent:
-
         # Use alpha and beta >= 1 according to [Chou et. al, 2017]
         alpha = (
             jax.nn.softplus(nn.Dense(self.action_dim, kernel_init=self.kernel_init)(embedding)) + 1
@@ -98,7 +94,6 @@ class BetaDistributionHead(nn.Module):
 
 
 class MultivariateNormalDiagHead(nn.Module):
-
     action_dim: int
     init_scale: float = 0.3
     min_scale: float = 1e-3
@@ -119,7 +114,6 @@ class DeterministicHead(nn.Module):
 
     @nn.compact
     def __call__(self, embedding: chex.Array) -> chex.Array:
-
         x = nn.Dense(self.action_dim, kernel_init=self.kernel_init)(embedding)
 
         return Deterministic(x)
@@ -134,7 +128,6 @@ class ScalarCriticHead(nn.Module):
 
 
 class CategoricalCriticHead(nn.Module):
-
     num_atoms: int = 601
     vmax: Optional[float] = None
     vmin: Optional[float] = None
@@ -205,7 +198,6 @@ class DiscreteQNetworkHead(nn.Module):
 
     @nn.compact
     def __call__(self, embedding: chex.Array) -> distrax.EpsilonGreedy:
-
         q_values = nn.Dense(self.action_dim, kernel_init=self.kernel_init)(embedding)
 
         return distrax.EpsilonGreedy(preferences=q_values, epsilon=self.epsilon)
@@ -219,7 +211,6 @@ class PolicyValueHead(nn.Module):
     def __call__(
         self, embedding: chex.Array
     ) -> Tuple[distrax.DistributionLike, Union[chex.Array, distrax.DistributionLike]]:
-
         action_distribution = self.action_head(embedding)
         value = self.critic_head(embedding)
 
@@ -291,5 +282,4 @@ class LinearHead(nn.Module):
 
     @nn.compact
     def __call__(self, embedding: chex.Array) -> chex.Array:
-
         return nn.Dense(self.output_dim, kernel_init=self.kernel_init)(embedding)

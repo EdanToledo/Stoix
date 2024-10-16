@@ -150,7 +150,6 @@ def get_learner_fn(
                 target_q_params: FrozenDict,
                 transitions: Transition,
             ) -> jnp.ndarray:
-
                 q_tm1 = q_apply_fn(q_params, transitions.obs).preferences
                 q_t = q_apply_fn(target_q_params, transitions.next_obs).preferences
 

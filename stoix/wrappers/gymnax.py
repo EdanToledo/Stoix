@@ -21,7 +21,7 @@ else:
 
 
 def gymnax_space_to_jumanji_spec(
-    space: Union[gymnax_spaces.Discrete, gymnax_spaces.Box, gymnax_spaces.Dict]
+    space: Union[gymnax_spaces.Discrete, gymnax_spaces.Box, gymnax_spaces.Dict],
 ) -> Spec:
     """Converts Gymnax spaces to Jumanji specs."""
     if isinstance(space, gymnax_spaces.Discrete):

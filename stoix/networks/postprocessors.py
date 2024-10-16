@@ -66,9 +66,7 @@ class ScalePostProcessor(nn.Module):
 
     @nn.compact
     def __call__(self, distribution: Distribution) -> Distribution:
-        post_processor = partial(
-            self.scale_fn, minimum=self.minimum, maximum=self.maximum
-        )  # type: ignore
+        post_processor = partial(self.scale_fn, minimum=self.minimum, maximum=self.maximum)  # type: ignore
         return PostProcessedDistribution(distribution, post_processor)
 
 

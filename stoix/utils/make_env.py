@@ -64,12 +64,13 @@ def make_jumanji_env(
         env_kwargs["generator"] = generator
     env = jumanji.make(env_name, **env_kwargs)
     eval_env = jumanji.make(env_name, **env_kwargs)
-    env, eval_env = JumanjiWrapper(
-        env, config.env.observation_attribute, config.env.multi_agent
-    ), JumanjiWrapper(
-        eval_env,
-        config.env.observation_attribute,
-        config.env.multi_agent,
+    env, eval_env = (
+        JumanjiWrapper(env, config.env.observation_attribute, config.env.multi_agent),
+        JumanjiWrapper(
+            eval_env,
+            config.env.observation_attribute,
+            config.env.multi_agent,
+        ),
     )
 
     env = AutoResetWrapper(env, next_obs_in_extras=True)
@@ -374,14 +375,12 @@ def make_navix_env(env_name: str, config: DictConfig) -> Tuple[Environment, Envi
 
 
 def make_gymnasium_factory(env_name: str, config: DictConfig) -> GymnasiumFactory:
-
     env_factory = GymnasiumFactory(env_name, init_seed=config.arch.seed, **config.env.kwargs)
 
     return env_factory
 
 
 def make_envpool_factory(env_name: str, config: DictConfig) -> EnvPoolFactory:
-
     env_factory = EnvPoolFactory(env_name, init_seed=config.arch.seed, **config.env.kwargs)
 
     return env_factory

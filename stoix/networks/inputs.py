@@ -34,7 +34,6 @@ class ObservationActionInput(nn.Module):
 
 
 class EmbeddingActionInput(nn.Module):
-
     action_dim: int
 
     @nn.compact
@@ -44,7 +43,6 @@ class EmbeddingActionInput(nn.Module):
 
 
 class EmbeddingActionOnehotInput(nn.Module):
-
     action_dim: int
 
     @nn.compact

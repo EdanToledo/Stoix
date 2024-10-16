@@ -1,6 +1,4 @@
-black==24.8.0
 coverage
-flake8==7.1.1
 importlib-metadata<5.0
 isort==5.11.5
 livereload
@@ -22,4 +20,5 @@ pytest-mock
 pytest-parallel
 pytest-xdist
 pytype
+ruff
 testfixtures
