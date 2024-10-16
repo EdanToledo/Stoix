@@ -1,4 +1,4 @@
-default_stages: [ "commit", "commit-msg", "push" ]
+default_stages: [ "pre-commit", "commit-msg", "pre-push" ]
 default_language_version:
   python: python3
 

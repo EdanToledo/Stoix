@@ -3,7 +3,7 @@ chex
 colorama
 craftax
 distrax @ git+https://github.com/google-deepmind/distrax  # distrax release doesn't support jax > 0.4.13
-envpool
+envpool; sys_platform == "linux"
 flashbax @ git+https://github.com/instadeepai/flashbax
 flax
 gymnasium
