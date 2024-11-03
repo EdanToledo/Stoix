@@ -7,9 +7,12 @@ from typing import Any, Dict, List, Sequence, Tuple, Union
 import jax
 import jax.numpy as jnp
 from colorama import Fore, Style
+from jax.sharding import Sharding
 from jumanji.types import TimeStep
 
 from stoix.base_types import Parameters, StoixTransition
+
+QUEUE_PUT_TIMEOUT = 100
 
 
 # Copied from https://github.com/instadeepai/sebulba/blob/main/sebulba/core.py
@@ -33,16 +36,18 @@ class OnPolicyPipeline(threading.Thread):
     and limit the max number of samples in device memory at one time to avoid OOM issues.
     """
 
-    def __init__(self, max_size: int, learner_devices: List[jax.Device], lifetime: ThreadLifetime):
+    def __init__(self, max_size: int, learner_sharding: Sharding, lifetime: ThreadLifetime):
         """
         Initializes the pipeline with a maximum size and the devices to shard trajectories across.
 
         Args:
             max_size: The maximum number of trajectories to keep in the pipeline.
-            learner_devices: The devices to shard trajectories across.
+            learner_sharding: The sharding used for the learner's update function.
+            lifetime: A `ThreadLifetime` which is used to stop this thread.
         """
         super().__init__(name="Pipeline")
-        self.learner_devices = learner_devices
+
+        self.sharding = learner_sharding
         self.tickets_queue: queue.Queue = queue.Queue()
         self._queue: queue.Queue = queue.Queue(maxsize=max_size)
         self.lifetime = lifetime
@@ -77,12 +82,7 @@ class OnPolicyPipeline(threading.Thread):
 
         # [Transition(num_envs)] * rollout_len --> Transition[(rollout_len, num_envs,)
         traj = self.stack_trajectory(traj)
-        # Split trajectory on the num envs axis so each learner device gets a valid full rollout
-        sharded_traj = jax.tree.map(lambda x: self.shard_split_playload(x, axis=1), traj)
-
-        # Timestep[(num_envs, ...), ...] -->
-        # [(num_envs / num_learner_devices, ...)] * num_learner_devices
-        sharded_timestep = jax.tree.map(self.shard_split_playload, timestep)
+        traj, timestep = jax.device_put((traj, timestep), device=self.sharding)
 
         # Concatenate metrics - List[Dict[str, List[float]]] --> Dict[str, List[float]]
         actor_episode_metrics = self.concatenate_metrics(actor_episode_metrics)
@@ -99,9 +99,9 @@ class OnPolicyPipeline(threading.Thread):
         # is raised.
         try:
             self._queue.put(
-                (sharded_traj, sharded_timestep, actor_timings_dict, actor_episode_metrics),
+                (traj, timestep, actor_timings_dict, actor_episode_metrics),
                 block=True,
-                timeout=180,
+                timeout=QUEUE_PUT_TIMEOUT,
             )
         except queue.Full:
             print(
@@ -110,7 +110,7 @@ class OnPolicyPipeline(threading.Thread):
             )
         finally:
             with end_condition:
-                end_condition.notify()  # tell we have finish
+                end_condition.notify()  # notify that we have finished
 
     def qsize(self) -> int:
         """Returns the number of trajectories in the pipeline."""
@@ -126,7 +126,10 @@ class OnPolicyPipeline(threading.Thread):
     def stack_trajectory(self, trajectory: List[StoixTransition]) -> StoixTransition:
         """Stack a list of parallel_env transitions into a single
         transition of shape [rollout_len, num_envs, ...]."""
-        return jax.tree_map(lambda *x: jnp.stack(x, axis=0), *trajectory)  # type: ignore
+        return jax.tree_map(  # type: ignore
+            lambda *x: jnp.stack(x, axis=0).swapaxes(0, 1),
+            *trajectory,
+        )
 
     @partial(jax.jit, static_argnums=(0,))
     def concatenate_metrics(
@@ -135,14 +138,13 @@ class OnPolicyPipeline(threading.Thread):
         """Concatenate a list of actor metrics into a single dictionary."""
         return jax.tree_map(lambda *x: jnp.concatenate(x, axis=0), *actor_metrics)  # type: ignore
 
-    def shard_split_playload(self, payload: Any, axis: int = 0) -> Any:
-        split_payload = jnp.split(payload, len(self.learner_devices), axis=axis)
-        return jax.device_put_sharded(split_payload, devices=self.learner_devices)
-
     def clear(self) -> None:
         """Clear the pipeline."""
         while not self._queue.empty():
-            self._queue.get()
+            try:
+                self._queue.get(block=False)
+            except queue.Empty:
+                break
 
 
 class ParamsSource(threading.Thread):
@@ -164,7 +166,7 @@ class ParamsSource(threading.Thread):
         while not self.lifetime.should_stop():
             try:
                 waiting = self.new_value.get(block=True, timeout=1)
-                self.value = jax.device_put(jax.block_until_ready(waiting), self.device)
+                self.value = jax.device_put(waiting, self.device)
             except queue.Empty:
                 continue
 
