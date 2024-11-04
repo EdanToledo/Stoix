@@ -80,7 +80,7 @@ class OnPolicyPipeline(threading.Thread):
             self.tickets_queue.put((start_condition, end_condition))
             start_condition.wait()  # wait to be allowed to start
 
-        # [Transition(num_envs)] * rollout_len --> Transition[(rollout_len, num_envs,)
+        # [Transition(num_envs)] * rollout_len --> Transition[(num_envs, rollout_len,)
         traj = self.stack_trajectory(traj)
         traj, timestep = jax.device_put((traj, timestep), device=self.sharding)
 
@@ -125,9 +125,10 @@ class OnPolicyPipeline(threading.Thread):
     @partial(jax.jit, static_argnums=(0,))
     def stack_trajectory(self, trajectory: List[StoixTransition]) -> StoixTransition:
         """Stack a list of parallel_env transitions into a single
-        transition of shape [rollout_len, num_envs, ...]."""
+        transition of shape [num_envs, rollout_len, ...] i.e.
+        stack to create the time axis."""
         return jax.tree_map(  # type: ignore
-            lambda *x: jnp.stack(x, axis=0).swapaxes(0, 1),
+            lambda *x: jnp.stack(x, axis=1),
             *trajectory,
         )
 
