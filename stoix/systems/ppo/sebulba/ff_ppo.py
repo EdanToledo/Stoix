@@ -809,9 +809,9 @@ def run_experiment(_config: DictConfig) -> float:
         logger.log(train_metrics, t, eval_step, LogEvent.TRAIN)
 
         # Evaluate the current model and log the metrics
-        learner_state_cpu = jax.device_get(learner_state)
+        eval_learner_state = jax.device_put(learner_state, evaluator_device)
         key, eval_key = jax.random.split(key, 2)
-        eval_metrics = evaluator(learner_state_cpu.params.actor_params, eval_key)
+        eval_metrics = evaluator(eval_learner_state.params.actor_params, eval_key)
         logger.log(eval_metrics, t, eval_step, LogEvent.EVAL)
 
         episode_return = jnp.mean(eval_metrics["episode_return"])
@@ -820,12 +820,12 @@ def run_experiment(_config: DictConfig) -> float:
             # Save checkpoint of learner state
             checkpointer.save(
                 timestep=steps_consumed_per_eval * (eval_step + 1),
-                unreplicated_learner_state=learner_state_cpu,
+                unreplicated_learner_state=jax.device_get(learner_state),
                 episode_return=episode_return,
             )
 
         if config.arch.absolute_metric and max_episode_return <= episode_return:
-            best_params = copy.deepcopy(learner_state_cpu.params.actor_params)
+            best_params = copy.deepcopy(eval_learner_state.params.actor_params)
             max_episode_return = episode_return
 
     evaluator_envs.close()
