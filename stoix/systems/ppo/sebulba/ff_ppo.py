@@ -54,10 +54,9 @@ from stoix.wrappers.episode_metrics import get_final_step_metrics
 
 
 def get_act_fn(
-    apply_fns: Tuple[ActorApply, CriticApply],
+    apply_fns: Tuple[ActorApply, CriticApply]
 ) -> Callable[
-    [ActorCriticParams, Observation, chex.PRNGKey],
-    Tuple[chex.Array, chex.Array, chex.Array],
+    [ActorCriticParams, Observation, chex.PRNGKey], Tuple[chex.Array, chex.Array, chex.Array]
 ]:
     """Get the act function that is used by the actor threads."""
     actor_apply_fn, critic_apply_fn = apply_fns
@@ -595,15 +594,27 @@ def learner_setup(
     update_fns = (actor_optim.update, critic_optim.update)
 
     # Define how data is distributed with `shard_map`
-    devices = mesh_utils.create_device_mesh((len(learner_devices),), devices=learner_devices)
+    # First create the device mesh
+    num_learner_devices = len(learner_devices)
+    devices = mesh_utils.create_device_mesh((num_learner_devices,), devices=learner_devices)
     mesh = Mesh(devices, axis_names=("device",))
-    model_spec = PartitionSpec()  # replicate the model
-    data_spec = PartitionSpec("device")  # shard the data
-    learner_sharding = NamedSharding(mesh, model_spec)  # used in the pipeline
-    # Defines how the learner state is sharded: params, opt and key = replicated, timestep = sharded
+    # Then create partition specs for a) the model items such as neural network parameters,
+    # optimizer state, and the random keys and b) the actual training data.
+    # For a) we replicate the model over the devices
+    model_spec = PartitionSpec()
+    # For b) we shard the data over the devices (each device will have a slice of training data)
+    data_spec = PartitionSpec("device")
+    # Using these specs, we create the learner state spec for the respective items.
+    # The learner state is sharded with: params, opt and key = replicated, timestep = sharded
     learn_state_spec = CoreLearnerState(model_spec, model_spec, model_spec, data_spec)
+    # Lastly, we create the learner sharding which is used in the pipeline.
+    # This uses the model spec so it simply replicates the data over the learner devices.
+    learner_sharding = NamedSharding(mesh, model_spec)
 
+    # We now construct the learner step
     learn_step = get_learner_step_fn(apply_fns, update_fns, config)
+    # and compile it giving it the input specs and output specs of how it is
+    # sharded over the devices
     learn_step = jax.jit(
         shard_map(
             learn_step,
@@ -627,7 +638,7 @@ def learner_setup(
     # Define params to be replicated across learner devices.
     opt_states = ActorCriticOptStates(actor_opt_state, critic_opt_state)
 
-    # Shard across learner devices.
+    # Shard across learner devices i.e. replicate.
     key, step_key = jax.random.split(key)
     params, opt_states, step_keys = jax.device_put((params, opt_states, step_key), learner_sharding)
 
@@ -705,7 +716,7 @@ def run_experiment(_config: DictConfig) -> float:
             **config.logger.checkpointing.save_args,  # Checkpoint args
         )
 
-    # Get initial parameters
+    # Get initial parameters and put them on the first actor device.
     initial_params = jax.device_put(learner_state.params, actor_devices[0])
 
     # Get the number of steps consumed by the learner per learner step
