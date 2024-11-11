@@ -372,8 +372,10 @@ def get_logger_path(config: DictConfig, logger_type: str) -> str:
 def describe(x: ArrayLike) -> Union[Dict[str, ArrayLike], ArrayLike]:
     """Generate summary statistics for an array of metrics (mean, std, min, max)."""
 
-    if not isinstance(x, (jax.Array, np.ndarray)) or x.size <= 1:
+    if not isinstance(x, (jax.Array, np.ndarray)):
         return x
+    elif x.size <= 1:
+        return np.squeeze(x)
 
     # np instead of jnp because we don't jit here
     return {"mean": np.mean(x), "std": np.std(x), "min": np.min(x), "max": np.max(x)}
