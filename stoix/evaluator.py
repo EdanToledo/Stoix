@@ -334,7 +334,10 @@ def evaluator_setup(
         )
     else:
         evaluator = get_ff_evaluator_fn(
-            eval_env, eval_act_fn, config, log_solve_rate  # type: ignore
+            eval_env,
+            eval_act_fn,  # type: ignore
+            config,
+            log_solve_rate,
         )
         absolute_metric_evaluator = get_ff_evaluator_fn(
             eval_env,
@@ -363,7 +366,6 @@ def get_sebulba_eval_fn(
     device: jax.Device,
     eval_multiplier: float = 1.0,
 ) -> Tuple[SebulbaEvalFn, Any]:
-
     eval_episodes = config.arch.num_eval_episodes * eval_multiplier
 
     # We calculate here the number of parallel envs we can run in parallel.

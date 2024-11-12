@@ -549,9 +549,12 @@ def learner_setup(
     env_states, timesteps = jax.vmap(env.reset, in_axes=(0))(
         jnp.stack(env_keys),
     )
-    reshape_states = lambda x: x.reshape(
-        (n_devices, config.arch.update_batch_size, config.arch.num_envs) + x.shape[1:]
-    )
+
+    def reshape_states(x: chex.Array) -> chex.Array:
+        return x.reshape(
+            (n_devices, config.arch.update_batch_size, config.arch.num_envs) + x.shape[1:]
+        )
+
     # (devices, update batch size, num_envs, ...)
     env_states = jax.tree_util.tree_map(reshape_states, env_states)
     timesteps = jax.tree_util.tree_map(reshape_states, timesteps)
@@ -567,13 +570,18 @@ def learner_setup(
     )
     key, step_key = jax.random.split(key)
     step_keys = jax.random.split(step_key, n_devices * config.arch.update_batch_size)
-    reshape_keys = lambda x: x.reshape((n_devices, config.arch.update_batch_size) + x.shape[1:])
+
+    def reshape_keys(x: chex.Array) -> chex.Array:
+        return x.reshape((n_devices, config.arch.update_batch_size) + x.shape[1:])
+
     step_keys = reshape_keys(jnp.stack(step_keys))
     opt_states = ActorCriticOptStates(actor_opt_state, critic_opt_state)
     replicate_learner = (params, opt_states, hstates, dones, truncated)
 
     # Duplicate learner for update_batch_size.
-    broadcast = lambda x: jnp.broadcast_to(x, (config.arch.update_batch_size,) + x.shape)
+    def broadcast(x: chex.Array) -> chex.Array:
+        return jnp.broadcast_to(x, (config.arch.update_batch_size,) + x.shape)
+
     replicate_learner = jax.tree_util.tree_map(broadcast, replicate_learner)
 
     # Duplicate learner across devices.
