@@ -1,7 +1,7 @@
 defaults:
   - logger: base_logger
   - arch: sebulba
-  - system: ff_ppo
+  - system: ppo/ff_ppo
   - network: mlp
   - env: envpool/cartpole
   - _self_
