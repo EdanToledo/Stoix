@@ -62,7 +62,7 @@ repos:
       - id: commitlint
         name: "Commit linter"
         stages: [ commit-msg ]
-        additional_dependencies: [ '@commitlint/config-conventional' ]
+        additional_dependencies: [ "@commitlint/cli",'@commitlint/config-conventional' ]
 
   - repo: https://github.com/codespell-project/codespell
     rev: v2.2.2
