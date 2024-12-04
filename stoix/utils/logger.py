@@ -61,7 +61,9 @@ class StoixLogger:
             # {metric1_name: {mean: metric, max: metric, ...}, metric2_name: ...}
             metrics = jax.tree_util.tree_map(describe, metrics)
 
-        metrics = jax.tree.map(lambda x: x.item() if isinstance(x, (jax.Array, np.ndarray)) else x, metrics)
+        metrics = jax.tree.map(
+            lambda x: x.item() if isinstance(x, (jax.Array, np.ndarray)) else x, metrics
+        )
 
         self.logger.log_dict(metrics, t, t_eval, event)
 
