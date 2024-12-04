@@ -243,7 +243,7 @@ def get_learner_fn(
             key, shuffle_key = jax.random.split(key)
 
             # SHUFFLE MINIBATCHES
-            batch_size = config.system.rollout_length * config.arch.num_envs
+            batch_size = config.system.rollout_length * config.arch.num_local_envs
             permutation = jax.random.permutation(shuffle_key, batch_size)
             batch = (traj_batch, advantages, targets)
             batch = jax.tree_util.tree_map(lambda x: merge_leading_dims(x, 2), batch)
@@ -311,9 +311,7 @@ def learner_setup(
     env: Environment, keys: chex.Array, config: DictConfig
 ) -> Tuple[LearnerFn[OnPolicyLearnerState], Actor, OnPolicyLearnerState]:
     """Initialise learner_fn, network, optimiser, environment and states."""
-    # Get available TPU cores.
-    n_devices = len(jax.devices())
-
+    
     # Get number/dimension of actions.
     num_actions = int(env.action_spec().num_values)
     config.system.action_dim = num_actions
@@ -376,13 +374,13 @@ def learner_setup(
 
     # Initialise environment states and timesteps: across devices and batches.
     key, *env_keys = jax.random.split(
-        key, n_devices * config.arch.update_batch_size * config.arch.num_envs + 1
+        key, config.arch.num_local_devices * config.arch.update_batch_size * config.arch.num_local_envs + 1
     )
     env_states, timesteps = jax.vmap(env.reset, in_axes=(0))(
         jnp.stack(env_keys),
     )
     reshape_states = lambda x: x.reshape(
-        (n_devices, config.arch.update_batch_size, config.arch.num_envs) + x.shape[1:]
+        (config.arch.num_local_devices, config.arch.update_batch_size, config.arch.num_local_envs) + x.shape[1:]
     )
     # (devices, update batch size, num_envs, ...)
     env_states = jax.tree_util.tree_map(reshape_states, env_states)
@@ -401,8 +399,8 @@ def learner_setup(
 
     # Define params to be replicated across devices and batches.
     key, step_key = jax.random.split(key)
-    step_keys = jax.random.split(step_key, n_devices * config.arch.update_batch_size)
-    reshape_keys = lambda x: x.reshape((n_devices, config.arch.update_batch_size) + x.shape[1:])
+    step_keys = jax.random.split(step_key, config.arch.num_local_devices * config.arch.update_batch_size)
+    reshape_keys = lambda x: x.reshape((config.arch.num_local_devices, config.arch.update_batch_size) + x.shape[1:])
     step_keys = reshape_keys(jnp.stack(step_keys))
     opt_states = ActorCriticOptStates(actor_opt_state, critic_opt_state)
     replicate_learner = (params, opt_states)
@@ -412,7 +410,7 @@ def learner_setup(
     replicate_learner = jax.tree_util.tree_map(broadcast, replicate_learner)
 
     # Duplicate learner across devices.
-    replicate_learner = flax.jax_utils.replicate(replicate_learner, devices=jax.devices())
+    replicate_learner = flax.jax_utils.replicate(replicate_learner, devices=jax.local_devices())
 
     # Initialise learner state.
     params, opt_states = replicate_learner
@@ -424,10 +422,20 @@ def learner_setup(
 def run_experiment(_config: DictConfig) -> float:
     """Runs experiment."""
     config = copy.deepcopy(_config)
+    
+    # Get device and host information
+    config.arch.num_global_devices = jax.device_count()
+    config.arch.num_local_devices = jax.local_device_count()
+    config.arch.num_processes = jax.process_count()
+    config.arch.process_id = jax.process_index()
+    if jax.device_count() == jax.local_device_count():
+        print(f"{Fore.CYAN}{Style.BRIGHT}Running a single-host experiment with {jax.device_count()} devices.{Style.RESET_ALL}")
+        config.arch.is_multihost = False
+    else:
+        print(f"{Fore.CYAN}{Style.BRIGHT}Running a multi-host experiment with {jax.device_count()} devices on {jax.host_count()} hosts ({jax.local_device_count()} devices per host).{Style.RESET_ALL}")
+        config.arch.is_multihost = True
 
     # Calculate total timesteps.
-    n_devices = len(jax.devices())
-    config.num_devices = n_devices
     config = check_total_timesteps(config)
     assert (
         config.arch.num_updates >= config.arch.num_evaluation
@@ -438,7 +446,7 @@ def run_experiment(_config: DictConfig) -> float:
 
     # PRNG keys.
     key, key_e, actor_net_key, critic_net_key = jax.random.split(
-        jax.random.PRNGKey(config.arch.seed), num=4
+        jax.random.PRNGKey(config.arch.seed+config.arch.process_id), num=4
     )
 
     # Setup learner.
@@ -458,17 +466,17 @@ def run_experiment(_config: DictConfig) -> float:
     # Calculate number of updates per evaluation.
     config.arch.num_updates_per_eval = config.arch.num_updates // config.arch.num_evaluation
     steps_per_rollout = (
-        n_devices
+        config.arch.num_global_devices
         * config.arch.num_updates_per_eval
         * config.system.rollout_length
         * config.arch.update_batch_size
-        * config.arch.num_envs
+        * config.arch.num_local_envs
     )
 
     # Logger setup
     logger = StoixLogger(config)
     cfg: Dict = OmegaConf.to_container(config, resolve=True)
-    cfg["arch"]["devices"] = jax.devices()
+    cfg["arch"]["devices"] = jax.local_devices()
     pprint(cfg)
 
     # Set up checkpointer
@@ -515,9 +523,9 @@ def run_experiment(_config: DictConfig) -> float:
         trained_params = unreplicate_batch_dim(
             learner_output.learner_state.params.actor_params
         )  # Select only actor params
-        key_e, *eval_keys = jax.random.split(key_e, n_devices + 1)
+        key_e, *eval_keys = jax.random.split(key_e, config.arch.num_local_devices + 1)
         eval_keys = jnp.stack(eval_keys)
-        eval_keys = eval_keys.reshape(n_devices, -1)
+        eval_keys = eval_keys.reshape(config.arch.num_local_devices, -1)
 
         # Evaluate.
         evaluator_output = evaluator(trained_params, eval_keys)
@@ -550,9 +558,9 @@ def run_experiment(_config: DictConfig) -> float:
     if config.arch.absolute_metric:
         start_time = time.time()
 
-        key_e, *eval_keys = jax.random.split(key_e, n_devices + 1)
+        key_e, *eval_keys = jax.random.split(key_e, config.arch.num_local_devices + 1)
         eval_keys = jnp.stack(eval_keys)
-        eval_keys = eval_keys.reshape(n_devices, -1)
+        eval_keys = eval_keys.reshape(config.arch.num_local_devices, -1)
 
         evaluator_output = absolute_metric_evaluator(best_params, eval_keys)
         jax.block_until_ready(evaluator_output)

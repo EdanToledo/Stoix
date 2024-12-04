@@ -621,7 +621,7 @@ def run_experiment(_config: DictConfig) -> float:
 
     # Get the learner and actor devices
     local_devices = jax.local_devices()
-    global_devices = jax.devices()
+    global_devices = jax.local_devices()
     assert len(local_devices) == len(
         global_devices
     ), "Local and global devices must be the same for now. We dont support multihost just yet"
@@ -671,7 +671,7 @@ def run_experiment(_config: DictConfig) -> float:
     # Logger setup
     logger = StoixLogger(config)
     cfg: Dict = OmegaConf.to_container(config, resolve=True)
-    cfg["arch"]["devices"] = jax.devices()
+    cfg["arch"]["devices"] = jax.local_devices()
     pprint(cfg)
 
     # Set up checkpointer

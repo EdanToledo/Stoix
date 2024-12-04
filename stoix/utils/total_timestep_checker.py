@@ -5,9 +5,9 @@ from omegaconf import DictConfig
 def check_total_timesteps(config: DictConfig) -> DictConfig:
     """Check if total_timesteps is set, if not, set it based on the other parameters"""
 
-    # If num_devices and update_batch_size are not in the config,
+    # If num_global_devices and update_batch_size are not in the config,
     # usually this means a sebulba config is being used.
-    if "num_devices" not in config and "update_batch_size" not in config.arch:
+    if "num_global_devices" not in config.arch and "update_batch_size" not in config.arch:
         return check_total_timesteps_sebulba(config)
     else:
         return check_total_timesteps_anakin(config)
@@ -18,21 +18,21 @@ def check_total_timesteps_anakin(config: DictConfig) -> DictConfig:
 
     print(f"{Fore.YELLOW}{Style.BRIGHT}Using Anakin System!{Style.RESET_ALL}")
 
-    assert config.arch.total_num_envs % (config.num_devices * config.arch.update_batch_size) == 0, (
+    assert config.arch.total_num_envs % (config.arch.num_global_devices * config.arch.update_batch_size) == 0, (
         f"{Fore.RED}{Style.BRIGHT}The total number of environments "
-        + f"should be divisible by the n_devices*update_batch_size!{Style.RESET_ALL}"
+        + f"should be divisible by the num_global_devices*update_batch_size!{Style.RESET_ALL}"
     )
-    config.arch.num_envs = int(
-        config.arch.total_num_envs // (config.num_devices * config.arch.update_batch_size)
+    config.arch.num_local_envs = int(
+        config.arch.total_num_envs // (config.arch.num_global_devices * config.arch.update_batch_size)
     )  # Number of environments per device
 
     if config.arch.total_timesteps is None:
         config.arch.total_timesteps = (
-            config.num_devices
+            config.arch.num_global_devices
             * config.arch.num_updates
             * config.system.rollout_length
             * config.arch.update_batch_size
-            * config.arch.num_envs
+            * config.arch.num_local_envs
         )
         print(
             f"{Fore.YELLOW}{Style.BRIGHT}Changing the total number of timesteps "
@@ -45,8 +45,8 @@ def check_total_timesteps_anakin(config: DictConfig) -> DictConfig:
             config.arch.total_timesteps
             // config.system.rollout_length
             // config.arch.update_batch_size
-            // config.arch.num_envs
-            // config.num_devices
+            // config.arch.num_local_envs
+            // config.arch.num_global_devices
         )
         print(
             f"{Fore.YELLOW}{Style.BRIGHT}Changing the number of updates "
@@ -58,11 +58,11 @@ def check_total_timesteps_anakin(config: DictConfig) -> DictConfig:
     # Calculate the actual number of timesteps that will be run
     num_updates_per_eval = config.arch.num_updates // config.arch.num_evaluation
     steps_per_rollout = (
-        config.num_devices
+        config.arch.num_global_devices
         * num_updates_per_eval
         * config.system.rollout_length
         * config.arch.update_batch_size
-        * config.arch.num_envs
+        * config.arch.num_local_envs
     )
     total_actual_timesteps = steps_per_rollout * config.arch.num_evaluation
     print(

@@ -3,8 +3,8 @@ architecture_name: anakin
 # --- Training ---
 seed: 42  # RNG seed.
 update_batch_size: 1 # Number of vectorised gradient updates per device.
-total_num_envs: 1024  # Total Number of vectorised environments across all devices and batched_updates. Needs to be divisible by n_devices*update_batch_size.
-total_timesteps: 1e7 # Set the total environment steps.
+total_num_envs: 8  # Total Number of vectorised environments across all devices and batched_updates. Needs to be divisible by n_devices*update_batch_size.
+total_timesteps: 1e5 # Set the total environment steps.
 # If unspecified, it's derived from num_updates; otherwise, num_updates adjusts based on this value.
 num_updates: ~ # Number of updates
 

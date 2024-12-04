@@ -72,7 +72,7 @@ def get_search_evaluator_fn(
         """Evaluator function."""
 
         # Initialise environment states and timesteps.
-        n_devices = len(jax.devices())
+        n_devices = len(jax.local_devices())
 
         eval_batch = (config.arch.num_eval_episodes // n_devices) * eval_multiplier
 
@@ -117,7 +117,7 @@ def search_evaluator_setup(
 ) -> Tuple[EvalFn, EvalFn, Tuple[FrozenDict, chex.Array]]:
     """Initialise evaluator_fn."""
     # Get available TPU cores.
-    n_devices = len(jax.devices())
+    n_devices = len(jax.local_devices())
     # Check if solve rate is required for evaluation.
     if hasattr(config.env, "solved_return_threshold"):
         log_solve_rate = True

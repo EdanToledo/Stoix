@@ -335,13 +335,13 @@ def get_learner_fn(
             batch = jax.tree_util.tree_map(
                 lambda x: x.reshape(
                     config.system.recurrent_chunk_size,
-                    config.arch.num_envs * num_recurrent_chunks,
+                    config.arch.num_local_envs * num_recurrent_chunks,
                     *x.shape[2:],
                 ),
                 batch,
             )
             permutation = jax.random.permutation(
-                shuffle_key, config.arch.num_envs * num_recurrent_chunks
+                shuffle_key, config.arch.num_local_envs * num_recurrent_chunks
             )
             shuffled_batch = jax.tree_util.tree_map(
                 lambda x: jnp.take(x, permutation, axis=1), batch
@@ -437,7 +437,7 @@ def learner_setup(
 ) -> Tuple[LearnerFn[RNNLearnerState], RecurrentActor, ScannedRNN, RNNLearnerState]:
     """Initialise learner_fn, network, optimiser, environment and states."""
     # Get available TPU cores.
-    n_devices = len(jax.devices())
+    n_devices = len(jax.local_devices())
 
     # Get number/dimension of actions.
     num_actions = int(env.action_spec().num_values)
@@ -498,16 +498,16 @@ def learner_setup(
     # Initialise observation
     init_obs = env.observation_spec().generate_value()
     init_obs = jax.tree_util.tree_map(
-        lambda x: jnp.repeat(x[jnp.newaxis, ...], config.arch.num_envs, axis=0),
+        lambda x: jnp.repeat(x[jnp.newaxis, ...], config.arch.num_local_envs, axis=0),
         init_obs,
     )
     init_obs = jax.tree_util.tree_map(lambda x: x[None, ...], init_obs)
-    init_done = jnp.zeros((1, config.arch.num_envs), dtype=bool)
+    init_done = jnp.zeros((1, config.arch.num_local_envs), dtype=bool)
     init_x = (init_obs, init_done)
 
     # Initialise hidden states.
-    init_policy_hstate = actor_rnn.initialize_carry(config.arch.num_envs)
-    init_critic_hstate = critic_rnn.initialize_carry(config.arch.num_envs)
+    init_policy_hstate = actor_rnn.initialize_carry(config.arch.num_local_envs)
+    init_critic_hstate = critic_rnn.initialize_carry(config.arch.num_local_envs)
 
     # initialise params and optimiser state.
     actor_params = actor_network.init(actor_net_key, init_policy_hstate, init_x)
@@ -544,13 +544,13 @@ def learner_setup(
 
     # Initialise environment states and timesteps: across devices and batches.
     key, *env_keys = jax.random.split(
-        key, n_devices * config.arch.update_batch_size * config.arch.num_envs + 1
+        key, n_devices * config.arch.update_batch_size * config.arch.num_local_envs + 1
     )
     env_states, timesteps = jax.vmap(env.reset, in_axes=(0))(
         jnp.stack(env_keys),
     )
     reshape_states = lambda x: x.reshape(
-        (n_devices, config.arch.update_batch_size, config.arch.num_envs) + x.shape[1:]
+        (n_devices, config.arch.update_batch_size, config.arch.num_local_envs) + x.shape[1:]
     )
     # (devices, update batch size, num_envs, ...)
     env_states = jax.tree_util.tree_map(reshape_states, env_states)
@@ -558,11 +558,11 @@ def learner_setup(
 
     # Define params to be replicated across devices and batches.
     dones = jnp.zeros(
-        (config.arch.num_envs,),
+        (config.arch.num_local_envs,),
         dtype=bool,
     )
     truncated = jnp.zeros(
-        (config.arch.num_envs,),
+        (config.arch.num_local_envs,),
         dtype=bool,
     )
     key, step_key = jax.random.split(key)
@@ -577,7 +577,7 @@ def learner_setup(
     replicate_learner = jax.tree_util.tree_map(broadcast, replicate_learner)
 
     # Duplicate learner across devices.
-    replicate_learner = flax.jax_utils.replicate(replicate_learner, devices=jax.devices())
+    replicate_learner = flax.jax_utils.replicate(replicate_learner, devices=jax.local_devices())
 
     # Initialise learner state.
     params, opt_states, hstates, dones, truncated = replicate_learner
@@ -599,7 +599,7 @@ def run_experiment(_config: DictConfig) -> float:
     config = copy.deepcopy(_config)
 
     # Calculate total timesteps.
-    n_devices = len(jax.devices())
+    n_devices = len(jax.local_devices())
     config.num_devices = n_devices
     config = check_total_timesteps(config)
     assert (
@@ -645,13 +645,13 @@ def run_experiment(_config: DictConfig) -> float:
         * config.arch.num_updates_per_eval
         * config.system.rollout_length
         * config.arch.update_batch_size
-        * config.arch.num_envs
+        * config.arch.num_local_envs
     )
 
     # Logger setup
     logger = StoixLogger(config)
     cfg: Dict = OmegaConf.to_container(config, resolve=True)
-    cfg["arch"]["devices"] = jax.devices()
+    cfg["arch"]["devices"] = jax.local_devices()
     pprint(cfg)
 
     # Set up checkpointer
