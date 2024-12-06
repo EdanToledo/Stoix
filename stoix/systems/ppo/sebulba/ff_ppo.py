@@ -53,7 +53,7 @@ from stoix.wrappers.episode_metrics import get_final_step_metrics
 
 
 def get_act_fn(
-    apply_fns: Tuple[ActorApply, CriticApply]
+    apply_fns: Tuple[ActorApply, CriticApply],
 ) -> Callable[
     [ActorCriticParams, Observation, chex.PRNGKey], Tuple[chex.Array, chex.Array, chex.Array]
 ]:
@@ -89,7 +89,10 @@ def get_rollout_fn(
     act_fn = get_act_fn(apply_fns)
     act_fn = jax.jit(act_fn, device=actor_device)
     cpu = jax.devices("cpu")[0]
-    move_to_device = lambda tree: jax.tree.map(lambda x: jax.device_put(x, actor_device), tree)
+
+    def move_to_device(tree: chex.ArrayTree) -> chex.ArrayTree:
+        return jax.tree.map(lambda x: jax.device_put(x, actor_device), tree)
+
     split_key_fn = jax.jit(jax.random.split, device=actor_device)
     # Build the environments
     envs = env_factory(config.arch.actor.num_envs_per_actor)
@@ -226,7 +229,6 @@ def get_learner_step_fn(
     def _update_step(
         learner_state: CoreLearnerState, traj_batch: PPOTransition
     ) -> Tuple[CoreLearnerState, Dict[str, chex.Array]]:
-
         # CALCULATE ADVANTAGE
         params, opt_states, key, last_timestep = learner_state
         last_val = critic_apply_fn(params.critic_params, last_timestep.observation)

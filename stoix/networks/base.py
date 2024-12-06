@@ -23,7 +23,6 @@ class FeedForwardActor(nn.Module):
 
     @nn.compact
     def __call__(self, observation: Observation) -> distrax.DistributionLike:
-
         obs_embedding = self.input_layer(observation)
 
         obs_embedding = self.torso(obs_embedding)
@@ -40,7 +39,6 @@ class FeedForwardCritic(nn.Module):
 
     @nn.compact
     def __call__(self, observation: Observation) -> chex.Array:
-
         obs_embedding = self.input_layer(observation)
         obs_embedding = self.torso(obs_embedding)
         critic_output = self.critic_head(obs_embedding)
@@ -57,7 +55,6 @@ class CompositeNetwork(nn.Module):
     def __call__(
         self, *network_input: Union[chex.Array, Tuple[chex.Array, ...]]
     ) -> Union[distrax.DistributionLike, chex.Array]:
-
         x = self.layers[0](*network_input)
         for layer in self.layers[1:]:
             x = layer(x)
@@ -99,11 +96,14 @@ class ScannedRNN(nn.Module):
     def __call__(self, rnn_state: chex.Array, x: chex.Array) -> Tuple[chex.Array, chex.Array]:
         """Applies the module."""
         ins, resets = x
-        hidden_state_reset_fn = lambda reset_state, current_state: jnp.where(
-            resets[:, np.newaxis],
-            reset_state,
-            current_state,
-        )
+
+        def hidden_state_reset_fn(reset_state: chex.Array, current_state: chex.Array) -> chex.Array:
+            return jnp.where(
+                resets[:, np.newaxis],
+                reset_state,
+                current_state,
+            )
+
         rnn_state = jax.tree_util.tree_map(
             hidden_state_reset_fn,
             self.initialize_carry(ins.shape[0]),
@@ -138,7 +138,6 @@ class RecurrentActor(nn.Module):
         policy_hidden_state: chex.Array,
         observation_done: RNNObservation,
     ) -> Tuple[chex.Array, distrax.DistributionLike]:
-
         observation, done = observation_done
 
         observation = self.input_layer(observation)
@@ -169,7 +168,6 @@ class RecurrentCritic(nn.Module):
         critic_hidden_state: Tuple[chex.Array, chex.Array],
         observation_done: RNNObservation,
     ) -> Tuple[chex.Array, chex.Array]:
-
         observation, done = observation_done
 
         observation = self.input_layer(observation)

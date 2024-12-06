@@ -117,7 +117,6 @@ class NoisyLinear(nn.Module):
 
     @nn.compact
     def __call__(self, inputs: chex.Array) -> chex.Array:
-
         input_dim = jnp.shape(inputs)[-1]
         kernel_shape = (input_dim, self.features)
         bias_vector_shape = (self.features,)

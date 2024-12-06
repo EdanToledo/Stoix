@@ -13,7 +13,6 @@ from stoix.networks.torso import MLPTorso, NoisyMLPTorso
 
 
 class DuelingQNetwork(nn.Module):
-
     action_dim: int
     epsilon: float
     layer_sizes: Sequence[int]
@@ -23,7 +22,6 @@ class DuelingQNetwork(nn.Module):
 
     @nn.compact
     def __call__(self, inputs: chex.Array) -> chex.Array:
-
         value = MLPTorso(
             (*self.layer_sizes, 1),
             self.activation,
@@ -60,7 +58,6 @@ class DistributionalDuelingQNetwork(nn.Module):
 
     @nn.compact
     def __call__(self, inputs: chex.Array) -> chex.Array:
-
         value_torso = MLPTorso(
             self.layer_sizes, self.activation, self.use_layer_norm, self.kernel_init
         )(inputs)

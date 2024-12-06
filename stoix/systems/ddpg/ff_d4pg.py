@@ -67,7 +67,6 @@ def get_warmup_fn(
     buffer_add_fn: Callable,
     config: DictConfig,
 ) -> Callable:
-
     exploratory_actor_apply = get_default_behavior_policy(config, actor_apply_fn)
 
     def warmup(
@@ -186,7 +185,6 @@ def get_learner_fn(
                 target_actor_params: FrozenDict,
                 transitions: Transition,
             ) -> jnp.ndarray:
-
                 _, q_logits_tm1, q_atoms_tm1 = q_apply_fn(
                     q_params, transitions.obs, transitions.action
                 )

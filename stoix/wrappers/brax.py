@@ -39,7 +39,6 @@ class BraxJumanjiWrapper(BraxWrapper):
         self._action_dim = self.action_spec().shape[0]
 
     def reset(self, key: chex.PRNGKey) -> Tuple[State, TimeStep]:
-
         state = self._env.reset(key)
 
         new_state = BraxState(
