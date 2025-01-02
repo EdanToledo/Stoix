@@ -494,7 +494,6 @@ def run_experiment(_config: DictConfig) -> float:
     for eval_step in range(config.arch.num_evaluation):
         # Train.
         start_time = time.time()
-
         learner_output = learn(learner_state)
         jax.block_until_ready(learner_output)
 
