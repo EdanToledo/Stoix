@@ -30,3 +30,4 @@ tensorflow_probability
 tqdm
 wandb
 xminigrid @ git+https://github.com/corl-team/xland-minigrid.git@main
+python-logging-loki @ git+https://github.com/p-doom/python-logging-loki.git
