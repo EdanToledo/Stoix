@@ -91,6 +91,9 @@ def get_learner_fn(
             env_state, timestep = jax.vmap(env.step, in_axes=(0, 0))(env_state, action)
 
             # LOG EPISODE METRICS
+            # FIXME: is this type of deciding done-ness compatible with how we get the episodic reward?
+            # I.e. should we take the reward of the last step where .done is False (the step before the
+            # first step where .done is True)?
             done = (timestep.discount == 0.0).reshape(-1)
             truncated = (timestep.last() & (timestep.discount != 0.0)).reshape(-1)
             info = timestep.extras["episode_metrics"]
@@ -113,6 +116,29 @@ def get_learner_fn(
             _env_step, learner_state, None, config.system.rollout_length
         )
 
+        # DISTRIBUTE EPISODIC REWARD ACROSS ALL TRANSITIONS
+        assert not (config.system.redistribute_reward and
+                    config.system.redistribute_reward_implicit), \
+            "Only one of `redistribute_reward` and `redistribute_reward_implicit` can be True."
+        if config.system.redistribute_reward:
+            assert jnp.all(jnp.where(traj_batch.done, traj_batch.reward, 0) == traj_batch.reward), \
+                "Reward redistribution only supports episodic rewards."
+            # Calculate the actual length of each episode
+            episode_lengths = jnp.cumsum(traj_batch.done, axis=0)
+            episode_lengths = jnp.where(traj_batch.done, episode_lengths, 0)
+
+            # Calculate per-trajectory reward based on actual episode length
+            per_trajectory_reward = jnp.where(
+                traj_batch.done,
+                traj_batch.reward / episode_lengths,
+                0
+            )
+            traj_batch = traj_batch._replace(
+                reward=jnp.full(traj_batch.reward.shape,
+                                per_trajectory_reward,
+                                dtype=traj_batch.reward.dtype)
+            )
+
         # CALCULATE ADVANTAGE
         params, opt_states, key, env_state, last_timestep = learner_state
         last_val = critic_apply_fn(params.critic_params, last_timestep.observation)
@@ -129,6 +155,7 @@ def get_learner_fn(
             time_major=True,
             standardize_advantages=config.system.standardize_advantages,
             truncation_flags=traj_batch.truncated,
+            redistribute_reward_implicit=config.system.redistribute_reward_implicit,
         )
 
         def _update_epoch(update_state: Tuple, _: Any) -> Tuple:
@@ -466,6 +493,7 @@ def run_experiment(_config: DictConfig) -> float:
     )
 
     # Logger setup
+    # FIXME: add loki-logging to StoixLogger
     logger = StoixLogger(config)
     cfg: Dict = OmegaConf.to_container(config, resolve=True)
     cfg["arch"]["devices"] = jax.devices()

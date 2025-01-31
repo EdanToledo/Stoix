@@ -18,6 +18,7 @@ def batch_truncated_generalized_advantage_estimation(
     time_major: bool = False,
     standardize_advantages: bool = False,
     truncation_flags: Optional[chex.Array] = None,
+    redistribute_reward_implicit: bool = False,
 ) -> Tuple[chex.Array, chex.Array]:
     """Computes truncated generalized advantage estimates for a sequence length k.
 
@@ -88,6 +89,13 @@ def batch_truncated_generalized_advantage_estimation(
 
     target_values = values[:-1] + advantage_t
     advantage_t *= truncation_mask
+
+    if redistribute_reward_implicit:
+        # Scale the advantages by (T-t)/T
+        seq_len = advantage_t.shape[0]
+        scaling_factors = jnp.arange(seq_len, 0, -1, dtype=jnp.float32) / seq_len
+        scaling_factors = scaling_factors[:, jnp.newaxis]
+        advantage_t *= scaling_factors
 
     if not time_major:
         # Swap axes back to original shape
@@ -165,7 +173,9 @@ def batch_n_step_bootstrapped_returns(
         targets = r_ + discount_ * ((1.0 - lambda_) * v_ + lambda_ * targets)
 
     targets = jnp.swapaxes(targets, 0, 1)
-    return jax.lax.select(stop_target_gradients, jax.lax.stop_gradient(targets), targets)
+    return jax.lax.select(
+        stop_target_gradients, jax.lax.stop_gradient(targets), targets
+    )
 
 
 def batch_general_off_policy_returns_from_q_and_v(
@@ -215,7 +225,8 @@ def batch_general_off_policy_returns_from_q_and_v(
     g = r_t[-1] + discount_t[-1] * v_t[-1]  # G_K-1.
 
     def _body(
-        acc: chex.Array, xs: Tuple[chex.Array, chex.Array, chex.Array, chex.Array, chex.Array]
+        acc: chex.Array,
+        xs: Tuple[chex.Array, chex.Array, chex.Array, chex.Array, chex.Array],
     ) -> Tuple[chex.Array, chex.Array]:
         reward, discount, c, v, q = xs
         acc = reward + discount * (v - c * q + c * acc)
@@ -227,7 +238,9 @@ def batch_general_off_policy_returns_from_q_and_v(
     returns = jnp.concatenate([returns, g[jnp.newaxis]], axis=0)
 
     returns = jnp.swapaxes(returns, 0, 1)
-    return jax.lax.select(stop_target_gradients, jax.lax.stop_gradient(returns), returns)
+    return jax.lax.select(
+        stop_target_gradients, jax.lax.stop_gradient(returns), returns
+    )
 
 
 def batch_retrace_continuous(
@@ -266,7 +279,9 @@ def batch_retrace_continuous(
 
     # The generalized returns are independent of Q-values and cs at the final
     # state.
-    target_tm1 = batch_general_off_policy_returns_from_q_and_v(q_t, v_t, r_t, discount_t, c_t)
+    target_tm1 = batch_general_off_policy_returns_from_q_and_v(
+        q_t, v_t, r_t, discount_t, c_t
+    )
 
     target_tm1 = jax.lax.select(
         stop_target_gradients, jax.lax.stop_gradient(target_tm1), target_tm1
@@ -365,12 +380,16 @@ def batch_lambda_returns(
         acc = returns + discounts * ((1 - lambda_) * values + lambda_ * acc)
         return acc, acc
 
-    _, returns = jax.lax.scan(_body, v_t[-1], (r_t, discount_t, v_t, lambda_), reverse=True)
+    _, returns = jax.lax.scan(
+        _body, v_t[-1], (r_t, discount_t, v_t, lambda_), reverse=True
+    )
 
     if not time_major:
         returns = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), returns)
 
-    return jax.lax.select(stop_target_gradients, jax.lax.stop_gradient(returns), returns)
+    return jax.lax.select(
+        stop_target_gradients, jax.lax.stop_gradient(returns), returns
+    )
 
 
 def batch_discounted_returns(
