@@ -1,5 +1,6 @@
 import abc
 import logging
+import logging_loki
 import os
 import zipfile
 from datetime import datetime
@@ -340,6 +341,54 @@ class ConsoleLogger(BaseLogger):
         )
 
 
+class LokiLogger(BaseLogger):
+    """Logger for neptune.ai."""
+
+    def __init__(self, cfg: DictConfig, unique_token: str) -> None:
+        tags = list(cfg.logger.kwargs.tags)
+        project = cfg.logger.kwargs.project
+
+        handler = logging_loki.LokiHandler(
+            url="http://localhost:3100/loki/api/v1/push",
+            tags={"experiment_name": unique_token, "project": project, "tags": tags},
+            # auth=("admin", "admin"),
+            version="1",
+        )
+
+        self.logger = logging.getLogger("loki-logger")
+        self.logger.setLevel(logging.INFO)
+        self.logger.addHandler(handler)
+
+        self.logger.info(
+            f"Logging run config for {project}, {unique_token}",
+            extra={
+                "metadata": {
+                    k: str(v)
+                    for k, v in (
+                        flatten_dict(cfg, sep=".") if cfg else {}
+                    ).items()
+                }
+            },
+        )
+
+        self.detailed_logging = cfg.logger.kwargs.detailed_logging
+
+        self.unique_token = unique_token
+
+    def log_stat(self, key: str, value: float, step: int, eval_step: int, event: LogEvent) -> None:
+        # Main metric if it's the mean of a list of metrics (ends with '/mean')
+        # or it's a single metric doesn't contain a '/'.
+        is_main_metric = "/" not in key or key.endswith("/mean")
+        # If we're not detailed logging (logging everything) then make sure it's a main metric.
+        if not self.detailed_logging and not is_main_metric:
+            return
+
+        self.logger.info(
+            f"Logging data at step {step}",
+            extra={"metadata": {f"{event.value}/{key}": value,
+                                "step": step}},
+        )
+
 def _make_multi_logger(cfg: DictConfig) -> BaseLogger:
     """Creates a MultiLogger given a config"""
 
@@ -370,6 +419,8 @@ def _make_multi_logger(cfg: DictConfig) -> BaseLogger:
         loggers.append(JsonLogger(cfg, unique_token))
     if cfg.logger.use_console:
         loggers.append(ConsoleLogger(cfg, unique_token))
+    if cfg.logger.use_loki:
+        loggers.append(LokiLogger(cfg, unique_token))
 
     return MultiLogger(loggers)
 
