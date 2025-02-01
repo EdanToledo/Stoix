@@ -16,7 +16,7 @@ from colorama import Fore, Style
 from jax.typing import ArrayLike
 from marl_eval.json_tools import JsonLogger as MarlEvalJsonLogger
 from neptune.utils import stringify_unsupported
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from pandas.io.json._normalize import _simple_json_normalize as flatten_dict
 
 
@@ -347,10 +347,12 @@ class LokiLogger(BaseLogger):
     def __init__(self, cfg: DictConfig, unique_token: str) -> None:
         tags = list(cfg.logger.kwargs.tags)
         project = cfg.logger.kwargs.project
+        if project is None:
+            project = "default_project"
 
         handler = logging_loki.LokiHandler(
             url="http://localhost:3100/loki/api/v1/push",
-            tags={"experiment_name": unique_token, "project": project, "tags": tags},
+            tags={"experiment_name": unique_token, "project": project, "tags": ", ".join(tags)},
             # auth=("admin", "admin"),
             version="1",
         )
@@ -359,15 +361,14 @@ class LokiLogger(BaseLogger):
         self.logger.setLevel(logging.INFO)
         self.logger.addHandler(handler)
 
+        if cfg is not None:
+            cfg_dict = OmegaConf.to_container(cfg, resolve=True)
+            flat_cfg = _flatten_dict(cfg_dict, sep=".")
+
         self.logger.info(
             f"Logging run config for {project}, {unique_token}",
             extra={
-                "metadata": {
-                    k: str(v)
-                    for k, v in (
-                        flatten_dict(cfg, sep=".") if cfg else {}
-                    ).items()
-                }
+                "metadata": flat_cfg
             },
         )
 
@@ -385,8 +386,8 @@ class LokiLogger(BaseLogger):
 
         self.logger.info(
             f"Logging data at step {step}",
-            extra={"metadata": {f"{event.value}/{key}": value,
-                                "step": step}},
+            extra={"metadata": {f"{event.value}/{key}": str(value),
+                                "step": str(step)}},
         )
 
 def _make_multi_logger(cfg: DictConfig) -> BaseLogger:
@@ -440,3 +441,13 @@ def describe(x: ArrayLike) -> Union[Dict[str, ArrayLike], ArrayLike]:
 
     # np instead of jnp because we don't jit here
     return {"mean": np.mean(x), "std": np.std(x), "min": np.min(x), "max": np.max(x)}
+
+def _flatten_dict(d, parent_key="", sep="."):
+    items = []
+    for k, v in d.items():
+        new_key = f"{parent_key}{sep}{k}" if parent_key else k
+        if isinstance(v, dict):
+            items.extend(_flatten_dict(v, new_key, sep=sep).items())
+        else:
+            items.append((new_key, str(v)))  # Convert value to string
+    return dict(items)
