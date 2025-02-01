@@ -92,8 +92,7 @@ def get_learner_fn(
 
             # LOG EPISODE METRICS
             # FIXME: is this type of deciding done-ness compatible with how we get the episodic reward?
-            # I.e. should we take the reward of the last step where .done is False (the step before the
-            # first step where .done is True)?
+            # Does this work with discount factor == 1?
             done = (timestep.discount == 0.0).reshape(-1)
             truncated = (timestep.last() & (timestep.discount != 0.0)).reshape(-1)
             info = timestep.extras["episode_metrics"]
@@ -117,27 +116,31 @@ def get_learner_fn(
         )
 
         # DISTRIBUTE EPISODIC REWARD ACROSS ALL TRANSITIONS
-        assert not (config.system.redistribute_reward and
-                    config.system.redistribute_reward_implicit), \
-            "Only one of `redistribute_reward` and `redistribute_reward_implicit` can be True."
         if config.system.redistribute_reward:
-            assert jnp.all(jnp.where(traj_batch.done, traj_batch.reward, 0) == traj_batch.reward), \
-                "Reward redistribution only supports episodic rewards."
-            # Calculate the actual length of each episode
-            episode_lengths = jnp.cumsum(traj_batch.done, axis=0)
-            episode_lengths = jnp.where(traj_batch.done, episode_lengths, 0)
-
-            # Calculate per-trajectory reward based on actual episode length
-            per_trajectory_reward = jnp.where(
-                traj_batch.done,
-                traj_batch.reward / episode_lengths,
+            # For each trajectory (now axis=1), find the first done index along time dimension (axis=0)
+            done_indices = jnp.argmax(traj_batch.done, axis=0)  # shape: (num_trajectories,)
+            
+            # Episode lengths are index+1 (for trajectories with done=True)
+            episode_lengths = done_indices + 1  # shape: (num_trajectories,)
+            
+            # Extract episodic reward (reward at done step for each trajectory)
+            episodic_reward = traj_batch.reward[done_indices, jnp.arange(traj_batch.reward.shape[1])]  # shape: (num_trajectories,)
+            
+            # Compute normalized reward per trajectory
+            normalized_reward = episodic_reward / episode_lengths  # shape: (num_trajectories,)
+            
+            # Create mask for valid transitions (time <= done_index for each trajectory)
+            time_indices = jnp.arange(traj_batch.done.shape[0])[:, None]  # (num_timesteps, 1)
+            episode_mask = time_indices <= done_indices[None, :]  # (num_timesteps, num_trajectories)
+            
+            # Broadcast normalized reward across time steps and apply mask
+            new_reward = jnp.where(
+                episode_mask, 
+                normalized_reward[None, :],  # (1, num_trajectories)
                 0
-            )
-            traj_batch = traj_batch._replace(
-                reward=jnp.full(traj_batch.reward.shape,
-                                per_trajectory_reward,
-                                dtype=traj_batch.reward.dtype)
-            )
+            )  # (num_timesteps, num_trajectories)
+            
+            traj_batch = traj_batch._replace(reward=new_reward)
 
         # CALCULATE ADVANTAGE
         params, opt_states, key, env_state, last_timestep = learner_state
@@ -459,6 +462,9 @@ def run_experiment(_config: DictConfig) -> float:
     assert (
         config.arch.num_updates >= config.arch.num_evaluation
     ), "Number of updates per evaluation must be less than total number of updates."
+    assert not (config.system.redistribute_reward and
+                config.system.redistribute_reward_implicit), \
+        "Only one of `redistribute_reward` and `redistribute_reward_implicit` can be True."
 
     # Create the environments for train and eval.
     env, eval_env = environments.make(config=config)
