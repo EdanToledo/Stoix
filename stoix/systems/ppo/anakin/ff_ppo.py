@@ -117,7 +117,11 @@ def get_learner_fn(
 
         # DISTRIBUTE EPISODIC REWARD ACROSS ALL TRANSITIONS
         if config.system.redistribute_reward:
-            # For each trajectory (now axis=1), find the first done index along time dimension (axis=0)
+            # WARNING:This only works for max_steps (of env) == rollout_length
+            # WARNING:This only works for the (sparse) episodic reward setting
+            # and will silently corrupt the reward structure otherwise
+
+            # For each trajectory (axis=1), find the first done index along time dimension (axis=0)
             done_indices = jnp.argmax(traj_batch.done, axis=0)  # shape: (num_trajectories,)
             
             # Episode lengths are index+1 (for trajectories with done=True)
