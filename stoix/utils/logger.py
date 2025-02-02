@@ -1,11 +1,13 @@
 import abc
 import logging
+import logging.handlers
 import logging_loki
 import os
 import zipfile
 from datetime import datetime
 from enum import Enum
 from typing import Dict, List, Union
+from multiprocessing import Queue
 
 import jax
 import neptune
@@ -350,12 +352,15 @@ class LokiLogger(BaseLogger):
         if project is None:
             project = "default_project"
 
-        handler = logging_loki.LokiHandler(
+        queue = Queue(-1)
+        handler = logging.handlers.QueueHandler(queue)
+        handler_loki = logging_loki.LokiHandler(
             url="http://localhost:3100/loki/api/v1/push",
             tags={"experiment_name": unique_token, "project": project, "tags": ", ".join(tags)},
             # auth=("admin", "admin"),
             version="1",
         )
+        logging.handlers.QueueListener(queue, handler_loki)
 
         self.logger = logging.getLogger("loki-logger")
         self.logger.setLevel(logging.INFO)
