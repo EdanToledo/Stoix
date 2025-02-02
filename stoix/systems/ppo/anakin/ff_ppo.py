@@ -484,8 +484,7 @@ def run_experiment(_config: DictConfig) -> float:
         and (config.system.gamma != 1.0 or config.system.gae_lambda != 1.0)
     ), "Reward redistribution assumes `gamma=1.0` and `gae_lambda=1.0`."
 
-    disable_autoreset = getattr(config.env.kwargs,
-                                         'disable_autoreset', False)
+    disable_autoreset = config.system.get('disable_autoreset', False)
     assert not (
         (
             config.system.redistribute_reward

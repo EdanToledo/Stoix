@@ -6,7 +6,6 @@ scenario:
 
 kwargs: {
   max_steps: 37,
-  disable_autoreset: True,
 }
 
 # Defines the metric that will be used to evaluate the performance of the agent.
