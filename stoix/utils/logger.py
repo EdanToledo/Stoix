@@ -351,7 +351,7 @@ class LokiLogger(BaseLogger):
         if project is None:
             project = "default_project"
 
-        handler = logging_loki.LokiQueueHandler(
+        self.handler = logging_loki.LokiQueueHandler(
             Queue(-1),
             url="http://localhost:3100/loki/api/v1/push",
             tags={"experiment_name": unique_token, "project": project, "tags": ", ".join(tags)},
@@ -391,6 +391,9 @@ class LokiLogger(BaseLogger):
             extra={"metadata": {f"{event.value}/{key}": str(value),
                                 "step": str(step)}},
         )
+
+    def stop(self) -> None:
+        self.handler.listener.stop()
 
 def _make_multi_logger(cfg: DictConfig) -> BaseLogger:
     """Creates a MultiLogger given a config"""
