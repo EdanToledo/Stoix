@@ -361,7 +361,7 @@ class LokiLogger(BaseLogger):
 
         self.logger = logging.getLogger("loki-logger")
         self.logger.setLevel(logging.INFO)
-        self.logger.addHandler(handler)
+        self.logger.addHandler(self.handler)
 
         if cfg is not None:
             cfg_dict = OmegaConf.to_container(cfg, resolve=True)
