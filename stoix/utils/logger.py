@@ -1,6 +1,5 @@
 import abc
 import logging
-import logging.handlers
 import logging_loki
 import os
 import zipfile
@@ -352,15 +351,13 @@ class LokiLogger(BaseLogger):
         if project is None:
             project = "default_project"
 
-        queue = Queue(-1)
-        handler = logging.handlers.QueueHandler(queue)
-        handler_loki = logging_loki.LokiHandler(
+        handler = logging_loki.LokiQueueHandler(
+            Queue(-1),
             url="http://localhost:3100/loki/api/v1/push",
             tags={"experiment_name": unique_token, "project": project, "tags": ", ".join(tags)},
             # auth=("admin", "admin"),
             version="1",
         )
-        logging.handlers.QueueListener(queue, handler_loki)
 
         self.logger = logging.getLogger("loki-logger")
         self.logger.setLevel(logging.INFO)
