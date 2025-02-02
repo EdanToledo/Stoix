@@ -5,7 +5,7 @@ system_name: ff_ppo # Name of the system.
 # --- RL hyperparameters ---
 actor_lr: 3e-4 # Learning rate for actor network
 critic_lr: 3e-4 # Learning rate for critic network
-rollout_length: 16 # Number of environment steps per vectorised environment.
+rollout_length: 64 # Number of environment steps per vectorised environment.
 epochs: 4 # Number of ppo epochs per training data batch.
 num_minibatches: 16 # Number of minibatches per ppo epoch.
 gamma: 0.99 # Discounting factor.
