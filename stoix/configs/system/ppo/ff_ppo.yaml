@@ -8,8 +8,8 @@ critic_lr: 3e-4 # Learning rate for critic network
 rollout_length: 37 # Number of environment steps per vectorised environment.
 epochs: 4 # Number of ppo epochs per training data batch.
 num_minibatches: 16 # Number of minibatches per ppo epoch.
-gamma: 1 # Discounting factor.
-gae_lambda: 1 # Lambda value for GAE computation.
+gamma: 1.0 # Discounting factor.
+gae_lambda: 1.0 # Lambda value for GAE computation.
 clip_eps: 0.2 # Clipping value for PPO updates and value function.
 ent_coef: 0.001 # Entropy regularisation term for loss function.
 vf_coef: 1.0 # Critic weight in

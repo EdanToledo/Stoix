@@ -466,9 +466,25 @@ def run_experiment(_config: DictConfig) -> float:
     assert (
         config.arch.num_updates >= config.arch.num_evaluation
     ), "Number of updates per evaluation must be less than total number of updates."
-    assert not (config.system.redistribute_reward and
-                config.system.redistribute_reward_implicit), \
+    assert not (
+        config.system.redistribute_reward and config.system.redistribute_reward_implicit
+    ), (
         "Only one of `redistribute_reward` and `redistribute_reward_implicit` can be True."
+    )
+    assert not (
+        (
+            config.system.redistribute_reward
+            or config.system.redistribute_reward_implicit
+        )
+        and (config.env.kwargs.max_steps != config.system.rollout_length)
+    ), "Reward redistribution currently only supports single episodes per rollout."
+    assert not (
+        (
+            config.system.redistribute_reward
+            or config.system.redistribute_reward_implicit
+        )
+        and (config.system.gamma != 1.0 or config.system.gae_lambda != 1.0)
+    ), "Reward redistribution assumes `gamma=1.0` and `gae_lambda=1.0`."
 
     # Create the environments for train and eval.
     env, eval_env = environments.make(config=config)
