@@ -367,7 +367,9 @@ def make_navix_env(env_name: str, config: DictConfig) -> Tuple[Environment, Envi
     env = NavixWrapper(env)
     eval_env = NavixWrapper(eval_env)
 
-    env = AutoResetWrapper(env, next_obs_in_extras=True)
+    disable_autoreset = config.env.kwargs.get("disable_autoreset", False)
+    if not disable_autoreset:
+        env = AutoResetWrapper(env, next_obs_in_extras=True)
     env = RecordEpisodeMetrics(env)
 
     return env, eval_env

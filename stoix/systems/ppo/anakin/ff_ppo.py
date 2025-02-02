@@ -91,8 +91,6 @@ def get_learner_fn(
             env_state, timestep = jax.vmap(env.step, in_axes=(0, 0))(env_state, action)
 
             # LOG EPISODE METRICS
-            # FIXME: is this type of deciding done-ness compatible with how we get the episodic reward?
-            # Does this work with discount factor == 1?
             done = (timestep.discount == 0.0).reshape(-1)
             truncated = (timestep.last() & (timestep.discount != 0.0)).reshape(-1)
             info = timestep.extras["episode_metrics"]
@@ -117,8 +115,8 @@ def get_learner_fn(
 
         # DISTRIBUTE EPISODIC REWARD ACROSS ALL TRANSITIONS
         if config.system.redistribute_reward:
-            # WARNING:This only works for max_steps (of env) == rollout_length
-            # WARNING:This only works for the (sparse) episodic reward setting
+            # WARNING: This only works for max_steps (of env) == rollout_length
+            # WARNING: This only works for the (sparse) episodic reward setting
             # and will silently corrupt the reward structure otherwise
 
             # For each trajectory (axis=1), find the first done index along time dimension (axis=0)
@@ -486,6 +484,16 @@ def run_experiment(_config: DictConfig) -> float:
         and (config.system.gamma != 1.0 or config.system.gae_lambda != 1.0)
     ), "Reward redistribution assumes `gamma=1.0` and `gae_lambda=1.0`."
 
+    disable_autoreset = getattr(config.env.kwargs,
+                                         'disable_autoreset', False)
+    assert not (
+        (
+            config.system.redistribute_reward
+            or config.system.redistribute_reward_implicit
+        )
+        and (not disable_autoreset)
+    ), "Reward redistribution currently does not support autoresetting environments during rollouts."
+
     # Create the environments for train and eval.
     env, eval_env = environments.make(config=config)
 
@@ -519,7 +527,6 @@ def run_experiment(_config: DictConfig) -> float:
     )
 
     # Logger setup
-    # FIXME: add loki-logging to StoixLogger
     logger = StoixLogger(config)
     cfg: Dict = OmegaConf.to_container(config, resolve=True)
     cfg["arch"]["devices"] = jax.devices()
