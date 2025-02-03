@@ -91,10 +91,28 @@ def batch_truncated_generalized_advantage_estimation(
     advantage_t *= truncation_mask
 
     if redistribute_reward_implicit:
-        # Scale the advantages by (T-t)/T
-        seq_len = advantage_t.shape[0]
-        scaling_factors = jnp.arange(seq_len, 0, -1, dtype=jnp.float32) / seq_len
-        scaling_factors = scaling_factors[:, jnp.newaxis]
+        # Scale the advantage of transitions of episodes by (T-t)/T, where T is the episode_length
+        # Define seq_len based on the shape of r_t
+        seq_len = r_t.shape[0]  # (rollout_length,)
+
+        # Find the last non-zero reward index for each environment
+        last_reward_indices = jnp.max(
+            jnp.where(r_t != 0, jnp.arange(seq_len)[:, jnp.newaxis], -1), axis=0
+        )  # (num_envs,)
+
+        # Calculate episode lengths for each environment
+        episode_lengths = last_reward_indices + 1  # (num_envs,)
+
+        # Create scaling factors for each environment using episode_lengths
+        scaling_factors = (
+            episode_lengths - jnp.arange(seq_len)[:, jnp.newaxis]
+        ) / episode_lengths  # (rollout_length, num_envs)
+        scaling_factors = jnp.where(
+            jnp.arange(seq_len)[:, jnp.newaxis] <= last_reward_indices,
+            scaling_factors,
+            1.0,
+        )
+
         advantage_t *= scaling_factors
 
     if not time_major:
@@ -112,6 +130,103 @@ def batch_truncated_generalized_advantage_estimation(
         advantage_t = jax.nn.standardize(advantage_t, axis=(0, 1))
 
     return advantage_t, target_values
+
+
+def batch_truncated_monte_carlo_return_advantage(
+    r_t: chex.Array,
+    discount_t: chex.Array,
+    lambda_: Union[chex.Array, chex.Scalar],
+    values: chex.Array,
+    time_major: bool = False,
+    stop_target_gradients: bool = True,
+    standardize_advantages: bool = False,
+    truncation_flags: Optional[chex.Array] = None,
+    redistribute_reward_implicit: bool = False,
+) -> Tuple[chex.Array, chex.Array]:
+    """Calculates the advantage assuming lambda=1 and gamma=1.
+
+        Args:
+            r_t: Sequence of rewards at times [1, k].
+            values: Sequence of values under π at times [0, k].
+            time_major: If True, the first dimension of the input tensors is the time
+            dimension.
+            stop_target_gradients: bool indicating whether or not to apply stop gradient
+            to advantages.
+            standardize_advantages: If True, standardize the advantages.
+    truncation_flags: Optional sequence of truncation flags at times [1, k].
+
+        Returns:
+    The advantage at times [0, k-1].
+    """
+
+    if truncation_flags is None:
+        truncation_flags = jnp.zeros_like(r_t)
+
+    truncation_mask = 1.0 - truncation_flags
+
+    # Swap axes to make time axis the first dimension
+    if not time_major:
+        batch_size = r_t.shape[0]
+        r_t, values, truncation_mask = jax.tree_util.tree_map(
+            lambda x: jnp.swapaxes(x, 0, 1), (r_t, values, truncation_mask)
+        )
+    else:
+        batch_size = r_t.shape[1]
+
+    # Determine if the goal was achieved
+    seq_len = r_t.shape[0]  # (rollout_length,)
+    # Find the last index with r_t > 0 as the last_reward_index
+    last_reward_indices = jnp.max(
+        jnp.where(r_t > 0, jnp.arange(seq_len)[:, jnp.newaxis], -1), axis=0
+    )  # (num_envs,)
+
+    # Create a mask to zero out rewards beyond the last_reward_indices
+    mask = jnp.arange(seq_len)[:, jnp.newaxis] <= last_reward_indices
+
+    # Apply the mask to the rewards
+    masked_r_t = r_t * mask
+
+    # Calculate cumulative future returns for each position
+    cumulative_future_returns = jnp.cumsum(masked_r_t[::-1], axis=0)[
+        ::-1
+    ]  # (rollout_length, num_envs)
+
+    # Calculate advantage
+    advantage_t = cumulative_future_returns - values[:-1]  # (rollout_length, num_envs)
+    advantage_t *= truncation_mask
+
+    if redistribute_reward_implicit:
+        # Scale the advantage of transitions of episodes by (T-t)/T, where T is the episode_length
+        # Define seq_len based on the shape of r_t
+        seq_len = r_t.shape[0]  # (rollout_length,)
+
+        # Calculate episode lengths for each environment
+        episode_lengths = last_reward_indices + 1  # (num_envs,)
+
+        # Create scaling factors for each environment using episode_lengths
+        scaling_factors = (
+            episode_lengths - jnp.arange(seq_len)[:, jnp.newaxis]
+        ) / episode_lengths  # (rollout_length, num_envs)
+        scaling_factors = jnp.where(
+            jnp.arange(seq_len)[:, jnp.newaxis] <= last_reward_indices,
+            scaling_factors,
+            1.0,
+        )
+        advantage_t *= scaling_factors
+
+    if not time_major:
+        # Swap axes back to original shape
+        advantage_t = jax.tree_util.tree_map(
+            lambda x: jnp.swapaxes(x, 0, 1), advantage_t
+        )
+
+    if stop_target_gradients:
+        advantage_t = jax.lax.stop_gradient(advantage_t)
+
+    if standardize_advantages:
+        advantage_t = jax.nn.standardize(advantage_t, axis=(0, 1))
+
+    return advantage_t, cumulative_future_returns
 
 
 def batch_n_step_bootstrapped_returns(

@@ -36,7 +36,7 @@ from stoix.utils.jax_utils import (
 )
 from stoix.utils.logger import LogEvent, StoixLogger
 from stoix.utils.loss import clipped_value_loss, ppo_clip_loss
-from stoix.utils.multistep import batch_truncated_generalized_advantage_estimation
+from stoix.utils.multistep import batch_truncated_generalized_advantage_estimation, batch_truncated_monte_carlo_return_advantage
 from stoix.utils.total_timestep_checker import check_total_timesteps
 from stoix.utils.training import make_learning_rate
 from stoix.wrappers.episode_metrics import get_final_step_metrics
@@ -152,7 +152,13 @@ def get_learner_fn(
         v_t = jnp.concatenate([traj_batch.value, last_val[None, ...]], axis=0)
         d_t = 1.0 - traj_batch.done.astype(jnp.float32)
         d_t = (d_t * config.system.gamma).astype(jnp.float32)
-        advantages, targets = batch_truncated_generalized_advantage_estimation(
+
+        if config.system.use_mc_returns_ae:
+            gae_function = batch_truncated_monte_carlo_return_advantage
+        else:
+            gae_function = batch_truncated_generalized_advantage_estimation
+
+        advantages, targets = gae_function(
             r_t,
             d_t,
             config.system.gae_lambda,
