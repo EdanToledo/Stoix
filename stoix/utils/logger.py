@@ -11,14 +11,13 @@ import jax
 import neptune
 import numpy as np
 import tensorboard_logger
+import wandb
 from colorama import Fore, Style
 from jax.typing import ArrayLike
 from marl_eval.json_tools import JsonLogger as MarlEvalJsonLogger
 from neptune.utils import stringify_unsupported
 from omegaconf import DictConfig
 from pandas.io.json._normalize import _simple_json_normalize as flatten_dict
-
-import wandb
 
 
 class LogEvent(Enum):
