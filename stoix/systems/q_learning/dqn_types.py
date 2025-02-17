@@ -19,8 +19,8 @@ class RNNTransition(NamedTuple):
     obs: chex.ArrayTree
     action: chex.Array
     reward: chex.Array
+    reset_hidden_state: chex.Array
     done: chex.Array
     truncated: chex.Array
-    next_obs: chex.Array
     info: Dict
     hstate: HiddenState
