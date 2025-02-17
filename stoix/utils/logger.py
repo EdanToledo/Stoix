@@ -5,18 +5,20 @@ import zipfile
 from datetime import datetime
 from enum import Enum
 from typing import Dict, List, Union
+from uuid import uuid4
 
 import jax
 import neptune
 import numpy as np
 import tensorboard_logger
-import wandb
 from colorama import Fore, Style
 from jax.typing import ArrayLike
 from marl_eval.json_tools import JsonLogger as MarlEvalJsonLogger
 from neptune.utils import stringify_unsupported
 from omegaconf import DictConfig
 from pandas.io.json._normalize import _simple_json_normalize as flatten_dict
+
+import wandb
 
 
 class LogEvent(Enum):
@@ -344,7 +346,7 @@ def _make_multi_logger(cfg: DictConfig) -> BaseLogger:
     """Creates a MultiLogger given a config"""
 
     loggers: List[BaseLogger] = []
-    unique_token = datetime.now().strftime("%Y%m%d%H%M%S")
+    unique_token = datetime.now().strftime("%Y%m%d%H%M%S") + str(uuid4())
 
     if (
         (cfg.logger.use_neptune or cfg.logger.use_wandb)
