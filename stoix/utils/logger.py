@@ -5,6 +5,7 @@ import zipfile
 from datetime import datetime
 from enum import Enum
 from typing import Dict, List, Union
+from uuid import uuid4
 
 import jax
 import neptune
@@ -344,7 +345,7 @@ def _make_multi_logger(cfg: DictConfig) -> BaseLogger:
     """Creates a MultiLogger given a config"""
 
     loggers: List[BaseLogger] = []
-    unique_token = datetime.now().strftime("%Y%m%d%H%M%S")
+    unique_token = datetime.now().strftime("%Y%m%d%H%M%S") + str(uuid4())
 
     if (
         (cfg.logger.use_neptune or cfg.logger.use_wandb)
