@@ -47,6 +47,8 @@ def get_warmup_fn(
     buffer_add_fn: Callable,
     config: DictConfig,
 ) -> Callable:
+    """Get the warmup function for initializing the replay buffer."""
+
     def warmup(
         env_states: LogEnvState,
         timesteps: TimeStep,
@@ -66,6 +68,7 @@ def get_warmup_fn(
             RNNTransition,
         ]:
             """Step the environment."""
+            # UNPACK CARRY
             (
                 key,
                 env_state,
@@ -88,7 +91,7 @@ def get_warmup_fn(
                 reset_hidden_state[jnp.newaxis, :],
             )
 
-            # Run the network.
+            # RUN NETWORK
             new_hstate, actor_policy = q_apply_fn(q_params.online, last_hstates, ac_in)
 
             # Sample action from the policy
@@ -98,12 +101,10 @@ def get_warmup_fn(
             # STEP ENVIRONMENT
             env_state, timestep = jax.vmap(env.step, in_axes=(0, 0))(env_state, action)
 
-            # LOG EPISODE METRICS
+            # CREATE TRANSITION
             done = (timestep.discount == 0.0).reshape(-1)
             truncated = (timestep.last() & (timestep.discount != 0.0)).reshape(-1)
             info = timestep.extras["episode_metrics"]
-
-            # Create transition
             transition = RNNTransition(
                 last_timestep.observation,
                 action,
@@ -115,11 +116,11 @@ def get_warmup_fn(
                 last_hstates,
             )
 
-            # Update carry
+            # UPDATE CARRY
             new_carry = (key, env_state, timestep, done, truncated, new_hstate)
             return new_carry, transition
 
-        # STEP ENVIRONMENT FOR ROLLOUT LENGTH
+        # STEP ENVIRONMENT FOR WARMUP LENGTH
         (
             new_keys,
             new_env_states,
@@ -133,9 +134,11 @@ def get_warmup_fn(
             None,
             config.system.warmup_steps,
         )
-        # Add the trajectory to the buffer.
+
+        # ADD TRAJECTORY TO BUFFER
         traj_batch = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), traj_batch)
         buffer_states = buffer_add_fn(buffer_states, traj_batch)
+
         return (
             new_env_states,
             new_timesteps,
@@ -146,6 +149,7 @@ def get_warmup_fn(
             new_truncated,
         )
 
+    # VECTORIZE WARMUP FUNCTION
     batched_warmup: Callable = jax.vmap(
         warmup,
         in_axes=(0, 0, 0, 0, 0, 0, 0),
@@ -164,7 +168,26 @@ def get_learner_fn(
     importance_weight_scheduler_fn: Callable,
     config: DictConfig,
 ) -> LearnerFn[RNNOffPolicyLearnerState]:
-    """Get the learner function."""
+    """Get the learner function for R2D2 training.
+
+    This function creates the main training loop that:
+    1. Collects trajectories using the current policy
+    2. Updates the replay buffer with new experiences
+    3. Samples sequences from the buffer
+    4. Updates network parameters using n-step returns and prioritized replay
+
+    Args:
+        env: The environment to interact with.
+        q_apply_fn: The Q-network apply function.
+        q_update_fn: The optimizer update function.
+        buffer_fns: Tuple of (add, sample, set_priorities) buffer functions.
+        transform_pair: Value transformation functions.
+        importance_weight_scheduler_fn: Function to schedule importance sampling weights.
+        config: The experiment configuration.
+
+    Returns:
+        The main learner function that performs training updates.
+    """
     buffer_add_fn, buffer_sample_fn, buffer_set_priorities = buffer_fns
 
     def _update_step(
@@ -452,17 +475,18 @@ def learner_setup(
 ) -> Tuple[
     LearnerFn[RNNOffPolicyLearnerState], RecurrentActor, RNNOffPolicyLearnerState, ScannedRNN
 ]:
-    """Initialise learner_fn, network, optimiser, environment and states."""
+    """Initialize networks, optimizers and states for R2D2 training."""
+    # GET DEVICE INFO
     n_devices = len(jax.devices())
 
-    # Get number of actions.
+    # GET ACTION SPACE INFO
     action_dim = int(env.action_spec().num_values)
     config.system.action_dim = action_dim
 
-    # PRNG keys.
+    # INITIALIZE PRNG KEYS
     key, q_net_key = keys
 
-    # Define networks and optimiser.
+    # DEFINE NETWORKS
     q_network_pre_torso = hydra.utils.instantiate(config.network.actor_network.pre_torso)
     q_network_post_torso = hydra.utils.instantiate(config.network.actor_network.post_torso)
     q_network_action_head = hydra.utils.instantiate(
@@ -481,6 +505,8 @@ def learner_setup(
         hidden_state_dim=config.network.actor_network.rnn_layer.hidden_state_dim,
         cell_type=config.network.actor_network.rnn_layer.cell_type,
     )
+
+    # DEFINE EVALUATION NETWORK
     eval_q_network_action_head = hydra.utils.instantiate(
         config.network.actor_network.action_head,
         action_dim=action_dim,
@@ -494,13 +520,14 @@ def learner_setup(
         action_head=eval_q_network_action_head,
     )
 
+    # DEFINE OPTIMIZERS
     q_lr = make_learning_rate(config.system.q_lr, config, config.system.epochs)
     q_optim = optax.chain(
         optax.clip_by_global_norm(config.system.max_grad_norm),
         optax.adam(q_lr, eps=1e-5),
     )
 
-    # anneal the importance sampling exponent
+    # SETUP IMPORTANCE SAMPLING SCHEDULER
     importance_sampling_exponent_scheduler: Callable = optax.linear_schedule(
         init_value=config.system.importance_sampling_exponent,
         end_value=1.0,
@@ -508,7 +535,7 @@ def learner_setup(
         transition_begin=0,
     )
 
-    # Initialise observation
+    # INITIALIZE OBSERVATIONS
     init_obs = env.observation_spec().generate_value()
     init_obs = jax.tree_util.tree_map(
         lambda x: jnp.repeat(x[jnp.newaxis, ...], config.arch.num_envs, axis=0),
@@ -520,10 +547,10 @@ def learner_setup(
     init_done = jnp.zeros((1, config.arch.num_envs), dtype=bool)
     init_x = (init_obs, init_done)
 
-    # Initialize the recurrent hidden state
+    # INITIALIZE HIDDEN STATES
     init_hstates = actor_rnn.initialize_carry(batch_size=config.arch.num_envs)
 
-    # Initialise q params and optimiser state.
+    # INITIALIZE NETWORK PARAMETERS AND OPTIMIZER STATE
     q_online_params = q_network.init(q_net_key, init_hstates, init_x)
     q_target_params = q_online_params
     q_opt_state = q_optim.init(q_online_params)
@@ -531,13 +558,13 @@ def learner_setup(
     params = OnlineAndTarget(q_online_params, q_target_params)
     opt_states = q_opt_state
 
+    # PACK NETWORK FUNCTIONS AND SCHEDULER
     q_network_apply_fn = q_network.apply
-
-    # Pack apply and update functions.
     apply_fns = q_network_apply_fn
     update_fns = q_optim.update
     scheduler_fns = importance_sampling_exponent_scheduler
-    # Create prioritized replay buffer
+
+    # SETUP REPLAY BUFFER
     dummy_transition = RNNTransition(
         obs=jax.tree_util.tree_map(lambda x: x.squeeze(0)[0], init_obs),
         action=jnp.zeros((), dtype=int),
@@ -548,6 +575,8 @@ def learner_setup(
         info={"episode_return": 0.0, "episode_length": 0, "is_terminal_step": False},
         hstate=jnp.zeros_like(init_hstates)[0],
     )
+
+    # VALIDATE BUFFER CONFIG
     assert config.system.total_buffer_size % n_devices == 0, (
         f"{Fore.RED}{Style.BRIGHT}The total buffer size should be divisible "
         + "by the number of devices!{Style.RESET_ALL}"
@@ -556,6 +585,7 @@ def learner_setup(
         f"{Fore.RED}{Style.BRIGHT}The total batch size should be divisible "
         + "by the number of devices!{Style.RESET_ALL}"
     )
+    # COMPUTE BUFFER AND BATCH SIZES PER DEVICE AND VECTORIZED UPDATE
     config.system.buffer_size = config.system.total_buffer_size // (
         n_devices * config.arch.update_batch_size
     )
@@ -563,6 +593,7 @@ def learner_setup(
         n_devices * config.arch.update_batch_size
     )
 
+    # CREATE BUFFER
     buffer_fn = fbx.make_prioritised_trajectory_buffer(
         max_size=config.system.buffer_size,
         min_length_time_axis=config.system.sample_sequence_length,
@@ -576,17 +607,17 @@ def learner_setup(
     buffer_fns = (buffer_fn.add, buffer_fn.sample, buffer_fn.set_priorities)
     buffer_states = buffer_fn.init(dummy_transition)
 
-    # Initialize transform pair for value rescaling
+    # SETUP VALUE TRANSFORM
     q_tx_pair = SIGNED_HYPERBOLIC_PAIR
 
-    # Get batched iterated update and replicate it to pmap it over cores.
+    # SETUP LEARNER AND WARMUP
     learn = get_learner_fn(env, apply_fns, update_fns, buffer_fns, q_tx_pair, scheduler_fns, config)
     learn = jax.pmap(learn, axis_name="device")
 
     warmup = get_warmup_fn(env, params, apply_fns, buffer_fn.add, config)
     warmup = jax.pmap(warmup, axis_name="device")
 
-    # Initialise environment states and timesteps: across devices and batches.
+    # INITIALIZE ENVIRONMENT STATES
     key, *env_keys = jax.random.split(
         key, n_devices * config.arch.update_batch_size * config.arch.num_envs + 1
     )
@@ -599,30 +630,21 @@ def learner_setup(
             (n_devices, config.arch.update_batch_size, config.arch.num_envs) + x.shape[1:]
         )
 
-    # (devices, update batch size, num_envs, ...)
     env_states = jax.tree_util.tree_map(reshape_states, env_states)
     timesteps = jax.tree_util.tree_map(reshape_states, timesteps)
 
-    # Load model from checkpoint if specified.
+    # LOAD CHECKPOINT IF SPECIFIED
     if config.logger.checkpointing.load_model:
         loaded_checkpoint = Checkpointer(
             model_name=config.system.system_name,
-            **config.logger.checkpointing.load_args,  # Other checkpoint args
+            **config.logger.checkpointing.load_args,
         )
-        # Restore the learner state from the checkpoint
         restored_params, _ = loaded_checkpoint.restore_params(TParams=OnlineAndTarget)
-        # Update the params
         params = restored_params
 
-    # Define params to be replicated across devices and batches.
-    dones = jnp.zeros(
-        (config.arch.num_envs,),
-        dtype=bool,
-    )
-    truncated = jnp.zeros(
-        (config.arch.num_envs,),
-        dtype=bool,
-    )
+    # SETUP REPLICATED STATES
+    dones = jnp.zeros((config.arch.num_envs,), dtype=bool)
+    truncated = jnp.zeros((config.arch.num_envs,), dtype=bool)
     key, step_key, warmup_key = jax.random.split(key, num=3)
     step_keys = jax.random.split(step_key, n_devices * config.arch.update_batch_size)
     warmup_keys = jax.random.split(warmup_key, n_devices * config.arch.update_batch_size)
@@ -633,20 +655,17 @@ def learner_setup(
     step_keys = reshape_keys(jnp.stack(step_keys))
     warmup_keys = reshape_keys(jnp.stack(warmup_keys))
 
+    # REPLICATE LEARNER STATE
     replicate_learner = (params, opt_states, buffer_states, init_hstates, dones, truncated)
 
-    # Duplicate learner for update_batch_size.
     def broadcast(x: chex.Array) -> chex.Array:
         return jnp.broadcast_to(x, (config.arch.update_batch_size,) + x.shape)
 
     replicate_learner = jax.tree_util.tree_map(broadcast, replicate_learner)
-
-    # Duplicate learner across devices.
     replicate_learner = flax.jax_utils.replicate(replicate_learner, devices=jax.devices())
 
-    # Initialise learner state.
+    # INITIALIZE FINAL LEARNER STATE
     params, opt_states, buffer_states, hstates, dones, truncated = replicate_learner
-    # Warmup the buffer.
     env_states, timesteps, keys, buffer_states, hstates, dones, truncated = warmup(
         env_states, timesteps, warmup_keys, buffer_states, hstates, dones, truncated
     )
@@ -666,7 +685,7 @@ def learner_setup(
 
 
 def run_experiment(_config: DictConfig) -> float:
-    """Runs experiment."""
+    """Run the R2D2 training experiment."""
     config = copy.deepcopy(_config)
 
     # Calculate total timesteps.
