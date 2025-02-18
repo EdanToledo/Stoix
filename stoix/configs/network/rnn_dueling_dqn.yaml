@@ -1,5 +1,4 @@
-# ---Recurrent Structure Networks for PPO ---
-
+# ---MLP Dueling DQN Networks---
 actor_network:
   pre_torso:
     _target_: stoix.networks.torso.MLPTorso
@@ -16,4 +15,7 @@ actor_network:
     use_layer_norm: True
     activation: relu
   action_head:
-    _target_: stoix.networks.heads.DiscreteQNetworkHead
+    _target_: stoix.networks.dueling.DuelingQNetwork
+    layer_sizes: [256]
+    use_layer_norm: True
+    activation: relu

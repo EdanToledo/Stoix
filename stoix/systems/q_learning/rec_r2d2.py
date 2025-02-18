@@ -354,6 +354,7 @@ def get_learner_fn(
                 )
                 batch_loss = 0.5 * jnp.square(batch_td_error).sum(axis=0)
 
+                # Importance weighting
                 importance_weights = 1.0 / (sequences_probs + 1e-6)
                 importance_weights **= importance_sampling_exponent
                 importance_weights /= jnp.max(importance_weights)

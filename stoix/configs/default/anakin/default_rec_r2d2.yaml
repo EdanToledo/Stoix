@@ -2,7 +2,7 @@ defaults:
   - logger: base_logger
   - arch: anakin
   - system: q_learning/rec_r2d2
-  - network: rnn_dqn
+  - network: rnn_dueling_dqn
   - env: gymnax/cartpole
   - _self_
 
