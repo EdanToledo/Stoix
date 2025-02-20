@@ -16,7 +16,7 @@ jaxlib
 jaxmarl
 jumanji==1.0.0
 mctx
-navix
+navix @ git+https://github.com/p-doom/navix
 neptune
 numpy
 omegaconf
