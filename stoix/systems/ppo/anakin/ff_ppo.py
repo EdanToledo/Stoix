@@ -113,15 +113,28 @@ def get_learner_fn(
             _env_step, learner_state, None, config.system.rollout_length
         )
 
+        # TODO: only do this if navix' autoresetting is disabled
+        # Nullify dones, values, rewards, and log_probs after episode ends
+
+        # For each trajectory (axis=1), find the first done index along time dimension (axis=0)
+        done_indices = jnp.argmax(traj_batch.done, axis=0)  # shape: (num_trajectories,)
+        # Create mask for non-valid transitions (time > done_index for each trajectory)
+        time_indices = jnp.arange(traj_batch.done.shape[0])[:, jnp.newaxis]  # (num_timesteps, 1)
+        post_episode_mask = time_indices > done_indices[jnp.newaxis, :]  # Mask for steps after episode ends
+
+        traj_batch = traj_batch._replace(
+            done=jnp.where(post_episode_mask, False, traj_batch.done),
+            value=jnp.where(post_episode_mask, 0.0, traj_batch.value),
+            reward=jnp.where(post_episode_mask, 0.0, traj_batch.reward),
+            log_prob=jnp.where(post_episode_mask, 0.0, traj_batch.log_prob),
+        )
+
         # DISTRIBUTE EPISODIC REWARD ACROSS ALL TRANSITIONS
         if config.system.redistribute_reward:
             # WARNING: This only works for max_steps (of env) == rollout_length
             # WARNING: This only works for the (sparse) episodic reward setting
             # and will silently corrupt the reward structure otherwise
 
-            # For each trajectory (axis=1), find the first done index along time dimension (axis=0)
-            done_indices = jnp.argmax(traj_batch.done, axis=0)  # shape: (num_trajectories,)
-            
             # Episode lengths are index+1 (for trajectories with done=True)
             episode_lengths = done_indices + 1  # shape: (num_trajectories,)
             
@@ -132,8 +145,7 @@ def get_learner_fn(
             normalized_reward = episodic_reward / episode_lengths  # shape: (num_trajectories,)
             
             # Create mask for valid transitions (time <= done_index for each trajectory)
-            time_indices = jnp.arange(traj_batch.done.shape[0])[:, None]  # (num_timesteps, 1)
-            episode_mask = time_indices <= done_indices[None, :]  # (num_timesteps, num_trajectories)
+            episode_mask = jnp.logical_not(post_episode_mask)  # (num_timesteps, num_trajectories)
             
             # Broadcast normalized reward across time steps and apply mask
             new_reward = jnp.where(
