@@ -74,6 +74,7 @@ Stoix currently offers the following building blocks for Single-Agent RL researc
 - **Quantile Regression DQN (QR-DQN)** - [Paper](https://arxiv.org/abs/1710.10044)
 - **DQN with Regularized Q-learning (DQN-Reg)** [Paper](https://arxiv.org/abs/2101.03958)
 - **Rainbow** - [Paper](https://arxiv.org/abs/1710.02298)
+- **Recurrent Experience Replay in Distributed Reinforcement Learning (R2D2)** - [Paper](https://openreview.net/pdf?id=r1lyTjAqYX)
 - **REINFORCE With Baseline** - [Paper](https://people.cs.umass.edu/~barto/courses/cs687/williams92simple.pdf)
 - **Deep Deterministic Policy Gradient (DDPG)** - [Paper](https://arxiv.org/abs/1509.02971)
 - **Twin Delayed DDPG (TD3)** - [Paper](https://arxiv.org/abs/1802.09477)
@@ -209,7 +210,6 @@ We plan to iteratively expand Stoix in the following increments:
 - 🦾 More algorithm implementations:
     - [ ] Muesli - [Paper](https://arxiv.org/abs/2104.06159)
     - [ ] DreamerV3 - [Paper](https://arxiv.org/abs/2301.04104)
-    - [ ] R2D2 - [Paper](https://openreview.net/pdf?id=r1lyTjAqYX)
 - 🎮 Self-play 2-player Systems for board games.
 
 Please do follow along as we develop this next phase!

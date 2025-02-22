@@ -40,7 +40,7 @@ from stoix.wrappers.episode_metrics import get_final_step_metrics
 
 def get_warmup_fn(
     env: Environment,
-    q_params: FrozenDict,
+    q_params: OnlineAndTarget,
     q_apply_fn: ActorApply,
     buffer_add_fn: Callable,
     config: DictConfig,
