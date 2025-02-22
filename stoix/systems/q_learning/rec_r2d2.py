@@ -176,6 +176,13 @@ def get_learner_fn(
     3. Samples sequences from the buffer
     4. Updates network parameters using n-step returns and prioritized replay
 
+    Key R2D2 Components:
+    - Recurrent state handling with burn-in for state warmup
+    - Prioritized sequence replay with overlapping trajectories
+    - N-step returns with transformed value functions
+    - Target network updates with polyak averaging
+    - Importance sampling for PER bias correction
+
     Args:
         env: The environment to interact with.
         q_apply_fn: The Q-network apply function.
@@ -292,19 +299,19 @@ def get_learner_fn(
                 importance_sampling_exponent: float,
             ) -> Tuple[jnp.ndarray, Dict[str, Any]]:
 
-                # Create Burn Data
+                # Split sequence into burn-in and learning segments
+                # Burn-in is used to warm up the RNN hidden state without generating gradients
                 burn_in_length = config.system.burn_in_length
                 burn_data = jax.tree.map(lambda x: x[:burn_in_length], sequences)
-                # Create Learn Data
                 learn_data = jax.tree.map(lambda x: x[burn_in_length:], sequences)
 
-                # Initialize hidden states to first hidden state saved in the sequence
+                # Initialize RNN state from the start of the sequence
+                # This ensures consistent state initialization across training steps
                 init_hstate = sequences.hstate[0]
 
-                # Get burn obs and reset sequence
+                # Run burn-in phase to get warmed up hidden states
+                # stop_gradient ensures no gradients flow through the burn-in computation
                 burn_ac_in = (burn_data.obs, burn_data.reset_hidden_state)
-
-                # Run burn-in to get initial hidden state for both online and target networks
                 online_burned_in_hstate, _ = jax.lax.stop_gradient(
                     q_apply_fn(q_params, init_hstate, burn_ac_in)
                 )
@@ -312,7 +319,7 @@ def get_learner_fn(
                     q_apply_fn(target_q_params, init_hstate, burn_ac_in)
                 )
 
-                # Get Q-values for learning period
+                # Get Q-values for learning period using burned-in hidden states
                 learn_ac_in = (learn_data.obs, learn_data.reset_hidden_state)
                 _, online_q_dist = q_apply_fn(
                     q_params,
@@ -325,16 +332,19 @@ def get_learner_fn(
                 _, target_q_dist = q_apply_fn(target_q_params, target_burned_in_hstate, learn_ac_in)
                 target_q_values = target_q_dist.preferences
 
-                # Get value-selector actions from online Q-values for double Q-learning.
+                # Get value-selector actions from online Q-values for double Q-learning
+                # This helps reduce overestimation bias in Q-learning
                 selector_actions = jnp.argmax(online_q_values, axis=-1)
 
-                # Cast and clip rewards.
+                # Cast and clip rewards for numerical stability
                 discount = 1.0 - learn_data.done.astype(jnp.float32)
                 d_t = (discount * config.system.gamma).astype(jnp.float32)
                 r_t = jnp.clip(
                     learn_data.reward, -config.system.max_abs_reward, config.system.max_abs_reward
                 ).astype(jnp.float32)
 
+                # Compute n-step TD error with transformed values
+                # This helps stabilize learning with value transformation
                 batch_td_error_fn = jax.vmap(
                     partial(
                         rlax.transformed_n_step_q_learning,
@@ -354,13 +364,14 @@ def get_learner_fn(
                 )
                 batch_loss = 0.5 * jnp.square(batch_td_error).sum(axis=0)
 
-                # Importance weighting
+                # Apply importance sampling for PER bias correction
                 importance_weights = 1.0 / (sequences_probs + 1e-6)
                 importance_weights **= importance_sampling_exponent
                 importance_weights /= jnp.max(importance_weights)
                 mean_loss = jnp.mean(importance_weights * batch_loss)
 
-                # Calculate priorities as a mixture of max and mean sequence errors.
+                # Calculate priorities as mixture of max and mean sequence errors
+                # This balances between focusing on high-error transitions and maintaining diversity
                 abs_td_error = jnp.abs(batch_td_error)
                 max_priority = config.system.priority_eta * jnp.max(abs_td_error, axis=0)
                 mean_priority = (1 - config.system.priority_eta) * jnp.mean(abs_td_error, axis=0)
@@ -476,7 +487,37 @@ def learner_setup(
 ) -> Tuple[
     LearnerFn[RNNOffPolicyLearnerState], RecurrentActor, RNNOffPolicyLearnerState, ScannedRNN
 ]:
-    """Initialize networks, optimizers and states for R2D2 training."""
+    """Initialize networks, optimizers and states for R2D2 training.
+
+    This function sets up all necessary components for R2D2 training:
+    1. Network Architecture:
+       - Pre-torso for observation processing
+       - RNN layer for temporal dependencies
+       - Post-torso for feature processing
+       - Action head for Q-value estimation
+    2. Optimizer Configuration:
+       - Gradient clipping for stability
+       - Adam optimizer with configurable learning rate
+    3. Buffer Setup:
+       - Prioritized sequence replay buffer
+       - Configurable sequence length and overlap
+       - Burn-in period handling
+    4. Evaluation Setup:
+       - Separate evaluation network with different epsilon
+       - Scanned RNN for efficient inference
+
+    Args:
+        env: The environment to interact with.
+        keys: PRNG keys for initialization.
+        config: The experiment configuration.
+
+    Returns:
+        A tuple containing:
+        - learn_fn: The main learning function
+        - eval_q_network: Network for evaluation
+        - init_learner_state: Initial state for training
+        - actor_rnn: Scanned RNN for efficient inference
+    """
     # GET DEVICE INFO
     n_devices = len(jax.devices())
 
@@ -585,6 +626,15 @@ def learner_setup(
     assert config.system.total_batch_size % n_devices == 0, (
         f"{Fore.RED}{Style.BRIGHT}The total batch size should be divisible "
         + "by the number of devices!{Style.RESET_ALL}"
+    )
+    # Validate R2D2 specific parameters
+    assert config.system.burn_in_length < config.system.sample_sequence_length, (
+        f"{Fore.RED}{Style.BRIGHT}The burn-in length must be less than "
+        + "the sample sequence length!{Style.RESET_ALL}"
+    )
+    assert config.system.period <= config.system.rollout_length, (
+        f"{Fore.RED}{Style.BRIGHT}The period must be less than or equal to "
+        + "the rollout length!{Style.RESET_ALL}"
     )
     # COMPUTE BUFFER AND BATCH SIZES PER DEVICE AND VECTORIZED UPDATE
     config.system.buffer_size = config.system.total_buffer_size // (
