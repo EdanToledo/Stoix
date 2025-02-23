@@ -130,7 +130,7 @@ def get_learner_fn(
 
         # DISTRIBUTE EPISODIC REWARD ACROSS ALL TRANSITIONS
         if config.system.redistribute_reward:
-            # WARNING: This only works for max_steps (of env) == rollout_length
+            # WARNING: This only works for single episodes per rollout
             # WARNING: This only works for the (sparse) episodic reward setting
             # and will silently corrupt the reward structure otherwise
 
