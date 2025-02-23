@@ -19,5 +19,5 @@ standardize_advantages: True # Whether to standardize the advantages.
 kl_penalty_coef: 3.0 # KL penalty coefficient for PPO updates if using PPO Penalty.
 redistribute_reward: False # Whether to redistribute episodic rewards across all transitions
 redistribute_reward_implicit: False # Whether to implicitly redistribute episodic rewards across all transitions (scales advantage by (T-t)/T)
-disable_autoreset: True # Whether to disable autoresetting environments on env termination during rollout
+disable_autoreset: True # Whether to disable Stoix-level autoresetting of environments (on env termination during rollout)
 use_mc_returns_ae: True # Whether to use Monte-Carlo returns for advantage estimation

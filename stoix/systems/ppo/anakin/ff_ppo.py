@@ -113,9 +113,8 @@ def get_learner_fn(
             _env_step, learner_state, None, config.system.rollout_length
         )
 
-        # FIXME: change behaviour such that both navix-interal autoreset as well as stoix-level autoreset are disabled simultaneously
         # Nullify dones, values, rewards, and log_probs after episode ends
-        if config.env.kwargs.disable_autoreset:
+        if config.env.kwargs.get("disable_autoreset", False):
             # For each trajectory (axis=1), find the first done index along time dimension (axis=0)
             done_indices = jnp.argmax(traj_batch.done, axis=0)  # shape: (num_trajectories,)
             # Create mask for non-valid transitions (time > done_index for each trajectory)
@@ -492,8 +491,8 @@ def run_experiment(_config: DictConfig) -> float:
             config.system.redistribute_reward
             or config.system.redistribute_reward_implicit
         )
-        and (config.env.kwargs.max_steps != config.system.rollout_length)
-    ), "Reward redistribution currently only supports single episodes per rollout."
+        and (config.env.kwargs.max_steps > config.system.rollout_length)
+    ), "Reward redistribution does not support partial rollouts."
     assert not (
         (
             config.system.redistribute_reward
@@ -501,15 +500,14 @@ def run_experiment(_config: DictConfig) -> float:
         )
         and (config.system.gamma != 1.0 or config.system.gae_lambda != 1.0)
     ), "Reward redistribution assumes `gamma=1.0` and `gae_lambda=1.0`."
-
-    disable_autoreset = config.system.get('disable_autoreset', False)
-    assert not (
+    assert (
         (
             config.system.redistribute_reward
             or config.system.redistribute_reward_implicit
-        )
-        and (not disable_autoreset)
-    ), "Reward redistribution currently does not support autoresetting environments during rollouts."
+        ) and config.system.get("disable_autoreset", False) and config.env.kwargs.get("disable_autoreset", False)
+    ), "Reward redistribution currently only supports single episodes per rollout. Technically, \
+    only partial rollouts are problematic. If you need multi-episode support, please open an \
+    issue at https://github.com/p-doom/reward-redistribution."
 
     # Create the environments for train and eval.
     env, eval_env = environments.make(config=config)
