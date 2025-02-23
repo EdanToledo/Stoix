@@ -116,6 +116,17 @@ class CoreLearnerState(NamedTuple):
     timestep: TimeStep
 
 
+class RNNCoreLearnerState(NamedTuple):
+    """Core learner state for recurrent learners.
+    Mainly used for sebulba systems since we dont store env state."""
+
+    params: Parameters
+    opt_states: OptStates
+    key: chex.PRNGKey
+    timestep: TimeStep
+    reset_hidden_state: bool
+
+
 class OnPolicyLearnerState(NamedTuple):
     """State of the learner. Used for on-policy learners."""
 

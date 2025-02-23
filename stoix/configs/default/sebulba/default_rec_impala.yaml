@@ -1,0 +1,11 @@
+defaults:
+  - logger: base_logger
+  - arch: sebulba
+  - system: impala/rec_impala
+  - network: rnn
+  - env: gymnasium/cartpole
+  - _self_
+
+hydra:
+  searchpath:
+    - file://stoix/configs

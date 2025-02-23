@@ -1,4 +1,4 @@
-"""Implementation of the IMPALA algorithm using the Sebulba architecture.
+"""Implementation of the IMPALA algorithm using the Sebulba architecture with recurrent networks.
 
 This implementation follows the paper "IMPALA: Scalable Distributed Deep-RL with
 Importance Weighted Actor-Learner Architectures" (https://arxiv.org/abs/1802.01561).
@@ -10,7 +10,8 @@ Key features:
 - V-trace for off-policy correction (using rlax)
 - Multi-threaded actors for parallel data collection
 - Asynchronous learning with a central learner
-- Feed-forward policy network
+- Recurrent policy network (LSTM/GRU)
+- Sequence-based training
 
 Implementation Notes:
 - Uses rlax.vtrace_td_error_and_advantage for V-trace computation
@@ -47,22 +48,22 @@ from omegaconf import DictConfig, OmegaConf
 from rich.pretty import pprint
 
 from stoix.base_types import (
-    ActorApply,
+    ActorCriticHiddenStates,
     ActorCriticOptStates,
     ActorCriticParams,
-    CoreLearnerState,
-    CriticApply,
-    Observation,
+    RecActorApply,
+    RecCriticApply,
+    RNNCoreLearnerState,
+    RNNObservation,
     SebulbaExperimentOutput,
     SebulbaLearnerFn,
 )
-from stoix.evaluator import get_distribution_act_fn, get_sebulba_eval_fn
-from stoix.networks.base import FeedForwardActor as Actor
-from stoix.networks.base import FeedForwardCritic as Critic
+from stoix.evaluator import get_rec_distribution_act_fn, get_sebulba_eval_fn
+from stoix.networks.base import RecurrentActor, RecurrentCritic, ScannedRNN
 from stoix.systems.impala.impala_types import (
     ActionArray,
-    ImpalaTransition,
     LogProbArray,
+    RNNImpalaTransition,
     ValueArray,
 )
 from stoix.utils import make_env as environments
@@ -80,9 +81,10 @@ from stoix.wrappers.episode_metrics import get_final_step_metrics
 
 
 def get_act_fn(
-    apply_fns: Tuple[ActorApply, CriticApply]
+    apply_fns: Tuple[RecActorApply, RecCriticApply]
 ) -> Callable[
-    [ActorCriticParams, Observation, chex.PRNGKey], Tuple[ActionArray, ValueArray, LogProbArray]
+    [ActorCriticParams, chex.Array, chex.Array, RNNObservation, chex.PRNGKey],
+    Tuple[chex.Array, chex.Array, ActionArray, ValueArray, LogProbArray],
 ]:
     """Get the act function that is used by the actor threads.
 
@@ -90,30 +92,48 @@ def get_act_fn(
         apply_fns: Tuple of actor and critic network apply functions
 
     Returns:
-        Function that takes parameters, observation, and RNG key and returns
-        action, value estimate, and log probability
+        Function that takes parameters, hidden states, observation, and RNG key and returns
+        new hidden states, action, value estimate, and log probability
     """
     actor_apply_fn, critic_apply_fn = apply_fns
 
     def actor_fn(
-        params: ActorCriticParams, observation: Observation, rng_key: chex.PRNGKey
-    ) -> Tuple[ActionArray, ValueArray, LogProbArray]:
+        params: ActorCriticParams,
+        policy_hidden_state: chex.Array,
+        critic_hidden_state: chex.Array,
+        observation: RNNObservation,
+        rng_key: chex.PRNGKey,
+    ) -> Tuple[chex.Array, chex.Array, ActionArray, ValueArray, LogProbArray]:
         """Get the action, value and log_prob from the actor and critic networks.
 
         Args:
             params: Actor and critic network parameters
-            observation: Environment observation
+            policy_hidden_state: Hidden state for the actor network
+            critic_hidden_state: Hidden state for the critic network
+            observation: Environment observation and done flag
             rng_key: Random number generator key
 
         Returns:
-            Tuple of (action, value estimate, log probability)
+            Tuple of (new policy hidden state, new critic hidden state, action,
+                value estimate, log probability)
         """
         rng_key, policy_key = jax.random.split(rng_key)
-        pi = actor_apply_fn(params.actor_params, observation)
-        value = critic_apply_fn(params.critic_params, observation)
+
+        # Run actor network
+        new_policy_hidden_state, pi = actor_apply_fn(
+            params.actor_params, policy_hidden_state, observation
+        )
+
+        # Run critic network
+        new_critic_hidden_state, value = critic_apply_fn(
+            params.critic_params, critic_hidden_state, observation
+        )
+
+        # Sample action and get log probability
         action = pi.sample(seed=policy_key)
         log_prob = pi.log_prob(action)
-        return action, value, log_prob
+
+        return new_policy_hidden_state, new_critic_hidden_state, action, value, log_prob
 
     return actor_fn
 
@@ -123,7 +143,7 @@ def get_rollout_fn(
     actor_device: jax.Device,
     params_source: ParamsSource,
     pipeline: OnPolicyPipeline,
-    apply_fns: Tuple[ActorApply, CriticApply],
+    apply_fns: Tuple[RecActorApply, RecCriticApply],
     config: DictConfig,
     seeds: List[int],
     thread_lifetime: ThreadLifetime,
@@ -138,6 +158,16 @@ def get_rollout_fn(
     # Build the environments
     envs = env_factory(config.arch.actor.num_envs_per_actor)
 
+    # Initialize RNN states
+    actor_rnn = ScannedRNN(
+        hidden_state_dim=config.network.actor_network.rnn_layer.hidden_state_dim,
+        cell_type=config.network.actor_network.rnn_layer.cell_type,
+    )
+    critic_rnn = ScannedRNN(
+        hidden_state_dim=config.network.critic_network.rnn_layer.hidden_state_dim,
+        cell_type=config.network.critic_network.rnn_layer.cell_type,
+    )
+
     # Create the rollout function
     def rollout_fn(rng_key: chex.PRNGKey) -> None:
         # Ensure all computation is on the actor device
@@ -145,10 +175,16 @@ def get_rollout_fn(
             # Reset the environment
             timestep = envs.reset(seed=seeds)
 
+            # Initialize RNN states
+            policy_hidden_state = actor_rnn.initialize_carry(config.arch.actor.num_envs_per_actor)
+            critic_hidden_state = critic_rnn.initialize_carry(config.arch.actor.num_envs_per_actor)
+            policy_hidden_state = move_to_device(policy_hidden_state)
+            critic_hidden_state = move_to_device(critic_hidden_state)
+
             # Loop until the thread is stopped
             while not thread_lifetime.should_stop():
                 # Create the list to store transitions
-                traj: List[ImpalaTransition] = []
+                traj: List[RNNImpalaTransition] = []
                 # Create the dictionary to store timings for metrics
                 actor_timings_dict: Dict[str, List[float]] = defaultdict(list)
                 episode_metrics: List[Dict[str, List[float]]] = []
@@ -162,11 +198,33 @@ def get_rollout_fn(
 
                         # Move the environment data to the actor device
                         cached_obs = move_to_device(timestep.observation)
+                        dones = np.logical_and(
+                            np.asarray(timestep.last()), np.asarray(timestep.discount == 0.0)
+                        )
+                        truncated = np.logical_and(
+                            np.asarray(timestep.last()), np.asarray(timestep.discount == 1.0)
+                        )
+                        cached_dones = move_to_device(dones)
+                        cached_truncated = move_to_device(truncated)
+                        reset_hidden_state = jnp.logical_or(cached_dones, cached_truncated)
+                        observation = (cached_obs, reset_hidden_state)
 
                         # Run the actor and critic networks to get the action, value and log_prob
                         with RecordTimeTo(actor_timings_dict["compute_action_time"]):
                             rng_key, policy_key = split_key_fn(rng_key)
-                            action, value, log_prob = act_fn(params, cached_obs, policy_key)
+                            (
+                                new_policy_hidden_state,
+                                new_critic_hidden_state,
+                                action,
+                                value,
+                                log_prob,
+                            ) = act_fn(
+                                params,
+                                policy_hidden_state,
+                                critic_hidden_state,
+                                observation,
+                                policy_key,
+                            )
 
                         # Move the action to the CPU
                         action_cpu = np.asarray(jax.device_put(action, cpu))
@@ -185,13 +243,23 @@ def get_rollout_fn(
                         cached_next_dones = move_to_device(dones)
                         cached_next_trunc = move_to_device(trunc)
 
-                        # Append ImpalaTransition to the trajectory list
+                        # Store current hidden states before updating
+                        current_hstates = ActorCriticHiddenStates(
+                            policy_hidden_state=policy_hidden_state,
+                            critic_hidden_state=critic_hidden_state,
+                        )
+
+                        # Update hidden states for next step
+                        policy_hidden_state = new_policy_hidden_state
+                        critic_hidden_state = new_critic_hidden_state
+
+                        # Append RNNImpalaTransition to the trajectory list
                         reward = timestep.reward
                         metrics = timestep.extras["metrics"]
 
                         # Store behavior policy log prob for importance sampling
                         traj.append(
-                            ImpalaTransition(
+                            RNNImpalaTransition(
                                 cached_next_dones,
                                 cached_next_trunc,
                                 action,
@@ -200,6 +268,8 @@ def get_rollout_fn(
                                 log_prob,
                                 cached_obs,
                                 metrics,
+                                current_hstates,
+                                reset_hidden_state,
                             )
                         )
                         episode_metrics.append(metrics)
@@ -207,7 +277,12 @@ def get_rollout_fn(
                 # Send the trajectory to the pipeline
                 with RecordTimeTo(actor_timings_dict["rollout_put_time"]):
                     try:
-                        pipeline.put(traj, timestep, actor_timings_dict, episode_metrics)
+                        pipeline.put(
+                            traj,
+                            (timestep, reset_hidden_state),
+                            actor_timings_dict,
+                            episode_metrics,
+                        )
                     except queue.Full:
                         warnings.warn(
                             "Waited too long to add to the rollout queue, killing the actor thread",
@@ -226,7 +301,7 @@ def get_actor_thread(
     actor_device: jax.Device,
     params_source: ParamsSource,
     pipeline: OnPolicyPipeline,
-    apply_fns: Tuple[ActorApply, CriticApply],
+    apply_fns: Tuple[RecActorApply, RecCriticApply],
     rng_key: chex.PRNGKey,
     config: DictConfig,
     seeds: List[int],
@@ -258,11 +333,11 @@ def get_actor_thread(
 
 
 def get_learner_step_fn(
-    apply_fns: Tuple[ActorApply, CriticApply],
+    apply_fns: Tuple[RecActorApply, RecCriticApply],
     update_fns: Tuple[optax.TransformUpdateFn, optax.TransformUpdateFn],
     config: DictConfig,
-) -> SebulbaLearnerFn[CoreLearnerState, ImpalaTransition]:
-    """Get the learner update function for IMPALA.
+) -> SebulbaLearnerFn[RNNCoreLearnerState, RNNImpalaTransition]:
+    """Get the learner update function for recurrent IMPALA.
 
     This function creates the main learning update for IMPALA, which includes:
     1. Computing V-trace targets and advantages using importance sampling
@@ -285,18 +360,10 @@ def get_learner_step_fn(
     actor_update_fn, critic_update_fn = update_fns
 
     def _update_step(
-        learner_state: CoreLearnerState, traj_batch: ImpalaTransition
-    ) -> Tuple[CoreLearnerState, Dict[str, Array]]:
-        """Perform a single update step using V-trace.
-
-        Args:
-            learner_state: Current state of the learner
-            traj_batch: Batch of transitions from actors
-
-        Returns:
-            Updated learner state and dictionary of metrics
-        """
-        params, opt_states, key, last_timestep = learner_state
+        learner_state: RNNCoreLearnerState, traj_batch: RNNImpalaTransition
+    ) -> Tuple[RNNCoreLearnerState, Dict[str, Array]]:
+        """Perform a single update step using V-trace."""
+        params, opt_states, key, last_timestep, last_reset_hidden_state = learner_state
 
         # Concatenate the last observation with the rest of the observations
         all_observations = jax.tree.map(
@@ -304,9 +371,18 @@ def get_learner_step_fn(
             traj_batch.obs,
             last_timestep.observation,
         )
+        all_reset_hidden_state = jnp.concatenate(
+            [traj_batch.reset_hidden_state, last_reset_hidden_state], axis=0
+        )
+        all_observations = (all_observations, all_reset_hidden_state)
 
         # Calculate importance sampling ratios
-        current_policy = actor_apply_fn(params.actor_params, traj_batch.obs)
+        # We need to rerun the networks on the trajectory to get current policy probabilities
+        obs_and_done = (traj_batch.obs, traj_batch.reset_hidden_state)
+        policy_hidden_state = jax.tree_util.tree_map(
+            lambda x: x[0], traj_batch.hstates.policy_hidden_state
+        )
+        _, current_policy = actor_apply_fn(params.actor_params, policy_hidden_state, obs_and_done)
         current_log_prob = current_policy.log_prob(traj_batch.action)
         behavior_log_prob = traj_batch.log_prob
         rho_tm1 = jnp.exp(current_log_prob - behavior_log_prob)
@@ -335,6 +411,7 @@ def get_learner_step_fn(
             r_t: Array,
             d_t: Array,
             rho_tm1: Array,
+            critic_hidden_state: Array,
         ) -> Tuple[Array, Dict[str, Array]]:
             """Calculate the critic loss using V-trace targets.
 
@@ -350,7 +427,9 @@ def get_learner_step_fn(
             Returns:
                 Total loss and dictionary of loss components
             """
-            v_t = critic_apply_fn(critic_params, o_t)
+            # Rerun critic network on trajectory using stored hidden states
+            _, v_t = critic_apply_fn(critic_params, critic_hidden_state, o_t)
+
             # Following IMPALA paper's V-trace implementation
             vtrace_outputs = jax.vmap(
                 rlax.vtrace_td_error_and_advantage,
@@ -381,6 +460,7 @@ def get_learner_step_fn(
             o_t: Array,
             a_t: Array,
             pg_advantage: Array,
+            policy_hidden_state: Array,
         ) -> Tuple[Array, Dict[str, Array]]:
             """Calculate the actor loss using importance sampling.
 
@@ -395,7 +475,8 @@ def get_learner_step_fn(
             Returns:
                 Total loss and dictionary of loss components
             """
-            actor_policy = actor_apply_fn(actor_params, o_t)
+            # Rerun actor network on trajectory using stored hidden states
+            _, actor_policy = actor_apply_fn(actor_params, policy_hidden_state, o_t)
             log_prob = actor_policy.log_prob(a_t)
 
             # Policy gradient loss with V-trace advantages
@@ -414,7 +495,12 @@ def get_learner_step_fn(
         # CALCULATE CRITIC LOSS
         critic_grad_fn = jax.grad(_critic_loss_fn, has_aux=True)
         critic_grads, critic_loss_info = critic_grad_fn(
-            params.critic_params, all_observations, r_t, d_t, rho_tm1
+            params.critic_params,
+            all_observations,
+            r_t,
+            d_t,
+            rho_tm1,
+            jax.tree_util.tree_map(lambda x: x[0], traj_batch.hstates.critic_hidden_state),
         )
 
         # Extract pg_advantage from critic_loss_info
@@ -422,7 +508,13 @@ def get_learner_step_fn(
         # CALCULATE ACTOR LOSS
         actor_grad_fn = jax.grad(_actor_loss_fn, has_aux=True)
         actor_grads, actor_loss_info = actor_grad_fn(
-            params.actor_params, traj_batch.obs, traj_batch.action, pg_advantage
+            params.actor_params,
+            traj_batch.obs,
+            traj_batch.action,
+            pg_advantage,
+            policy_hidden_state=jax.tree_util.tree_map(
+                lambda x: x[0], traj_batch.hstates.policy_hidden_state
+            ),
         )
 
         # pmean over devices.
@@ -453,12 +545,18 @@ def get_learner_step_fn(
         loss_info = {**actor_loss_info, **critic_loss_info, **extra_metrics}
 
         # Update learner state
-        learner_state = CoreLearnerState(new_params, new_opt_state, key, last_timestep)
+        learner_state = RNNCoreLearnerState(
+            params=new_params,
+            opt_states=new_opt_state,
+            key=key,
+            timestep=last_timestep,
+            reset_hidden_state=last_reset_hidden_state,
+        )
         return learner_state, loss_info
 
     def learner_step_fn(
-        learner_state: CoreLearnerState, traj_batch: ImpalaTransition
-    ) -> SebulbaExperimentOutput[CoreLearnerState]:
+        learner_state: RNNCoreLearnerState, traj_batch: RNNImpalaTransition
+    ) -> SebulbaExperimentOutput[RNNCoreLearnerState]:
         """A single step of the learner.
 
         Args:
@@ -479,18 +577,18 @@ def get_learner_step_fn(
 
 
 def get_learner_rollout_fn(
-    learn_step: SebulbaLearnerFn[CoreLearnerState, ImpalaTransition],
+    learn_step: SebulbaLearnerFn[RNNCoreLearnerState, RNNImpalaTransition],
     config: DictConfig,
     eval_queue: Queue,
     pipeline: OnPolicyPipeline,
     params_sources: Sequence[ParamsSource],
-) -> Callable[[CoreLearnerState], None]:
+) -> Callable[[RNNCoreLearnerState], None]:
     """Get the learner rollout function that is used by the learner thread to update the networks.
     This function is what is actually run by the learner thread. It gets the data from the pipeline
     and uses the learner update function to update the networks. It then sends these intermediate
     network parameters to a queue for evaluation."""
 
-    def learner_rollout(learner_state: CoreLearnerState) -> None:
+    def learner_rollout(learner_state: RNNCoreLearnerState) -> None:
         # Loop for the total number of evaluations selected to be performed.
         for _ in range(config.arch.num_evaluation):
             # Create the lists to store metrics and timings for this learning iteration.
@@ -506,7 +604,7 @@ def get_learner_rollout_fn(
                     with RecordTimeTo(learner_timings["rollout_get_time"]):
                         (
                             traj_batch,
-                            timestep,
+                            (timestep, reset_hidden_state),
                             actor_times,
                             episode_metrics,
                         ) = pipeline.get(  # type: ignore
@@ -515,7 +613,9 @@ def get_learner_rollout_fn(
                     # We then replace the timestep in the learner state with the latest timestep
                     # This means the learner has access to the entire trajectory as well as
                     # an additional timestep which it can use to bootstrap.
-                    learner_state = learner_state._replace(timestep=timestep)
+                    learner_state = learner_state._replace(
+                        timestep=timestep, reset_hidden_state=reset_hidden_state
+                    )
                     # We then call the update function to update the networks
                     with RecordTimeTo(learner_timings["learner_step_time"]):
                         learner_state, train_metrics = learn_step(learner_state, traj_batch)
@@ -559,8 +659,8 @@ def get_learner_rollout_fn(
 
 
 def get_learner_thread(
-    learn: SebulbaLearnerFn[CoreLearnerState, ImpalaTransition],
-    learner_state: CoreLearnerState,
+    learn: SebulbaLearnerFn[RNNCoreLearnerState, RNNImpalaTransition],
+    learner_state: RNNCoreLearnerState,
     config: DictConfig,
     eval_queue: Queue,
     pipeline: OnPolicyPipeline,
@@ -585,9 +685,9 @@ def learner_setup(
     learner_devices: Sequence[jax.Device],
     config: DictConfig,
 ) -> Tuple[
-    SebulbaLearnerFn[CoreLearnerState, ImpalaTransition],
-    Tuple[ActorApply, CriticApply],
-    CoreLearnerState,
+    SebulbaLearnerFn[RNNCoreLearnerState, RNNImpalaTransition],
+    Tuple[RecActorApply, RecCriticApply],
+    RNNCoreLearnerState,
 ]:
     """Setup for the learner state and networks."""
 
@@ -603,15 +703,38 @@ def learner_setup(
     key, actor_net_key, critic_net_key = keys
 
     # Define network and optimiser.
-    actor_torso = hydra.utils.instantiate(config.network.actor_network.pre_torso)
+    actor_pre_torso = hydra.utils.instantiate(config.network.actor_network.pre_torso)
+    actor_post_torso = hydra.utils.instantiate(config.network.actor_network.post_torso)
     actor_action_head = hydra.utils.instantiate(
         config.network.actor_network.action_head, action_dim=num_actions
     )
-    critic_torso = hydra.utils.instantiate(config.network.critic_network.pre_torso)
+    critic_pre_torso = hydra.utils.instantiate(config.network.critic_network.pre_torso)
+    critic_post_torso = hydra.utils.instantiate(config.network.critic_network.post_torso)
     critic_head = hydra.utils.instantiate(config.network.critic_network.critic_head)
 
-    actor_network = Actor(torso=actor_torso, action_head=actor_action_head)
-    critic_network = Critic(torso=critic_torso, critic_head=critic_head)
+    actor_network = RecurrentActor(
+        pre_torso=actor_pre_torso,
+        hidden_state_dim=config.network.actor_network.rnn_layer.hidden_state_dim,
+        cell_type=config.network.actor_network.rnn_layer.cell_type,
+        post_torso=actor_post_torso,
+        action_head=actor_action_head,
+    )
+    critic_network = RecurrentCritic(
+        pre_torso=critic_pre_torso,
+        hidden_state_dim=config.network.critic_network.rnn_layer.hidden_state_dim,
+        cell_type=config.network.critic_network.rnn_layer.cell_type,
+        post_torso=critic_post_torso,
+        critic_head=critic_head,
+    )
+    actor_rnn = ScannedRNN(
+        hidden_state_dim=config.network.actor_network.rnn_layer.hidden_state_dim,
+        cell_type=config.network.actor_network.rnn_layer.cell_type,
+    )
+    critic_rnn = ScannedRNN(
+        hidden_state_dim=config.network.critic_network.rnn_layer.hidden_state_dim,
+        cell_type=config.network.critic_network.rnn_layer.cell_type,
+    )
+
     actor_optim = optax.chain(
         optax.clip_by_global_norm(config.system.max_grad_norm),
         optax.adam(config.system.actor_lr, eps=1e-5),
@@ -622,15 +745,21 @@ def learner_setup(
     )
 
     # Initialise observation
-    init_x = example_obs
-    init_x = jax.tree_util.tree_map(lambda x: x[None, ...], init_x)
+    init_obs = example_obs
+    init_obs = jax.tree_util.tree_map(lambda x: x[None, ...], init_obs)
+    init_reset_hidden_state = jnp.zeros((1, config.arch.num_envs), dtype=bool)
+    init_x = (init_obs, init_reset_hidden_state)
+
+    # Initialise hidden states.
+    init_policy_hstate = actor_rnn.initialize_carry(config.arch.num_envs)
+    init_critic_hstate = critic_rnn.initialize_carry(config.arch.num_envs)
 
     # Initialise actor params and optimiser state.
-    actor_params = actor_network.init(actor_net_key, init_x)
+    actor_params = actor_network.init(actor_net_key, init_policy_hstate, init_x)
     actor_opt_state = actor_optim.init(actor_params)
 
     # Initialise critic params and optimiser state.
-    critic_params = critic_network.init(critic_net_key, init_x)
+    critic_params = critic_network.init(critic_net_key, init_critic_hstate, init_x)
     critic_opt_state = critic_optim.init(critic_params)
 
     # Pack params.
@@ -666,11 +795,17 @@ def learner_setup(
     # Duplicate across learner devices.
     replicate_learner = flax.jax_utils.replicate(replicate_learner, devices=learner_devices)
 
-    # Initialise learner state.
+    # Initialise learner state
     params, opt_states = replicate_learner
     key, step_key = jax.random.split(key)
     step_keys = jax.random.split(step_key, len(learner_devices))
-    init_learner_state = CoreLearnerState(params, opt_states, step_keys, None)
+    init_learner_state = RNNCoreLearnerState(
+        params=params,
+        opt_states=opt_states,
+        key=step_keys,
+        timestep=None,  # This will be set by the first actor trajectory
+        reset_hidden_state=init_reset_hidden_state,
+    )
 
     return learn_step, apply_fns, init_learner_state
 
@@ -732,7 +867,7 @@ def run_experiment(_config: DictConfig) -> float:
         env_factory, (key, actor_net_key, critic_net_key), local_learner_devices, config
     )
     actor_apply_fn, _ = apply_fns
-    eval_act_fn = get_distribution_act_fn(config, actor_apply_fn)
+    eval_act_fn = get_rec_distribution_act_fn(config, actor_apply_fn)
     # Setup evaluator.
     evaluator, evaluator_envs = get_sebulba_eval_fn(
         env_factory, eval_act_fn, config, np_rng, evaluator_device
@@ -916,7 +1051,7 @@ def run_experiment(_config: DictConfig) -> float:
 
 @hydra.main(
     config_path="../../../configs/default/sebulba",
-    config_name="default_ff_impala.yaml",
+    config_name="default_rec_impala.yaml",
     version_base="1.2",
 )
 def hydra_entry_point(cfg: DictConfig) -> float:
@@ -929,7 +1064,7 @@ def hydra_entry_point(cfg: DictConfig) -> float:
     eval_performance = run_experiment(cfg)
     end = time.monotonic()
     print(
-        f"{Fore.CYAN}{Style.BRIGHT}IMPALA experiment completed in "
+        f"{Fore.CYAN}{Style.BRIGHT}Recurrent IMPALA experiment completed in "
         f"{end - start:.2f}s.{Style.RESET_ALL}"
     )
     return eval_performance
