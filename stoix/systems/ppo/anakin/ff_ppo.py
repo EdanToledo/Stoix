@@ -113,14 +113,14 @@ def get_learner_fn(
             _env_step, learner_state, None, config.system.rollout_length
         )
 
+        # For each trajectory (axis=1), find the first done index along time dimension (axis=0)
+        done_indices = jnp.argmax(traj_batch.done, axis=0)  # shape: (num_trajectories,)
+        # Create mask for non-valid transitions (time > done_index for each trajectory)
+        time_indices = jnp.arange(traj_batch.done.shape[0])[:, jnp.newaxis]  # (num_timesteps, 1)
+        post_episode_mask = time_indices > done_indices[jnp.newaxis, :]  # Mask for steps after episode ends
+
         # Nullify dones, values, rewards, and log_probs after episode ends
         if config.env.kwargs.get("disable_autoreset", False):
-            # For each trajectory (axis=1), find the first done index along time dimension (axis=0)
-            done_indices = jnp.argmax(traj_batch.done, axis=0)  # shape: (num_trajectories,)
-            # Create mask for non-valid transitions (time > done_index for each trajectory)
-            time_indices = jnp.arange(traj_batch.done.shape[0])[:, jnp.newaxis]  # (num_timesteps, 1)
-            post_episode_mask = time_indices > done_indices[jnp.newaxis, :]  # Mask for steps after episode ends
-
             traj_batch = traj_batch._replace(
                 done=jnp.where(post_episode_mask, False, traj_batch.done),
                 value=jnp.where(post_episode_mask, 0.0, traj_batch.value),
