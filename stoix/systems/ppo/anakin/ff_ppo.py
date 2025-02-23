@@ -113,21 +113,21 @@ def get_learner_fn(
             _env_step, learner_state, None, config.system.rollout_length
         )
 
-        # TODO: only do this if navix' autoresetting is disabled
+        # FIXME: change behaviour such that both navix-interal autoreset as well as stoix-level autoreset are disabled simultaneously
         # Nullify dones, values, rewards, and log_probs after episode ends
+        if config.env.kwargs.disable_autoreset:
+            # For each trajectory (axis=1), find the first done index along time dimension (axis=0)
+            done_indices = jnp.argmax(traj_batch.done, axis=0)  # shape: (num_trajectories,)
+            # Create mask for non-valid transitions (time > done_index for each trajectory)
+            time_indices = jnp.arange(traj_batch.done.shape[0])[:, jnp.newaxis]  # (num_timesteps, 1)
+            post_episode_mask = time_indices > done_indices[jnp.newaxis, :]  # Mask for steps after episode ends
 
-        # For each trajectory (axis=1), find the first done index along time dimension (axis=0)
-        done_indices = jnp.argmax(traj_batch.done, axis=0)  # shape: (num_trajectories,)
-        # Create mask for non-valid transitions (time > done_index for each trajectory)
-        time_indices = jnp.arange(traj_batch.done.shape[0])[:, jnp.newaxis]  # (num_timesteps, 1)
-        post_episode_mask = time_indices > done_indices[jnp.newaxis, :]  # Mask for steps after episode ends
-
-        traj_batch = traj_batch._replace(
-            done=jnp.where(post_episode_mask, False, traj_batch.done),
-            value=jnp.where(post_episode_mask, 0.0, traj_batch.value),
-            reward=jnp.where(post_episode_mask, 0.0, traj_batch.reward),
-            log_prob=jnp.where(post_episode_mask, 0.0, traj_batch.log_prob),
-        )
+            traj_batch = traj_batch._replace(
+                done=jnp.where(post_episode_mask, False, traj_batch.done),
+                value=jnp.where(post_episode_mask, 0.0, traj_batch.value),
+                reward=jnp.where(post_episode_mask, 0.0, traj_batch.reward),
+                log_prob=jnp.where(post_episode_mask, 0.0, traj_batch.log_prob),
+            )
 
         # DISTRIBUTE EPISODIC REWARD ACROSS ALL TRANSITIONS
         if config.system.redistribute_reward:
