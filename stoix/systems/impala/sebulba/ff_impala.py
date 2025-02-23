@@ -1,3 +1,27 @@
+"""Implementation of the IMPALA algorithm using the Sebulba architecture.
+
+This implementation follows the paper "IMPALA: Scalable Distributed Deep-RL with
+Importance Weighted Actor-Learner Architectures" (https://arxiv.org/abs/1802.01561).
+
+The implementation uses rlax's V-trace implementation and follows patterns from
+DeepMind's Acme library for correctness.
+
+Key features:
+- V-trace for off-policy correction (using rlax)
+- Multi-threaded actors for parallel data collection
+- Asynchronous learning with a central learner
+- Feed-forward policy network
+
+Implementation Notes:
+- Uses rlax.vtrace_td_error_and_advantage for V-trace computation
+- Uses separate clipping thresholds for value (ρ̄) and policy gradient (c̄)
+- Uses λ=1 for V-trace as specified in the paper
+- Follows paper's trajectory length of 20 steps
+- Uses importance sampling for off-policy correction
+- Supports multiple actors running in parallel
+- Uses a pipeline for efficient actor-learner communication
+"""
+
 import copy
 import queue
 import threading
@@ -5,7 +29,7 @@ import time
 import warnings
 from collections import defaultdict
 from queue import Queue
-from typing import Any, Callable, Dict, List, Sequence, Tuple
+from typing import Callable, Dict, List, Sequence, Tuple
 
 import chex
 import flax
@@ -14,9 +38,11 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
+import rlax
 from colorama import Fore, Style
 from flax.core.frozen_dict import FrozenDict
 from flax.jax_utils import unreplicate
+from jax import Array
 from omegaconf import DictConfig, OmegaConf
 from rich.pretty import pprint
 
@@ -33,14 +59,16 @@ from stoix.base_types import (
 from stoix.evaluator import get_distribution_act_fn, get_sebulba_eval_fn
 from stoix.networks.base import FeedForwardActor as Actor
 from stoix.networks.base import FeedForwardCritic as Critic
-from stoix.systems.ppo.ppo_types import PPOTransition
+from stoix.systems.impala.impala_types import (
+    ActionArray,
+    ImpalaTransition,
+    LogProbArray,
+    ValueArray,
+)
 from stoix.utils import make_env as environments
 from stoix.utils.checkpointing import Checkpointer
 from stoix.utils.env_factory import EnvFactory
-from stoix.utils.jax_utils import merge_leading_dims
 from stoix.utils.logger import LogEvent, StoixLogger
-from stoix.utils.loss import clipped_value_loss, ppo_clip_loss
-from stoix.utils.multistep import batch_truncated_generalized_advantage_estimation
 from stoix.utils.sebulba_utils import (
     OnPolicyPipeline,
     ParamsSource,
@@ -48,22 +76,38 @@ from stoix.utils.sebulba_utils import (
     ThreadLifetime,
 )
 from stoix.utils.total_timestep_checker import check_total_timesteps
-from stoix.utils.training import make_learning_rate
 from stoix.wrappers.episode_metrics import get_final_step_metrics
 
 
 def get_act_fn(
     apply_fns: Tuple[ActorApply, CriticApply]
 ) -> Callable[
-    [ActorCriticParams, Observation, chex.PRNGKey], Tuple[chex.Array, chex.Array, chex.Array]
+    [ActorCriticParams, Observation, chex.PRNGKey], Tuple[ActionArray, ValueArray, LogProbArray]
 ]:
-    """Get the act function that is used by the actor threads."""
+    """Get the act function that is used by the actor threads.
+
+    Args:
+        apply_fns: Tuple of actor and critic network apply functions
+
+    Returns:
+        Function that takes parameters, observation, and RNG key and returns
+        action, value estimate, and log probability
+    """
     actor_apply_fn, critic_apply_fn = apply_fns
 
     def actor_fn(
         params: ActorCriticParams, observation: Observation, rng_key: chex.PRNGKey
-    ) -> Tuple[chex.Array, chex.Array, chex.Array]:
-        """Get the action, value and log_prob from the actor and critic networks."""
+    ) -> Tuple[ActionArray, ValueArray, LogProbArray]:
+        """Get the action, value and log_prob from the actor and critic networks.
+
+        Args:
+            params: Actor and critic network parameters
+            observation: Environment observation
+            rng_key: Random number generator key
+
+        Returns:
+            Tuple of (action, value estimate, log probability)
+        """
         rng_key, policy_key = jax.random.split(rng_key)
         pi = actor_apply_fn(params.actor_params, observation)
         value = critic_apply_fn(params.critic_params, observation)
@@ -104,7 +148,7 @@ def get_rollout_fn(
             # Loop until the thread is stopped
             while not thread_lifetime.should_stop():
                 # Create the list to store transitions
-                traj: List[PPOTransition] = []
+                traj: List[ImpalaTransition] = []
                 # Create the dictionary to store timings for metrics
                 actor_timings_dict: Dict[str, List[float]] = defaultdict(list)
                 episode_metrics: List[Dict[str, List[float]]] = []
@@ -141,11 +185,13 @@ def get_rollout_fn(
                         cached_next_dones = move_to_device(dones)
                         cached_next_trunc = move_to_device(trunc)
 
-                        # Append PPOTransition to the trajectory list
+                        # Append ImpalaTransition to the trajectory list
                         reward = timestep.reward
                         metrics = timestep.extras["metrics"]
+
+                        # Store behavior policy log prob for importance sampling
                         traj.append(
-                            PPOTransition(
+                            ImpalaTransition(
                                 cached_next_dones,
                                 cached_next_trunc,
                                 action,
@@ -215,191 +261,211 @@ def get_learner_step_fn(
     apply_fns: Tuple[ActorApply, CriticApply],
     update_fns: Tuple[optax.TransformUpdateFn, optax.TransformUpdateFn],
     config: DictConfig,
-) -> SebulbaLearnerFn[CoreLearnerState, PPOTransition]:
-    """Get the learner update function which is used to update the actor and critic networks.
-    This function is used by the learner thread to update the networks."""
+) -> SebulbaLearnerFn[CoreLearnerState, ImpalaTransition]:
+    """Get the learner update function for IMPALA.
 
+    This function creates the main learning update for IMPALA, which includes:
+    1. Computing V-trace targets and advantages using importance sampling
+    2. Updating the policy using V-trace advantages
+    3. Updating the value function using V-trace targets
+
+    The learner processes entire trajectory batches as they arrive from actors,
+    without using minibatches or multiple epochs (unlike PPO).
+
+    Args:
+        apply_fns: Tuple of actor and critic network apply functions
+        update_fns: Tuple of actor and critic optimizer update functions
+        config: Configuration dictionary
+
+    Returns:
+        Function that performs a single learner update step
+    """
     # Get apply and update functions for actor and critic networks.
     actor_apply_fn, critic_apply_fn = apply_fns
     actor_update_fn, critic_update_fn = update_fns
 
     def _update_step(
-        learner_state: CoreLearnerState, traj_batch: PPOTransition
-    ) -> Tuple[CoreLearnerState, Dict[str, chex.Array]]:
+        learner_state: CoreLearnerState, traj_batch: ImpalaTransition
+    ) -> Tuple[CoreLearnerState, Dict[str, Array]]:
+        """Perform a single update step using V-trace.
 
-        # CALCULATE ADVANTAGE
+        Args:
+            learner_state: Current state of the learner
+            traj_batch: Batch of transitions from actors
+
+        Returns:
+            Updated learner state and dictionary of metrics
+        """
         params, opt_states, key, last_timestep = learner_state
-        last_val = critic_apply_fn(params.critic_params, last_timestep.observation)
 
+        # Concatenate the last observation with the rest of the observations
+        all_observations = jax.tree.map(
+            lambda x, y: jnp.concatenate([x, y[None, ...]], axis=0),
+            traj_batch.obs,
+            last_timestep.observation,
+        )
+
+        # Calculate importance sampling ratios
+        current_policy = actor_apply_fn(params.actor_params, traj_batch.obs)
+        current_log_prob = current_policy.log_prob(traj_batch.action)
+        behavior_log_prob = traj_batch.log_prob
+        rho_tm1 = jnp.exp(current_log_prob - behavior_log_prob)
+
+        # Normalize rewards as in the paper
         r_t = traj_batch.reward
-        v_t = jnp.concatenate([traj_batch.value, last_val[None, ...]], axis=0)
+        if config.system.normalize_rewards:
+            # Compute mean and std across all parallel envs and timesteps
+            r_mean = jnp.mean(r_t)
+            r_std = jnp.std(r_t)
+            # Normalize and scale rewards
+            r_t = config.system.reward_scale * (r_t - r_mean) / (r_std + config.system.reward_eps)
+
         d_t = 1.0 - traj_batch.done.astype(jnp.float32)
         d_t = (d_t * config.system.gamma).astype(jnp.float32)
-        advantages, targets = batch_truncated_generalized_advantage_estimation(
-            r_t,
-            d_t,
-            config.system.gae_lambda,
-            v_t,
-            time_major=True,
-            standardize_advantages=config.system.standardize_advantages,
-            truncation_flags=traj_batch.truncated,
+
+        # Add reward normalization stats to metrics
+        extra_metrics = {
+            "reward_mean": r_mean if config.system.normalize_rewards else jnp.mean(r_t),
+            "reward_std": r_std if config.system.normalize_rewards else jnp.std(r_t),
+        }
+
+        def _critic_loss_fn(
+            critic_params: FrozenDict,
+            o_t: Array,
+            r_t: Array,
+            d_t: Array,
+            rho_tm1: Array,
+        ) -> Tuple[Array, Dict[str, Array]]:
+            """Calculate the critic loss using V-trace targets.
+
+            Following IMPALA paper's value function update using V-trace targets.
+
+            Args:
+                critic_params: Critic network parameters
+                traj_batch: Batch of transitions
+                targets: V-trace targets
+
+            Returns:
+                Total loss and dictionary of loss components
+            """
+            v_t = critic_apply_fn(critic_params, o_t)
+            # Following IMPALA paper's V-trace implementation
+            vtrace_outputs = jax.vmap(
+                rlax.vtrace_td_error_and_advantage,
+                in_axes=(1, 1, 1, 1, 1, None, None, None),
+                out_axes=1,
+            )(
+                v_t[:-1],  # All but last value estimate
+                v_t[1:],  # All but first value estimate
+                r_t,
+                d_t,
+                rho_tm1,
+                config.system.vtrace_lambda,  # Paper uses λ=1
+                config.system.clip_rho_threshold,  # ρ̄ for value
+                config.system.clip_pg_rho_threshold,  # c̄ for policy gradient
+            )
+            value_loss = jnp.square(vtrace_outputs.errors).mean()
+
+            total_loss = config.system.vf_coef * value_loss
+            loss_info = {
+                "value_loss": value_loss,
+                "q_estimate": vtrace_outputs.q_estimate,
+                "pg_advantage": vtrace_outputs.pg_advantage,
+            }
+            return total_loss, loss_info
+
+        def _actor_loss_fn(
+            actor_params: FrozenDict,
+            o_t: Array,
+            a_t: Array,
+            pg_advantage: Array,
+        ) -> Tuple[Array, Dict[str, Array]]:
+            """Calculate the actor loss using importance sampling.
+
+            Following IMPALA paper's policy gradient with V-trace advantages.
+
+            Args:
+                actor_params: Actor network parameters
+                o_t: Observations
+                a_t: Actions
+                pg_advantage: Policy gradient advantages from V-trace
+
+            Returns:
+                Total loss and dictionary of loss components
+            """
+            actor_policy = actor_apply_fn(actor_params, o_t)
+            log_prob = actor_policy.log_prob(a_t)
+
+            # Policy gradient loss with V-trace advantages
+            policy_loss = -(pg_advantage * log_prob).mean()
+
+            # Add entropy bonus for exploration
+            entropy = actor_policy.entropy().mean()
+            total_loss = policy_loss - config.system.ent_coef * entropy
+
+            loss_info = {
+                "actor_loss": policy_loss,
+                "entropy": entropy,
+            }
+            return total_loss, loss_info
+
+        # CALCULATE CRITIC LOSS
+        critic_grad_fn = jax.grad(_critic_loss_fn, has_aux=True)
+        critic_grads, critic_loss_info = critic_grad_fn(
+            params.critic_params, all_observations, r_t, d_t, rho_tm1
         )
 
-        def _update_epoch(update_state: Tuple, _: Any) -> Tuple:
-            """Update the network for a single epoch."""
-
-            def _update_minibatch(train_state: Tuple, batch_info: Tuple) -> Tuple:
-                """Update the network for a single minibatch."""
-
-                # UNPACK TRAIN STATE AND BATCH INFO
-                params, opt_states = train_state
-                traj_batch, advantages, targets = batch_info
-
-                def _actor_loss_fn(
-                    actor_params: FrozenDict,
-                    traj_batch: PPOTransition,
-                    gae: chex.Array,
-                ) -> Tuple:
-                    """Calculate the actor loss."""
-                    # RERUN NETWORK
-                    actor_policy = actor_apply_fn(actor_params, traj_batch.obs)
-                    log_prob = actor_policy.log_prob(traj_batch.action)
-
-                    # CALCULATE ACTOR LOSS
-                    loss_actor = ppo_clip_loss(
-                        log_prob, traj_batch.log_prob, gae, config.system.clip_eps
-                    )
-                    entropy = actor_policy.entropy().mean()
-
-                    total_loss_actor = loss_actor - config.system.ent_coef * entropy
-                    loss_info = {
-                        "actor_loss": loss_actor,
-                        "entropy": entropy,
-                    }
-                    return total_loss_actor, loss_info
-
-                def _critic_loss_fn(
-                    critic_params: FrozenDict,
-                    traj_batch: PPOTransition,
-                    targets: chex.Array,
-                ) -> Tuple:
-                    """Calculate the critic loss."""
-                    # RERUN NETWORK
-                    value = critic_apply_fn(critic_params, traj_batch.obs)
-
-                    # CALCULATE VALUE LOSS
-                    value_loss = clipped_value_loss(
-                        value, traj_batch.value, targets, config.system.clip_eps
-                    )
-
-                    critic_total_loss = config.system.vf_coef * value_loss
-                    loss_info = {
-                        "value_loss": value_loss,
-                    }
-                    return critic_total_loss, loss_info
-
-                # CALCULATE ACTOR LOSS
-                actor_grad_fn = jax.grad(_actor_loss_fn, has_aux=True)
-                actor_grads, actor_loss_info = actor_grad_fn(
-                    params.actor_params, traj_batch, advantages
-                )
-
-                # CALCULATE CRITIC LOSS
-                critic_grad_fn = jax.grad(_critic_loss_fn, has_aux=True)
-                critic_grads, critic_loss_info = critic_grad_fn(
-                    params.critic_params, traj_batch, targets
-                )
-
-                # Compute the parallel mean (pmean) over the batch.
-                # This pmean could be a regular mean as the batch axis is on the same device.
-                # pmean over devices.
-                actor_grads, actor_loss_info = jax.lax.pmean(
-                    (actor_grads, actor_loss_info), axis_name="device"
-                )
-                # pmean over devices.
-                critic_grads, critic_loss_info = jax.lax.pmean(
-                    (critic_grads, critic_loss_info), axis_name="device"
-                )
-
-                # UPDATE ACTOR PARAMS AND OPTIMISER STATE
-                actor_updates, actor_new_opt_state = actor_update_fn(
-                    actor_grads, opt_states.actor_opt_state
-                )
-                actor_new_params = optax.apply_updates(params.actor_params, actor_updates)
-
-                # UPDATE CRITIC PARAMS AND OPTIMISER STATE
-                critic_updates, critic_new_opt_state = critic_update_fn(
-                    critic_grads, opt_states.critic_opt_state
-                )
-                critic_new_params = optax.apply_updates(params.critic_params, critic_updates)
-
-                # PACK NEW PARAMS AND OPTIMISER STATE
-                new_params = ActorCriticParams(actor_new_params, critic_new_params)
-                new_opt_state = ActorCriticOptStates(actor_new_opt_state, critic_new_opt_state)
-
-                # PACK LOSS INFO
-                loss_info = {
-                    **actor_loss_info,
-                    **critic_loss_info,
-                }
-                return (new_params, new_opt_state), loss_info
-
-            params, opt_states, traj_batch, advantages, targets, key = update_state
-            key, shuffle_key = jax.random.split(key)
-
-            # SHUFFLE MINIBATCHES
-            # Since we shard the envs per actor across the devices
-            envs_per_batch = config.arch.actor.num_envs_per_actor // config.num_learner_devices
-            batch_size = config.system.rollout_length * envs_per_batch
-            permutation = jax.random.permutation(shuffle_key, batch_size)
-            batch = (traj_batch, advantages, targets)
-            batch = jax.tree_util.tree_map(lambda x: merge_leading_dims(x, 2), batch)
-            shuffled_batch = jax.tree_util.tree_map(
-                lambda x: jnp.take(x, permutation, axis=0), batch
-            )
-            minibatches = jax.tree_util.tree_map(
-                lambda x: jnp.reshape(x, [config.system.num_minibatches, -1] + list(x.shape[1:])),
-                shuffled_batch,
-            )
-
-            # UPDATE MINIBATCHES
-            (params, opt_states), loss_info = jax.lax.scan(
-                _update_minibatch, (params, opt_states), minibatches
-            )
-
-            update_state = (params, opt_states, traj_batch, advantages, targets, key)
-            return update_state, loss_info
-
-        update_state = (params, opt_states, traj_batch, advantages, targets, key)
-
-        # UPDATE EPOCHS
-        update_state, loss_info = jax.lax.scan(
-            _update_epoch, update_state, None, config.system.epochs
+        # Extract pg_advantage from critic_loss_info
+        pg_advantage = critic_loss_info["pg_advantage"]
+        # CALCULATE ACTOR LOSS
+        actor_grad_fn = jax.grad(_actor_loss_fn, has_aux=True)
+        actor_grads, actor_loss_info = actor_grad_fn(
+            params.actor_params, traj_batch.obs, traj_batch.action, pg_advantage
         )
 
-        params, opt_states, traj_batch, advantages, targets, key = update_state
-        learner_state = CoreLearnerState(params, opt_states, key, last_timestep)
+        # pmean over devices.
+        actor_grads, actor_loss_info = jax.lax.pmean(
+            (actor_grads, actor_loss_info), axis_name="device"
+        )
+        critic_grads, critic_loss_info = jax.lax.pmean(
+            (critic_grads, critic_loss_info), axis_name="device"
+        )
 
+        # UPDATE ACTOR PARAMS AND OPTIMISER STATE
+        actor_updates, actor_new_opt_state = actor_update_fn(
+            actor_grads, opt_states.actor_opt_state
+        )
+        actor_new_params = optax.apply_updates(params.actor_params, actor_updates)
+
+        # UPDATE CRITIC PARAMS AND OPTIMISER STATE
+        critic_updates, critic_new_opt_state = critic_update_fn(
+            critic_grads, opt_states.critic_opt_state
+        )
+        critic_new_params = optax.apply_updates(params.critic_params, critic_updates)
+
+        # PACK NEW PARAMS AND OPTIMISER STATE
+        new_params = ActorCriticParams(actor_new_params, critic_new_params)
+        new_opt_state = ActorCriticOptStates(actor_new_opt_state, critic_new_opt_state)
+
+        # PACK LOSS INFO
+        loss_info = {**actor_loss_info, **critic_loss_info, **extra_metrics}
+
+        # Update learner state
+        learner_state = CoreLearnerState(new_params, new_opt_state, key, last_timestep)
         return learner_state, loss_info
 
     def learner_step_fn(
-        learner_state: CoreLearnerState, traj_batch: PPOTransition
+        learner_state: CoreLearnerState, traj_batch: ImpalaTransition
     ) -> SebulbaExperimentOutput[CoreLearnerState]:
-        """Learner function.
-
-        This function represents the learner, it updates the network parameters
-        by iteratively applying the `_update_step` function for a fixed number of
-        updates. The `_update_step` function is vectorized over a batch of inputs.
+        """A single step of the learner.
 
         Args:
-            learner_state (NamedTuple):
-                - params (ActorCriticParams): The initial model parameters.
-                - opt_states (OptStates): The initial optimizer state.
-                - key (chex.PRNGKey): The random number generator state.
-                - env_state (LogEnvState): The environment state.
-                - timesteps (TimeStep): The initial timestep in the initial trajectory.
-        """
+            learner_state: Current state of the learner
+            traj_batch: Batch of transitions from actors
 
+        Returns:
+            Updated learner state and metrics
+        """
         learner_state, loss_info = _update_step(learner_state, traj_batch)
 
         return SebulbaExperimentOutput(
@@ -411,7 +477,7 @@ def get_learner_step_fn(
 
 
 def get_learner_rollout_fn(
-    learn_step: SebulbaLearnerFn[CoreLearnerState, PPOTransition],
+    learn_step: SebulbaLearnerFn[CoreLearnerState, ImpalaTransition],
     config: DictConfig,
     eval_queue: Queue,
     pipeline: OnPolicyPipeline,
@@ -491,7 +557,7 @@ def get_learner_rollout_fn(
 
 
 def get_learner_thread(
-    learn: SebulbaLearnerFn[CoreLearnerState, PPOTransition],
+    learn: SebulbaLearnerFn[CoreLearnerState, ImpalaTransition],
     learner_state: CoreLearnerState,
     config: DictConfig,
     eval_queue: Queue,
@@ -517,7 +583,7 @@ def learner_setup(
     learner_devices: Sequence[jax.Device],
     config: DictConfig,
 ) -> Tuple[
-    SebulbaLearnerFn[CoreLearnerState, PPOTransition],
+    SebulbaLearnerFn[CoreLearnerState, ImpalaTransition],
     Tuple[ActorApply, CriticApply],
     CoreLearnerState,
 ]:
@@ -544,21 +610,13 @@ def learner_setup(
 
     actor_network = Actor(torso=actor_torso, action_head=actor_action_head)
     critic_network = Critic(torso=critic_torso, critic_head=critic_head)
-
-    actor_lr = make_learning_rate(
-        config.system.actor_lr, config, config.system.epochs, config.system.num_minibatches
-    )
-    critic_lr = make_learning_rate(
-        config.system.critic_lr, config, config.system.epochs, config.system.num_minibatches
-    )
-
     actor_optim = optax.chain(
         optax.clip_by_global_norm(config.system.max_grad_norm),
-        optax.adam(actor_lr, eps=1e-5),
+        optax.adam(config.system.actor_lr, eps=1e-5),
     )
     critic_optim = optax.chain(
         optax.clip_by_global_norm(config.system.max_grad_norm),
-        optax.adam(critic_lr, eps=1e-5),
+        optax.adam(config.system.critic_lr, eps=1e-5),
     )
 
     # Initialise observation
@@ -626,6 +684,16 @@ def run_experiment(_config: DictConfig) -> float:
         global_devices
     ), "Local and global devices must be the same for now. We dont support multihost just yet"
     # Extract the actor and learner devices
+    if len(config.arch.actor.device_ids) > len(global_devices):
+        raise ValueError(
+            f"Number of actor devices ({len(config.arch.actor.device_ids)}) "
+            f"is greater than the number of global devices ({len(global_devices)})"
+        )
+    if len(config.arch.learner.device_ids) > len(global_devices):
+        raise ValueError(
+            f"Number of learner devices ({len(config.arch.learner.device_ids)}) "
+            f"is greater than the number of global devices ({len(global_devices)})"
+        )
     actor_devices = [local_devices[device_id] for device_id in config.arch.actor.device_ids]
     local_learner_devices = [
         local_devices[device_id] for device_id in config.arch.learner.device_ids
@@ -846,7 +914,7 @@ def run_experiment(_config: DictConfig) -> float:
 
 @hydra.main(
     config_path="../../../configs/default/sebulba",
-    config_name="default_ff_ppo.yaml",
+    config_name="default_ff_impala.yaml",
     version_base="1.2",
 )
 def hydra_entry_point(cfg: DictConfig) -> float:
@@ -859,7 +927,8 @@ def hydra_entry_point(cfg: DictConfig) -> float:
     eval_performance = run_experiment(cfg)
     end = time.monotonic()
     print(
-        f"{Fore.CYAN}{Style.BRIGHT}PPO experiment completed in {end - start:.2f}s.{Style.RESET_ALL}"
+        f"{Fore.CYAN}{Style.BRIGHT}IMPALA experiment completed in "
+        f"{end - start:.2f}s.{Style.RESET_ALL}"
     )
     return eval_performance
 

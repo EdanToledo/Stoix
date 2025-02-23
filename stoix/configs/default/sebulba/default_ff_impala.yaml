@@ -1,9 +1,9 @@
 defaults:
   - logger: base_logger
   - arch: sebulba
-  - system: ppo/ff_ppo
+  - system: impala/ff_impala
   - network: mlp
-  - env: envpool/cartpole
+  - env: gymnasium/cartpole
   - _self_
 
 hydra:

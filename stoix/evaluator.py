@@ -381,8 +381,8 @@ def get_sebulba_eval_fn(
     if eval_episodes % n_parallel_envs != 0:
         msg = (
             f"Please note that the number of evaluation episodes ({eval_episodes}) is not "
-            f"evenly divisible by `num_envs`. As a result, some additional evaluations will be "
-            f"conducted. The adjusted number of evaluation episodes is now "
+            f"evenly divisible by `num_envs`. As a result, some additional evaluations will "
+            f"be conducted. The adjusted number of evaluation episodes is now "
             f"{episode_loops * n_parallel_envs}."
         )
         print(f"{Fore.YELLOW}{Style.BRIGHT}{msg}{Style.RESET_ALL}")
@@ -392,7 +392,9 @@ def get_sebulba_eval_fn(
             """Simulates `num_envs` episodes."""
             with jax.default_device(device):
                 # Reset the environment.
-                seeds = np_rng.integers(np.iinfo(np.int32).max, size=n_parallel_envs).tolist()
+                # TODO: fix this for envpool, gymnasium requires a single seed
+                # seeds = np_rng.integers(np.iinfo(np.int32).max, size=n_parallel_envs).tolist()
+                seeds = np_rng.integers(np.iinfo(np.int32).max, size=n_parallel_envs).tolist()[0]
                 timestep = envs.reset(seed=seeds)
 
                 all_metrics = [timestep.extras["metrics"]]
