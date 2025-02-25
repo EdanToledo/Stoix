@@ -728,7 +728,7 @@ def run_experiment(_config: DictConfig) -> float:
                 apply_fns,
                 actors_key,
                 config,
-                seeds[0],  # TODO: fix this for envpool, gymnasium requires a single seed
+                seeds,
                 actors_lifetime,
                 f"Actor-{actor_device}-{i}",
             )

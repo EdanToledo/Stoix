@@ -29,3 +29,7 @@ python stoix/systems/ppo/anakin/ff_ppo.py arch.total_timesteps=300 arch.total_nu
 python stoix/systems/ppo/anakin/ff_ppo.py arch.total_timesteps=300 arch.total_num_envs=8 arch.num_evaluation=1 system.rollout_length=8 network=mlp_resnet
 python stoix/systems/q_learning/ff_dqn.py arch.total_timesteps=300 arch.total_num_envs=8 arch.num_evaluation=1 system.rollout_length=8 network=mlp_dueling_dqn
 python stoix/systems/q_learning/ff_c51.py arch.total_timesteps=300 arch.total_num_envs=8 arch.num_evaluation=1 system.rollout_length=8 network=mlp_dueling_c51
+
+# Test sebulba algorithms
+python stoix/systems/ppo/sebulba/ff_ppo.py arch.total_timesteps=300 arch.total_num_envs=8 arch.num_evaluation=1 system.rollout_length=8 arch.actor.device_ids=[0] arch.actor.actor_per_device=1 arch.learner.device_ids=[0]
+python stoix/systems/impala/sebulba/ff_impala.py arch.total_timesteps=300 arch.total_num_envs=8 arch.num_evaluation=1 system.rollout_length=8 arch.actor.device_ids=[0] arch.actor.actor_per_device=1 arch.learner.device_ids=[0]

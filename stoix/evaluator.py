@@ -392,9 +392,7 @@ def get_sebulba_eval_fn(
             """Simulates `num_envs` episodes."""
             with jax.default_device(device):
                 # Reset the environment.
-                # TODO: fix this for envpool, gymnasium requires a single seed
-                # seeds = np_rng.integers(np.iinfo(np.int32).max, size=n_parallel_envs).tolist()
-                seeds = np_rng.integers(np.iinfo(np.int32).max, size=n_parallel_envs).tolist()[0]
+                seeds = np_rng.integers(np.iinfo(np.int32).max, size=n_parallel_envs).tolist()
                 timestep = envs.reset(seed=seeds)
 
                 all_metrics = [timestep.extras["metrics"]]

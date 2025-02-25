@@ -66,5 +66,7 @@ class GymnasiumFactory(EnvFactory):
 
     def __call__(self, num_envs: int) -> Any:
         with self.lock:
-            vec_env = gymnasium.make_vec(id=self.task_id, num_envs=num_envs, **self.kwargs)
+            vec_env = gymnasium.make_vec(
+                id=self.task_id, num_envs=num_envs, vectorization_mode="sync", **self.kwargs
+            )
             return VecGymToJumanji(vec_env)

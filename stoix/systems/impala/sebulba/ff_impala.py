@@ -298,30 +298,31 @@ def get_learner_step_fn(
         """
         params, opt_states, key, last_timestep = learner_state
 
+        o_tm1 = traj_batch.obs
+        a_tm1 = traj_batch.action
+        behavior_log_prob_tm1 = traj_batch.log_prob
+        r_t = traj_batch.reward
+        d_t = 1.0 - traj_batch.done.astype(jnp.float32)
+        d_t = (d_t * config.system.gamma).astype(jnp.float32)
+        o_last_t = last_timestep.observation
+
         # Concatenate the last observation with the rest of the observations
-        all_observations = jax.tree.map(
-            lambda x, y: jnp.concatenate([x, y[None, ...]], axis=0),
-            traj_batch.obs,
-            last_timestep.observation,
+        all_obs = jax.tree.map(
+            lambda x, y: jnp.concatenate([x, y[None, ...]], axis=0), o_tm1, o_last_t
         )
 
         # Calculate importance sampling ratios
-        current_policy = actor_apply_fn(params.actor_params, traj_batch.obs)
-        current_log_prob = current_policy.log_prob(traj_batch.action)
-        behavior_log_prob = traj_batch.log_prob
-        rho_tm1 = jnp.exp(current_log_prob - behavior_log_prob)
+        pi_tm1 = actor_apply_fn(params.actor_params, o_tm1)
+        log_prob_tm1 = pi_tm1.log_prob(a_tm1)
+        rho_tm1 = jnp.exp(log_prob_tm1 - behavior_log_prob_tm1)
 
         # Normalize rewards as in the paper
-        r_t = traj_batch.reward
         if config.system.normalize_rewards:
             # Compute mean and std across all parallel envs and timesteps
             r_mean = jnp.mean(r_t)
             r_std = jnp.std(r_t)
             # Normalize and scale rewards
             r_t = config.system.reward_scale * (r_t - r_mean) / (r_std + config.system.reward_eps)
-
-        d_t = 1.0 - traj_batch.done.astype(jnp.float32)
-        d_t = (d_t * config.system.gamma).astype(jnp.float32)
 
         # Add reward normalization stats to metrics
         extra_metrics = {
@@ -331,7 +332,7 @@ def get_learner_step_fn(
 
         def _critic_loss_fn(
             critic_params: FrozenDict,
-            o_t: Array,
+            all_obs: Array,
             r_t: Array,
             d_t: Array,
             rho_tm1: Array,
@@ -342,21 +343,25 @@ def get_learner_step_fn(
 
             Args:
                 critic_params: Critic network parameters
-                traj_batch: Batch of transitions
-                targets: V-trace targets
+                all_obs: all observations in sequence
+                r_t: reward sequence
+                d_t: done sequence
+                rho_tm1: importance sampling ratios
 
             Returns:
                 Total loss and dictionary of loss components
             """
-            v_t = critic_apply_fn(critic_params, o_t)
+            values = critic_apply_fn(critic_params, all_obs)
+            v_tm1 = values[:-1]
+            v_t = values[1:]
             # Following IMPALA paper's V-trace implementation
             vtrace_outputs = jax.vmap(
                 rlax.vtrace_td_error_and_advantage,
                 in_axes=(1, 1, 1, 1, 1, None, None, None),
                 out_axes=1,
             )(
-                v_t[:-1],  # All but last value estimate
-                v_t[1:],  # All but first value estimate
+                v_tm1,
+                v_t,
                 r_t,
                 d_t,
                 rho_tm1,
@@ -376,8 +381,8 @@ def get_learner_step_fn(
 
         def _actor_loss_fn(
             actor_params: FrozenDict,
-            o_t: Array,
-            a_t: Array,
+            o_tm1: Array,
+            a_tm1: Array,
             pg_advantage: Array,
         ) -> Tuple[Array, Dict[str, Array]]:
             """Calculate the actor loss using importance sampling.
@@ -386,15 +391,15 @@ def get_learner_step_fn(
 
             Args:
                 actor_params: Actor network parameters
-                o_t: Observations
-                a_t: Actions
+                o_tm1: Observations
+                a_tm1: Actions
                 pg_advantage: Policy gradient advantages from V-trace
 
             Returns:
                 Total loss and dictionary of loss components
             """
-            actor_policy = actor_apply_fn(actor_params, o_t)
-            log_prob = actor_policy.log_prob(a_t)
+            actor_policy = actor_apply_fn(actor_params, o_tm1)
+            log_prob = actor_policy.log_prob(a_tm1)
 
             # Policy gradient loss with V-trace advantages
             policy_loss = -(pg_advantage * log_prob).mean()
@@ -412,7 +417,7 @@ def get_learner_step_fn(
         # CALCULATE CRITIC LOSS
         critic_grad_fn = jax.grad(_critic_loss_fn, has_aux=True)
         critic_grads, critic_loss_info = critic_grad_fn(
-            params.critic_params, all_observations, r_t, d_t, rho_tm1
+            params.critic_params, all_obs, r_t, d_t, rho_tm1
         )
 
         # Extract pg_advantage from critic_loss_info
@@ -420,7 +425,7 @@ def get_learner_step_fn(
         # CALCULATE ACTOR LOSS
         actor_grad_fn = jax.grad(_actor_loss_fn, has_aux=True)
         actor_grads, actor_loss_info = actor_grad_fn(
-            params.actor_params, traj_batch.obs, traj_batch.action, pg_advantage
+            params.actor_params, o_tm1, a_tm1, pg_advantage
         )
 
         # pmean over devices.
@@ -612,11 +617,11 @@ def learner_setup(
     critic_network = Critic(torso=critic_torso, critic_head=critic_head)
     actor_optim = optax.chain(
         optax.clip_by_global_norm(config.system.max_grad_norm),
-        optax.adam(config.system.actor_lr, eps=1e-5),
+        optax.rmsprop(config.system.actor_lr, eps=0.01),
     )
     critic_optim = optax.chain(
         optax.clip_by_global_norm(config.system.max_grad_norm),
-        optax.adam(config.system.critic_lr, eps=1e-5),
+        optax.rmsprop(config.system.critic_lr, eps=0.01),
     )
 
     # Initialise observation
@@ -796,7 +801,7 @@ def run_experiment(_config: DictConfig) -> float:
                 apply_fns,
                 actors_key,
                 config,
-                seeds[0],  # TODO: fix this for envpool, gymnasium requires a single seed
+                seeds,
                 actors_lifetime,
                 f"Actor-{actor_device}-{i}",
             )

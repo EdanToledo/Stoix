@@ -3,7 +3,7 @@ defaults:
   - arch: sebulba
   - system: impala/ff_impala
   - network: mlp
-  - env: gymnasium/cartpole
+  - env: envpool/cartpole
   - _self_
 
 hydra:
