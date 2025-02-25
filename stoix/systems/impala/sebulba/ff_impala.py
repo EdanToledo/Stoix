@@ -340,13 +340,14 @@ def get_learner_step_fn(
             """Calculate the critic loss using V-trace targets.
 
             Following IMPALA paper's value function update using V-trace targets.
+            The loss is based on squared TD errors from V-trace.
 
             Args:
                 critic_params: Critic network parameters
-                all_obs: all observations in sequence
-                r_t: reward sequence
-                d_t: done sequence
-                rho_tm1: importance sampling ratios
+                all_obs: All observations in sequence
+                r_t: Reward sequence
+                d_t: Discount sequence (1-done, scaled by gamma)
+                rho_tm1: Importance sampling ratios
 
             Returns:
                 Total loss and dictionary of loss components
@@ -388,6 +389,8 @@ def get_learner_step_fn(
             """Calculate the actor loss using importance sampling.
 
             Following IMPALA paper's policy gradient with V-trace advantages.
+            The policy gradient is calculated with capped importance sampling weights
+            to reduce variance while maintaining a valid gradient estimator.
 
             Args:
                 actor_params: Actor network parameters
