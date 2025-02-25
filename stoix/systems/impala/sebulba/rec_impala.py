@@ -58,7 +58,7 @@ from stoix.base_types import (
     SebulbaExperimentOutput,
     SebulbaLearnerFn,
 )
-from stoix.evaluator import get_rec_distribution_act_fn, get_sebulba_eval_fn
+from stoix.evaluator import get_rec_distribution_act_fn, get_sebulba_eval_fn, get_sebulba_rec_eval_fn
 from stoix.networks.base import RecurrentActor, RecurrentCritic, ScannedRNN
 from stoix.systems.impala.impala_types import (
     ActionArray,
@@ -807,7 +807,7 @@ def learner_setup(
         reset_hidden_state=init_reset_hidden_state,
     )
 
-    return learn_step, apply_fns, init_learner_state
+    return learn_step, apply_fns, init_learner_state, actor_rnn
 
 
 def run_experiment(_config: DictConfig) -> float:
@@ -863,14 +863,14 @@ def run_experiment(_config: DictConfig) -> float:
     np_rng = np.random.default_rng(config.arch.seed)
 
     # Setup learner.
-    learn_step, apply_fns, learner_state = learner_setup(
+    learn_step, apply_fns, learner_state, actor_rnn = learner_setup(
         env_factory, (key, actor_net_key, critic_net_key), local_learner_devices, config
     )
     actor_apply_fn, _ = apply_fns
     eval_act_fn = get_rec_distribution_act_fn(config, actor_apply_fn)
     # Setup evaluator.
-    evaluator, evaluator_envs = get_sebulba_eval_fn(
-        env_factory, eval_act_fn, config, np_rng, evaluator_device
+    evaluator, evaluator_envs = get_sebulba_rec_eval_fn(
+        env_factory, eval_act_fn, config, np_rng, evaluator_device, actor_rnn
     )
 
     # Logger setup
@@ -1033,8 +1033,8 @@ def run_experiment(_config: DictConfig) -> float:
     # Measure absolute metric.
     if config.arch.absolute_metric:
         print(f"{Fore.MAGENTA}{Style.BRIGHT}Measuring absolute metric...{Style.RESET_ALL}")
-        abs_metric_evaluator, abs_metric_evaluator_envs = get_sebulba_eval_fn(
-            env_factory, eval_act_fn, config, np_rng, evaluator_device, eval_multiplier=10
+        abs_metric_evaluator, abs_metric_evaluator_envs = get_sebulba_rec_eval_fn(
+            env_factory, eval_act_fn, config, np_rng, evaluator_device, actor_rnn, eval_multiplier=10
         )
         key, eval_key = jax.random.split(key, 2)
         eval_metrics = abs_metric_evaluator(best_params, eval_key)

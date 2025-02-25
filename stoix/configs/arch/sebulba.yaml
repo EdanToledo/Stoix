@@ -2,19 +2,19 @@
 architecture_name : sebulba
 # --- Training ---
 seed: 42  # RNG seed.
-total_num_envs: 1024  # Total Number of vectorised environments across all actors. Needs to be divisible by the number of actor devices and actors per device.
-total_timesteps: 1e7 # Set the total environment steps.
+total_num_envs: 256  # Total Number of vectorised environments across all actors. Needs to be divisible by the number of actor devices and actors per device.
+total_timesteps: 1e6 # Set the total environment steps.
 # If unspecified, it's derived from num_updates; otherwise, num_updates adjusts based on this value.
 num_updates: ~ # Number of updates
 
 # Define the number of actors per device and which devices to use.
 actor:
-  device_ids: [0,1] # Define which devices to use for the actors.
-  actor_per_device: 2 # number of different threads per actor device.
+  device_ids: [0] # Define which devices to use for the actors.
+  actor_per_device: 4 # number of different threads per actor device.
 
 # Define which devices to use for the learner.
 learner:
-  device_ids: [2,3] # Define which devices to use for the learner.
+  device_ids: [1] # Define which devices to use for the learner.
 
 # Size of the queue for the pipeline where actors push data and the learner pulls data.
 pipeline_queue_size: 10

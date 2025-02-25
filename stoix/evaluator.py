@@ -447,3 +447,125 @@ def get_sebulba_eval_fn(
         return metrics
 
     return timed_eval_fn, envs
+
+
+def get_sebulba_rec_eval_fn(
+    env_factory: EnvFactory,
+    rec_act_fn: RecActFn,
+    config: DictConfig,
+    np_rng: np.random.Generator,
+    device: jax.Device,
+    scanned_rnn: nn.Module,
+    eval_multiplier: float = 1.0,
+) -> Tuple[SebulbaEvalFn, Any]:
+    """Get evaluation function for recurrent networks in Sebulba mode.
+    
+    Args:
+        env_factory: Factory function to create environment instances.
+        rec_act_fn: Recurrent act function that handles hidden state.
+        config: Configuration dictionary.
+        np_rng: Numpy random number generator.
+        device: JAX device to run computation on.
+        scanned_rnn: Recurrent neural network module.
+        eval_multiplier: Multiplier for number of evaluation episodes.
+        
+    Returns:
+        Tuple of evaluation function and environment instances.
+    """
+    eval_episodes = config.arch.num_eval_episodes * eval_multiplier
+
+    # Calculate number of parallel environments
+    n_parallel_envs = int(min(eval_episodes, config.arch.total_num_envs))
+    episode_loops = math.ceil(eval_episodes / n_parallel_envs)
+    envs = env_factory(n_parallel_envs)
+    cpu = jax.devices("cpu")[0]
+    rec_act_fn = jax.jit(rec_act_fn, device=device)
+
+    # Warnings if num eval episodes is not divisible by num parallel envs.
+    if eval_episodes % n_parallel_envs != 0:
+        msg = (
+            f"Please note that the number of evaluation episodes ({eval_episodes}) is not "
+            f"evenly divisible by `num_envs`. As a result, some additional evaluations will "
+            f"be conducted. The adjusted number of evaluation episodes is now "
+            f"{episode_loops * n_parallel_envs}."
+        )
+        print(f"{Fore.YELLOW}{Style.BRIGHT}{msg}{Style.RESET_ALL}")
+
+    def eval_fn(params: FrozenDict, key: chex.PRNGKey) -> Dict:
+        def _run_episodes(key: chex.PRNGKey) -> Tuple[chex.PRNGKey, Dict]:
+            """Simulates `num_envs` episodes with recurrent policy."""
+            with jax.default_device(device):
+                # Reset the environment
+                seeds = np_rng.integers(np.iinfo(np.int32).max, size=n_parallel_envs).tolist()
+                timestep = envs.reset(seed=seeds)
+
+                # Initialize recurrent hidden state
+                hstate = scanned_rnn.initialize_carry(n_parallel_envs)
+                
+                # Initialize dones for tracking episode completion
+                dones = np.zeros(n_parallel_envs, dtype=bool)
+                finished_eps = timestep.last()
+
+                all_metrics = [timestep.extras["metrics"]]
+                all_dones = [timestep.last()]
+
+                # Loop until all episodes are done
+                while not finished_eps.all():
+                    key, act_key = jax.random.split(key)
+                    
+                    # Prepare observation for recurrent network (add batch and sequence dims)
+                    batched_observation = jax.tree_util.tree_map(
+                        lambda x: jnp.expand_dims(x, axis=0), timestep.observation
+                    )
+                    # Create RNN observation with dones
+                    rnn_observation = (batched_observation, jnp.expand_dims(dones, axis=0))
+                    
+                    # Get action using recurrent network
+                    hstate, action = rec_act_fn(params, hstate, rnn_observation, act_key)
+                    
+                    # Move action to CPU and remove sequence dimension
+                    action_cpu = np.asarray(jax.device_put(action.squeeze(0), cpu))
+                    
+                    # Step environment
+                    timestep = envs.step(action_cpu)
+                    
+                    # Update dones and tracking variables
+                    dones = timestep.last()
+                    all_metrics.append(timestep.extras["metrics"])
+                    all_dones.append(timestep.last())
+                    finished_eps = np.logical_or(finished_eps, timestep.last())
+
+                metrics = jax.tree.map(lambda *x: np.stack(x), *all_metrics)
+                dones = np.stack(all_dones)
+
+                # Find the first instance of done to get metrics at that timestep
+                done_idx = np.argmax(dones, axis=0)
+                metrics = jax.tree_map(lambda m: m[done_idx, np.arange(n_parallel_envs)], metrics)
+                del metrics["is_terminal_step"]  # unneeded for logging
+
+                return key, metrics
+
+        # Run multiple batches of episodes if needed
+        metrics = []
+        for _ in range(episode_loops):
+            key, metric = _run_episodes(key)
+            metrics.append(metric)
+
+        # Flatten metrics from all episodes
+        metrics: Dict = jax.tree_map(
+            lambda *x: np.array(x).reshape(-1), *metrics
+        )
+        return metrics
+
+    def timed_eval_fn(params: FrozenDict, key: chex.PRNGKey) -> Any:
+        """Wrapper around eval function to time it and add in steps per second metric."""
+        start_time = time.perf_counter()
+        metrics = eval_fn(params, key)
+        end_time = time.perf_counter()
+
+        total_timesteps = jnp.sum(metrics["episode_length"])
+        metrics["steps_per_second"] = total_timesteps / (end_time - start_time)
+        metrics["evaluator_run_time"] = end_time - start_time
+        return metrics
+
+    return timed_eval_fn, envs
