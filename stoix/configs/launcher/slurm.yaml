@@ -3,17 +3,18 @@ slurm:
   account: ~
   qos: ~
   nodes: 1
-  gpus_per_node: 4
+  gpus_per_node: 1
   cpus_per_task: 24
   partition: ~
-  time: 00:60:00
+  time: 00:05:00
   folder: "./slurm_logs"
 
 
 experiment:
   algorithm_exec_files:
-    - 'stoix/systems/impala/sebulba/ff_impala.py network=visual_resnet'
-  environments: [envpool/breakout]
+    - 'stoix/systems/ppo/anakin/ff_ppo.py'
+    - 'stoix/systems/ppo/anakin/rec_ppo.py'
+  environments: [gymnax/cartpole, gymnax/mountain_car]
   seeds: [42]
 
 experiment_group: example_group_run
