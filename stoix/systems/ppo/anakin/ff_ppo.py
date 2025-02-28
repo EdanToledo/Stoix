@@ -509,9 +509,9 @@ def run_experiment(_config: DictConfig) -> float:
             config.system.redistribute_reward
             or config.system.redistribute_reward_implicit
         ) and config.system.get("disable_autoreset", False) and config.env.kwargs.get("disable_autoreset", False)
-    ), "Reward redistribution currently only supports single episodes per rollout. Technically, \
-    only partial rollouts are problematic. If you need multi-episode support, please open an \
-    issue at https://github.com/p-doom/reward-redistribution."
+    ), """Reward redistribution currently only supports single episodes per rollout. Technically,
+    only partial rollouts are problematic. If you need multi-episode support, please open an
+    issue at https://github.com/p-doom/reward-redistribution."""
 
     # Create the environments for train and eval.
     env, eval_env = environments.make(config=config)
