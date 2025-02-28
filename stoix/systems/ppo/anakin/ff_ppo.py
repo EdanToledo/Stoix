@@ -119,7 +119,7 @@ def get_learner_fn(
         time_indices = jnp.arange(traj_batch.done.shape[0])[:, jnp.newaxis]  # (num_timesteps, 1)
         post_episode_mask = time_indices > done_indices[jnp.newaxis, :]  # Mask for steps after episode ends
 
-        # Nullify dones, values, rewards, and log_probs after episode ends
+        # If autoresetting is disabled, we nullify dones, values, rewards, and log_probs after end of episode
         if config.env.kwargs.get("disable_autoreset", False):
             traj_batch = traj_batch._replace(
                 done=jnp.where(post_episode_mask, False, traj_batch.done),
@@ -157,10 +157,14 @@ def get_learner_fn(
 
         # CALCULATE ADVANTAGE
         params, opt_states, key, env_state, last_timestep = learner_state
-        last_val = critic_apply_fn(params.critic_params, last_timestep.observation)
+
+        if config.env.kwargs.get("disable_autoreset", False):
+            last_val = jnp.zeros_like(done_indices)
+        else:
+            last_val = critic_apply_fn(params.critic_params, last_timestep.observation)
 
         r_t = traj_batch.reward
-        v_t = jnp.concatenate([traj_batch.value, last_val[None, ...]], axis=0)
+        v_t = jnp.concatenate([traj_batch.value, last_val[jnp.newaxis, ...]], axis=0)
         d_t = 1.0 - traj_batch.done.astype(jnp.float32)
         d_t = (d_t * config.system.gamma).astype(jnp.float32)
 
