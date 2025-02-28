@@ -506,9 +506,13 @@ def run_experiment(_config: DictConfig) -> float:
     ), "Reward redistribution assumes `gamma=1.0` and `gae_lambda=1.0`."
     assert (
         (
-            config.system.redistribute_reward
-            or config.system.redistribute_reward_implicit
-        ) and config.system.get("disable_autoreset", False) and config.env.kwargs.get("disable_autoreset", False)
+            not config.system.redistribute_reward
+            and not config.system.redistribute_reward_implicit
+        )
+        or (
+            config.system.get("disable_autoreset", False)
+            and config.env.kwargs.get("disable_autoreset", False)
+        )
     ), """Reward redistribution currently only supports single episodes per rollout. Technically,
     only partial rollouts are problematic. If you need multi-episode support, please open an
     issue at https://github.com/p-doom/reward-redistribution."""
