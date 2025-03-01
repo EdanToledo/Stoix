@@ -113,15 +113,27 @@ def get_learner_fn(
             _env_step, learner_state, None, config.system.rollout_length
         )
 
+        # For each trajectory (axis=1), find the first done index along time dimension (axis=0)
+        done_indices = jnp.argmax(traj_batch.done, axis=0)  # shape: (num_trajectories,)
+        # Create mask for non-valid transitions (time > done_index for each trajectory)
+        time_indices = jnp.arange(traj_batch.done.shape[0])[:, jnp.newaxis]  # (num_timesteps, 1)
+        post_episode_mask = time_indices > done_indices[jnp.newaxis, :]  # Mask for steps after episode ends
+
+        # If autoresetting is disabled, we nullify dones, values, rewards, and log_probs after end of episode
+        if config.env.kwargs.get("disable_autoreset", False):
+            traj_batch = traj_batch._replace(
+                done=jnp.where(post_episode_mask, False, traj_batch.done),
+                value=jnp.where(post_episode_mask, 0.0, traj_batch.value),
+                reward=jnp.where(post_episode_mask, 0.0, traj_batch.reward),
+                log_prob=jnp.where(post_episode_mask, 0.0, traj_batch.log_prob),
+            )
+
         # DISTRIBUTE EPISODIC REWARD ACROSS ALL TRANSITIONS
         if config.system.redistribute_reward:
-            # WARNING: This only works for max_steps (of env) == rollout_length
+            # WARNING: This only works for single episodes per rollout
             # WARNING: This only works for the (sparse) episodic reward setting
             # and will silently corrupt the reward structure otherwise
 
-            # For each trajectory (axis=1), find the first done index along time dimension (axis=0)
-            done_indices = jnp.argmax(traj_batch.done, axis=0)  # shape: (num_trajectories,)
-            
             # Episode lengths are index+1 (for trajectories with done=True)
             episode_lengths = done_indices + 1  # shape: (num_trajectories,)
             
@@ -132,8 +144,7 @@ def get_learner_fn(
             normalized_reward = episodic_reward / episode_lengths  # shape: (num_trajectories,)
             
             # Create mask for valid transitions (time <= done_index for each trajectory)
-            time_indices = jnp.arange(traj_batch.done.shape[0])[:, None]  # (num_timesteps, 1)
-            episode_mask = time_indices <= done_indices[None, :]  # (num_timesteps, num_trajectories)
+            episode_mask = jnp.logical_not(post_episode_mask)  # (num_timesteps, num_trajectories)
             
             # Broadcast normalized reward across time steps and apply mask
             new_reward = jnp.where(
@@ -146,10 +157,14 @@ def get_learner_fn(
 
         # CALCULATE ADVANTAGE
         params, opt_states, key, env_state, last_timestep = learner_state
-        last_val = critic_apply_fn(params.critic_params, last_timestep.observation)
+
+        if config.env.kwargs.get("disable_autoreset", False):
+            last_val = jnp.zeros_like(done_indices)
+        else:
+            last_val = critic_apply_fn(params.critic_params, last_timestep.observation)
 
         r_t = traj_batch.reward
-        v_t = jnp.concatenate([traj_batch.value, last_val[None, ...]], axis=0)
+        v_t = jnp.concatenate([traj_batch.value, last_val[jnp.newaxis, ...]], axis=0)
         d_t = 1.0 - traj_batch.done.astype(jnp.float32)
         d_t = (d_t * config.system.gamma).astype(jnp.float32)
 
@@ -480,8 +495,8 @@ def run_experiment(_config: DictConfig) -> float:
             config.system.redistribute_reward
             or config.system.redistribute_reward_implicit
         )
-        and (config.env.kwargs.max_steps != config.system.rollout_length)
-    ), "Reward redistribution currently only supports single episodes per rollout."
+        and (config.env.kwargs.max_steps > config.system.rollout_length)
+    ), "Reward redistribution does not support partial rollouts."
     assert not (
         (
             config.system.redistribute_reward
@@ -489,15 +504,18 @@ def run_experiment(_config: DictConfig) -> float:
         )
         and (config.system.gamma != 1.0 or config.system.gae_lambda != 1.0)
     ), "Reward redistribution assumes `gamma=1.0` and `gae_lambda=1.0`."
-
-    disable_autoreset = config.system.get('disable_autoreset', False)
-    assert not (
+    assert (
         (
-            config.system.redistribute_reward
-            or config.system.redistribute_reward_implicit
+            not config.system.redistribute_reward
+            and not config.system.redistribute_reward_implicit
         )
-        and (not disable_autoreset)
-    ), "Reward redistribution currently does not support autoresetting environments during rollouts."
+        or (
+            config.system.get("disable_autoreset", False)
+            and config.env.kwargs.get("disable_autoreset", False)
+        )
+    ), """Reward redistribution currently only supports single episodes per rollout. Technically,
+    only partial rollouts are problematic. If you need multi-episode support, please open an
+    issue at https://github.com/p-doom/reward-redistribution."""
 
     # Create the environments for train and eval.
     env, eval_env = environments.make(config=config)
