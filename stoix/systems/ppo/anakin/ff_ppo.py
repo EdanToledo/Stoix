@@ -516,6 +516,9 @@ def run_experiment(_config: DictConfig) -> float:
     ), """Reward redistribution currently only supports single episodes per rollout. Technically,
     only partial rollouts are problematic. If you need multi-episode support, please open an
     issue at https://github.com/p-doom/reward-redistribution."""
+    assert (
+            config.system.get("disable_autoreset", False) == config.env.kwargs.get("disable_autoreset", False)
+    ), "Autoresetting has to be enabled/disabled both at stoix level and navix level"
 
     # Create the environments for train and eval.
     env, eval_env = environments.make(config=config)
