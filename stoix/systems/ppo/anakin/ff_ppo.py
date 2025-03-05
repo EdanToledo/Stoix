@@ -116,7 +116,7 @@ def get_learner_fn(
             env_reset_states, timesteps = jax.vmap(env.reset, in_axes=(0))(
                 jnp.stack(env_keys),
             )
-            # learner_state size: (num_envs, ...)
+            # Environment states shape: (num_envs, ...)
             learner_state = learner_state._replace(
                 key=key,
                 env_state=env_reset_states,
@@ -363,7 +363,7 @@ def get_learner_fn(
 
         batched_update_step = jax.vmap(_update_step, in_axes=(0, None), axis_name="batch")
 
-        # learner_state shape: (update batch size, num_envs, ...)
+        # Environment states shape: (update batch size, num_envs, ...)
         learner_state, (episode_info, loss_info) = jax.lax.scan(
             batched_update_step, learner_state, None, config.arch.num_updates_per_eval
         )
@@ -454,7 +454,7 @@ def learner_setup(
         (n_devices, config.arch.update_batch_size, config.arch.num_envs) + x.shape[1:]
     )
 
-    # (devices, update batch size, num_envs, ...)
+    # Environment states shape: (devices, update batch size, num_envs, ...)
     env_states = jax.tree_util.tree_map(reshape_states, env_states)
     timesteps = jax.tree_util.tree_map(reshape_states, timesteps)
 
