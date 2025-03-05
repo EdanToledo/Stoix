@@ -108,6 +108,21 @@ def get_learner_fn(
             learner_state = OnPolicyLearnerState(params, opt_states, key, env_state, timestep)
             return learner_state, transition
 
+        # Reset the environment if autoresetting is disabled
+        if config.env.kwargs.get("disable_autoreset", False):
+            key, *env_keys = jax.random.split(
+                learner_state.key, config.arch.num_envs + 1
+            )
+            env_reset_states, timesteps = jax.vmap(env.reset, in_axes=(0))(
+                jnp.stack(env_keys),
+            )
+            # learner_state size: (num_envs, ...)
+            learner_state = learner_state._replace(
+                key=key,
+                env_state=env_reset_states,
+                timestep=timesteps
+            )
+
         # STEP ENVIRONMENT FOR ROLLOUT LENGTH
         learner_state, traj_batch = jax.lax.scan(
             _env_step, learner_state, None, config.system.rollout_length
@@ -348,6 +363,7 @@ def get_learner_fn(
 
         batched_update_step = jax.vmap(_update_step, in_axes=(0, None), axis_name="batch")
 
+        # learner_state shape: (update batch size, num_envs, ...)
         learner_state, (episode_info, loss_info) = jax.lax.scan(
             batched_update_step, learner_state, None, config.arch.num_updates_per_eval
         )
@@ -437,6 +453,7 @@ def learner_setup(
     reshape_states = lambda x: x.reshape(
         (n_devices, config.arch.update_batch_size, config.arch.num_envs) + x.shape[1:]
     )
+
     # (devices, update batch size, num_envs, ...)
     env_states = jax.tree_util.tree_map(reshape_states, env_states)
     timesteps = jax.tree_util.tree_map(reshape_states, timesteps)
