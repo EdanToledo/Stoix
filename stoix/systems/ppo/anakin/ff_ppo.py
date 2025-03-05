@@ -108,7 +108,7 @@ def get_learner_fn(
             learner_state = OnPolicyLearnerState(params, opt_states, key, env_state, timestep)
             return learner_state, transition
 
-        # Reset the environment if autoresetting is disabled
+        # Explicitly reset the environment if autoresetting is disabled
         if config.env.kwargs.get("disable_autoreset", False):
             key, *env_keys = jax.random.split(
                 learner_state.key, config.arch.num_envs + 1
