@@ -154,7 +154,6 @@ def get_learner_fn(
                 truncated=new_truncations,
                 value=jnp.where(post_episode_mask, 0.0, traj_batch.value),
                 reward=jnp.where(post_episode_mask, 0.0, traj_batch.reward),
-                log_prob=jnp.where(post_episode_mask, 0.0, traj_batch.log_prob),
             )
 
         if config.system.redistribute_reward:
