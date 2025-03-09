@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Dict, Tuple
+from typing import TYPE_CHECKING
 
 import chex
 import jax
@@ -31,7 +31,7 @@ class RecordEpisodeMetricsState:
 class RecordEpisodeMetrics(Wrapper):
     """Record the episode returns and lengths."""
 
-    def reset(self, key: chex.PRNGKey) -> Tuple[RecordEpisodeMetricsState, TimeStep]:
+    def reset(self, key: chex.PRNGKey) -> tuple[RecordEpisodeMetricsState, TimeStep]:
         """Reset the environment."""
         key, reset_key = jax.random.split(key)
         state, timestep = self._env.reset(reset_key)
@@ -54,7 +54,7 @@ class RecordEpisodeMetrics(Wrapper):
         self,
         state: RecordEpisodeMetricsState,
         action: chex.Array,
-    ) -> Tuple[RecordEpisodeMetricsState, TimeStep]:
+    ) -> tuple[RecordEpisodeMetricsState, TimeStep]:
         """Step the environment."""
         env_state, timestep = self._env.step(state.env_state, action)
 
@@ -86,7 +86,7 @@ class RecordEpisodeMetrics(Wrapper):
         return state, timestep
 
 
-def get_final_step_metrics(metrics: Dict[str, chex.Array]) -> Tuple[Dict[str, chex.Array], bool]:
+def get_final_step_metrics(metrics: dict[str, chex.Array]) -> tuple[dict[str, chex.Array], bool]:
     """Get the metrics for the final step of an episode and check if there was a final step
     within the provided metrics.
 
@@ -97,7 +97,7 @@ def get_final_step_metrics(metrics: Dict[str, chex.Array]) -> Tuple[Dict[str, ch
     is_final_ep = metrics.pop("is_terminal_step")
     has_final_ep_step = bool(jnp.any(is_final_ep))
 
-    final_metrics: Dict[str, chex.Array]
+    final_metrics: dict[str, chex.Array]
     # If it didn't make it to the final step, return zeros.
     if not has_final_ep_step:
         final_metrics = jax.tree_util.tree_map(jnp.zeros_like, metrics)

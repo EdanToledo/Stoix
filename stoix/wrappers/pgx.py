@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Tuple
+from typing import TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
@@ -32,7 +32,7 @@ class PGXWrapper(Wrapper):
         self._env = env
         self.max_episode_steps = max_episode_steps
 
-    def reset(self, key: PRNGKey) -> Tuple[PGXState, TimeStep]:
+    def reset(self, key: PRNGKey) -> tuple[PGXState, TimeStep]:
         init_key, state_key = jax.random.split(key)
         init_state = self._env.init(init_key)
         state = PGXState(env_state=init_state, key=state_key)
@@ -54,7 +54,7 @@ class PGXWrapper(Wrapper):
         )
         return state, timestep
 
-    def step(self, state: PGXState, action: Array) -> Tuple[PGXState, TimeStep]:
+    def step(self, state: PGXState, action: Array) -> tuple[PGXState, TimeStep]:
         new_step_key, new_state_key = jax.random.split(state.key)
         env_state = self._env.step(state.env_state, action, new_step_key)
 

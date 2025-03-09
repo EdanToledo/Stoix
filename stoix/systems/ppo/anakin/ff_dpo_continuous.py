@@ -1,6 +1,6 @@
 import copy
 import time
-from typing import Any, Dict, Tuple
+from typing import Any
 
 import chex
 import flax
@@ -44,19 +44,18 @@ from stoix.wrappers.episode_metrics import get_final_step_metrics
 
 def get_learner_fn(
     env: Environment,
-    apply_fns: Tuple[ActorApply, CriticApply],
-    update_fns: Tuple[optax.TransformUpdateFn, optax.TransformUpdateFn],
+    apply_fns: tuple[ActorApply, CriticApply],
+    update_fns: tuple[optax.TransformUpdateFn, optax.TransformUpdateFn],
     config: DictConfig,
 ) -> LearnerFn[OnPolicyLearnerState]:
     """Get the learner function."""
-
     # Get apply and update functions for actor and critic networks.
     actor_apply_fn, critic_apply_fn = apply_fns
     actor_update_fn, critic_update_fn = update_fns
 
     def _update_step(
         learner_state: OnPolicyLearnerState, _: Any
-    ) -> Tuple[OnPolicyLearnerState, Tuple]:
+    ) -> tuple[OnPolicyLearnerState, tuple]:
         """A single update of the network.
 
         This function steps the environment and records the trajectory batch for
@@ -76,7 +75,7 @@ def get_learner_fn(
 
         def _env_step(
             learner_state: OnPolicyLearnerState, _: Any
-        ) -> Tuple[OnPolicyLearnerState, PPOTransition]:
+        ) -> tuple[OnPolicyLearnerState, PPOTransition]:
             """Step the environment."""
             params, opt_states, key, env_state, last_timestep = learner_state
 
@@ -131,12 +130,11 @@ def get_learner_fn(
             truncation_flags=traj_batch.truncated,
         )
 
-        def _update_epoch(update_state: Tuple, _: Any) -> Tuple:
+        def _update_epoch(update_state: tuple, _: Any) -> tuple:
             """Update the network for a single epoch."""
 
-            def _update_minibatch(train_state: Tuple, batch_info: Tuple) -> Tuple:
+            def _update_minibatch(train_state: tuple, batch_info: tuple) -> tuple:
                 """Update the network for a single minibatch."""
-
                 # UNPACK TRAIN STATE AND BATCH INFO
                 params, opt_states, key = train_state
                 traj_batch, advantages, targets = batch_info
@@ -146,7 +144,7 @@ def get_learner_fn(
                     traj_batch: PPOTransition,
                     gae: chex.Array,
                     rng_key: chex.PRNGKey,
-                ) -> Tuple:
+                ) -> tuple:
                     """Calculate the actor loss."""
                     # RERUN NETWORK
                     actor_policy = actor_apply_fn(actor_params, traj_batch.obs)
@@ -169,7 +167,7 @@ def get_learner_fn(
                     critic_params: FrozenDict,
                     traj_batch: PPOTransition,
                     targets: chex.Array,
-                ) -> Tuple:
+                ) -> tuple:
                     """Calculate the critic loss."""
                     # RERUN NETWORK
                     value = critic_apply_fn(critic_params, traj_batch.obs)
@@ -297,7 +295,6 @@ def get_learner_fn(
                 - env_state (LogEnvState): The environment state.
                 - timesteps (TimeStep): The initial timestep in the initial trajectory.
         """
-
         batched_update_step = jax.vmap(_update_step, in_axes=(0, None), axis_name="batch")
 
         learner_state, (episode_info, loss_info) = jax.lax.scan(
@@ -314,7 +311,7 @@ def get_learner_fn(
 
 def learner_setup(
     env: Environment, keys: chex.Array, config: DictConfig
-) -> Tuple[LearnerFn[OnPolicyLearnerState], Actor, OnPolicyLearnerState]:
+) -> tuple[LearnerFn[OnPolicyLearnerState], Actor, OnPolicyLearnerState]:
     """Initialise learner_fn, network, optimiser, environment and states."""
     # Get available TPU cores.
     n_devices = len(jax.devices())
@@ -477,7 +474,7 @@ def run_experiment(_config: DictConfig) -> float:
 
     # Logger setup
     logger = StoixLogger(config)
-    cfg: Dict = OmegaConf.to_container(config, resolve=True)
+    cfg: dict = OmegaConf.to_container(config, resolve=True)
     cfg["arch"]["devices"] = jax.devices()
     pprint(cfg)
 

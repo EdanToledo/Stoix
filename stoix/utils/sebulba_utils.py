@@ -1,8 +1,9 @@
 import queue
 import threading
 import time
+from collections.abc import Sequence
 from functools import partial
-from typing import Any, Dict, List, Sequence, Tuple, Union
+from typing import Any
 
 import jax
 import jax.numpy as jnp
@@ -27,15 +28,13 @@ class ThreadLifetime:
 
 
 class OnPolicyPipeline(threading.Thread):
-    """
-    The `Pipeline` shards trajectories into `learner_devices`,
+    """The `Pipeline` shards trajectories into `learner_devices`,
     ensuring trajectories are consumed in the right order to avoid being off-policy
     and limit the max number of samples in device memory at one time to avoid OOM issues.
     """
 
-    def __init__(self, max_size: int, learner_devices: List[jax.Device], lifetime: ThreadLifetime):
-        """
-        Initializes the pipeline with a maximum size and the devices to shard trajectories across.
+    def __init__(self, max_size: int, learner_devices: list[jax.Device], lifetime: ThreadLifetime):
+        """Initializes the pipeline with a maximum size and the devices to shard trajectories across.
 
         Args:
             max_size: The maximum number of trajectories to keep in the pipeline.
@@ -66,8 +65,8 @@ class OnPolicyPipeline(threading.Thread):
         self,
         traj: Sequence[StoixTransition],
         timestep: TimeStep,
-        actor_timings_dict: Dict[str, List[float]],
-        actor_episode_metrics: List[Dict[str, List[float]]],
+        actor_timings_dict: dict[str, list[float]],
+        actor_episode_metrics: list[dict[str, list[float]]],
     ) -> None:
         """Put a trajectory on the queue to be consumed by the learner."""
         start_condition, end_condition = (threading.Condition(), threading.Condition())
@@ -117,21 +116,22 @@ class OnPolicyPipeline(threading.Thread):
         return self._queue.qsize()
 
     def get(
-        self, block: bool = True, timeout: Union[float, None] = None
-    ) -> Tuple[StoixTransition, TimeStep, Dict[str, List[float]], Dict[str, List[float]]]:
+        self, block: bool = True, timeout: float | None = None
+    ) -> tuple[StoixTransition, TimeStep, dict[str, list[float]], dict[str, list[float]]]:
         """Get a trajectory from the pipeline."""
         return self._queue.get(block, timeout)  # type: ignore
 
     @partial(jax.jit, static_argnums=(0,))
-    def stack_trajectory(self, trajectory: List[StoixTransition]) -> StoixTransition:
+    def stack_trajectory(self, trajectory: list[StoixTransition]) -> StoixTransition:
         """Stack a list of parallel_env transitions into a single
-        transition of shape [rollout_len, num_envs, ...]."""
+        transition of shape [rollout_len, num_envs, ...].
+        """
         return jax.tree_map(lambda *x: jnp.stack(x, axis=0), *trajectory)  # type: ignore
 
     @partial(jax.jit, static_argnums=(0,))
     def concatenate_metrics(
-        self, actor_metrics: List[Dict[str, List[float]]]
-    ) -> Dict[str, List[float]]:
+        self, actor_metrics: list[dict[str, list[float]]]
+    ) -> dict[str, list[float]]:
         """Concatenate a list of actor metrics into a single dictionary."""
         return jax.tree_map(lambda *x: jnp.concatenate(x, axis=0), *actor_metrics)  # type: ignore
 

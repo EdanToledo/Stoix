@@ -1,4 +1,4 @@
-from typing import Sequence
+from collections.abc import Sequence
 
 import chex
 import numpy as np
@@ -60,7 +60,8 @@ class NoisyMLPTorso(nn.Module):
 class CNNTorso(nn.Module):
     """2D CNN torso. Expects input of shape (batch, height, width, channels).
     After this torso, the output is flattened and put through an MLP of
-    hidden_sizes."""
+    hidden_sizes.
+    """
 
     channel_sizes: Sequence[int]
     kernel_sizes: Sequence[int]
@@ -79,7 +80,9 @@ class CNNTorso(nn.Module):
         if self.channel_first:
             x = x.transpose((0, 2, 3, 1))
         # Convolutional layers
-        for channel, kernel, stride in zip(self.channel_sizes, self.kernel_sizes, self.strides):
+        for channel, kernel, stride in zip(
+            self.channel_sizes, self.kernel_sizes, self.strides, strict=False
+        ):
             x = nn.Conv(
                 channel, (kernel, kernel), (stride, stride), use_bias=not self.use_layer_norm
             )(x)

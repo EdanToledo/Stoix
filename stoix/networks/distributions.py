@@ -1,4 +1,5 @@
-from typing import Any, Optional, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 import chex
 import jax
@@ -87,7 +88,7 @@ class AffineTanhTransformedDistribution(TransformedDistribution):
         )
 
     @classmethod
-    def _parameter_properties(cls, dtype: Optional[Any], num_classes: Any = None) -> Any:
+    def _parameter_properties(cls, dtype: Any | None, num_classes: Any = None) -> Any:
         td_properties = super()._parameter_properties(dtype, num_classes=num_classes)
         del td_properties["bijector"]
         return td_properties
@@ -99,9 +100,9 @@ class ClippedBeta(Beta):
     def sample(
         self,
         sample_shape: Sequence[int] = (),
-        seed: Optional[chex.PRNGKey] = None,
+        seed: chex.PRNGKey | None = None,
         name: str = "sample",
-        **kwargs: Any
+        **kwargs: Any,
     ) -> chex.Array:
         _epsilon = 1e-7
         # Call the original sample method
@@ -124,8 +125,8 @@ class DiscreteValuedTfpDistribution(Categorical):
     def __init__(
         self,
         values: chex.Array,
-        logits: Optional[chex.Array] = None,
-        probs: Optional[chex.Array] = None,
+        logits: chex.Array | None = None,
+        probs: chex.Array | None = None,
         name: str = "DiscreteValuedDistribution",
     ):
         """Initialization.
@@ -146,8 +147,8 @@ class DiscreteValuedTfpDistribution(Categorical):
         """
         parameters = dict(locals())
         self._values = np.asarray(values)
-        self._logits: Optional[chex.Array] = None
-        self._probs: Optional[chex.Array] = None
+        self._logits: chex.Array | None = None
+        self._probs: chex.Array | None = None
 
         if logits is not None:
             logits = jnp.asarray(logits)

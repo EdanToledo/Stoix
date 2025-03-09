@@ -1,6 +1,6 @@
 import math
 import time
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any
 
 import chex
 import flax.linen as nn
@@ -31,7 +31,7 @@ from stoix.utils.jax_utils import unreplicate_batch_dim
 def get_distribution_act_fn(
     config: DictConfig,
     actor_apply: ActorApply,
-    rngs: Optional[Dict[str, chex.PRNGKey]] = None,
+    rngs: dict[str, chex.PRNGKey] | None = None,
 ) -> ActFn:
     """Get the act_fn for a network that returns a distribution."""
 
@@ -55,7 +55,7 @@ def get_rec_distribution_act_fn(config: DictConfig, rec_actor_apply: RecActorApp
 
     def rec_act_fn(
         params: FrozenDict, hstate: chex.Array, observation: RNNObservation, key: chex.PRNGKey
-    ) -> Tuple[chex.Array, chex.Array]:
+    ) -> tuple[chex.Array, chex.Array]:
         """Get the action from the distribution."""
         hstate, pi = rec_actor_apply(params, hstate, observation)
         if config.arch.evaluation_greedy:
@@ -88,7 +88,7 @@ def get_ff_evaluator_fn(
             single evaluation step.
     """
 
-    def eval_one_episode(params: FrozenDict, init_eval_state: EvalState) -> Dict:
+    def eval_one_episode(params: FrozenDict, init_eval_state: EvalState) -> dict:
         """Evaluate one episode. It is vectorized over the number of evaluation episodes."""
 
         def _env_step(eval_state: EvalState) -> EvalState:
@@ -114,7 +114,7 @@ def get_ff_evaluator_fn(
             eval_state = EvalState(key, env_state, timestep, step_count, episode_return)
             return eval_state
 
-        def not_done(carry: Tuple) -> bool:
+        def not_done(carry: tuple) -> bool:
             """Check if the episode is done."""
             timestep = carry[2]
             is_not_done: bool = ~timestep.last()
@@ -136,7 +136,6 @@ def get_ff_evaluator_fn(
 
     def evaluator_fn(trained_params: FrozenDict, key: chex.PRNGKey) -> EvaluationOutput[EvalState]:
         """Evaluator function."""
-
         # Initialise environment states and timesteps.
         n_devices = len(jax.devices())
 
@@ -183,7 +182,7 @@ def get_rnn_evaluator_fn(
 ) -> EvalFn:
     """Get the evaluator function for recurrent networks."""
 
-    def eval_one_episode(params: FrozenDict, init_eval_state: RNNEvalState) -> Dict:
+    def eval_one_episode(params: FrozenDict, init_eval_state: RNNEvalState) -> dict:
         """Evaluate one episode. It is vectorized over the number of evaluation episodes."""
 
         def _env_step(eval_state: RNNEvalState) -> RNNEvalState:
@@ -227,7 +226,7 @@ def get_rnn_evaluator_fn(
             )
             return eval_state
 
-        def not_done(carry: Tuple) -> bool:
+        def not_done(carry: tuple) -> bool:
             """Check if the episode is done."""
             timestep = carry[2]
             is_not_done: bool = ~timestep.last()
@@ -250,7 +249,6 @@ def get_rnn_evaluator_fn(
         trained_params: FrozenDict, key: chex.PRNGKey
     ) -> EvaluationOutput[RNNEvalState]:
         """Evaluator function."""
-
         # Initialise environment states and timesteps.
         n_devices = len(jax.devices())
 
@@ -300,12 +298,12 @@ def get_rnn_evaluator_fn(
 def evaluator_setup(
     eval_env: Environment,
     key_e: chex.PRNGKey,
-    eval_act_fn: Union[ActFn, RecActFn],
+    eval_act_fn: ActFn | RecActFn,
     params: FrozenDict,
     config: DictConfig,
     use_recurrent_net: bool = False,
-    scanned_rnn: Optional[nn.Module] = None,
-) -> Tuple[EvalFn, EvalFn, Tuple[FrozenDict, chex.Array]]:
+    scanned_rnn: nn.Module | None = None,
+) -> tuple[EvalFn, EvalFn, tuple[FrozenDict, chex.Array]]:
     """Initialise evaluator_fn."""
     # Get available TPU cores.
     n_devices = len(jax.devices())
@@ -334,7 +332,10 @@ def evaluator_setup(
         )
     else:
         evaluator = get_ff_evaluator_fn(
-            eval_env, eval_act_fn, config, log_solve_rate  # type: ignore
+            eval_env,
+            eval_act_fn,  # type: ignore
+            config,
+            log_solve_rate,
         )
         absolute_metric_evaluator = get_ff_evaluator_fn(
             eval_env,
@@ -362,8 +363,7 @@ def get_sebulba_eval_fn(
     np_rng: np.random.Generator,
     device: jax.Device,
     eval_multiplier: float = 1.0,
-) -> Tuple[SebulbaEvalFn, Any]:
-
+) -> tuple[SebulbaEvalFn, Any]:
     eval_episodes = config.arch.num_eval_episodes * eval_multiplier
 
     # We calculate here the number of parallel envs we can run in parallel.
@@ -387,8 +387,8 @@ def get_sebulba_eval_fn(
         )
         print(f"{Fore.YELLOW}{Style.BRIGHT}{msg}{Style.RESET_ALL}")
 
-    def eval_fn(params: FrozenDict, key: chex.PRNGKey) -> Dict:
-        def _run_episodes(key: chex.PRNGKey) -> Tuple[chex.PRNGKey, Dict]:
+    def eval_fn(params: FrozenDict, key: chex.PRNGKey) -> dict:
+        def _run_episodes(key: chex.PRNGKey) -> tuple[chex.PRNGKey, dict]:
             """Simulates `num_envs` episodes."""
             with jax.default_device(device):
                 # Reset the environment.
@@ -428,7 +428,7 @@ def get_sebulba_eval_fn(
             key, metric = _run_episodes(key)
             metrics.append(metric)
 
-        metrics: Dict = jax.tree_map(
+        metrics: dict = jax.tree_map(
             lambda *x: np.array(x).reshape(-1), *metrics
         )  # flatten metrics
         return metrics

@@ -4,7 +4,6 @@ import os
 import zipfile
 from datetime import datetime
 from enum import Enum
-from typing import Dict, List, Union
 from uuid import uuid4
 
 import jax
@@ -39,7 +38,7 @@ class StoixLogger:
         self.logger: BaseLogger = _make_multi_logger(config)
         self.cfg = config
 
-    def log(self, metrics: Dict, t: int, t_eval: int, event: LogEvent) -> None:
+    def log(self, metrics: dict, t: int, t_eval: int, event: LogEvent) -> None:
         """Log a dictionary metrics at a given timestep.
 
         Args:
@@ -68,7 +67,7 @@ class StoixLogger:
 
         self.logger.log_dict(metrics, t, t_eval, event)
 
-    def calc_solve_rate(self, episode_metrics: Dict, event: LogEvent) -> Dict:
+    def calc_solve_rate(self, episode_metrics: dict, event: LogEvent) -> dict:
         """Log the solve rate of the environment's episodes."""
         # Get the number of episodes used to evaluate.
         if event == LogEvent.ABSOLUTE:
@@ -104,7 +103,7 @@ class BaseLogger(abc.ABC):
         """Log a single metric."""
         raise NotImplementedError
 
-    def log_dict(self, data: Dict, step: int, eval_step: int, event: LogEvent) -> None:
+    def log_dict(self, data: dict, step: int, eval_step: int, event: LogEvent) -> None:
         """Log a dictionary of metrics."""
         # in case the dict is nested, flatten it.
         data = flatten_dict(data, sep="/")
@@ -126,14 +125,14 @@ class BaseLogger(abc.ABC):
 class MultiLogger(BaseLogger):
     """Logger that can log to multiple loggers at oncce."""
 
-    def __init__(self, loggers: List[BaseLogger]) -> None:
+    def __init__(self, loggers: list[BaseLogger]) -> None:
         self.loggers = loggers
 
     def log_stat(self, key: str, value: float, step: int, eval_step: int, event: LogEvent) -> None:
         for logger in self.loggers:
             logger.log_stat(key, value, step, eval_step, event)
 
-    def log_dict(self, data: Dict, step: int, eval_step: int, event: LogEvent) -> None:
+    def log_dict(self, data: dict, step: int, eval_step: int, event: LogEvent) -> None:
         for logger in self.loggers:
             logger.log_dict(data, step, eval_step, event)
 
@@ -325,7 +324,7 @@ class ConsoleLogger(BaseLogger):
             f"{colour}{Style.BRIGHT}{event.value.upper()} - {key}: {value:.3f}{Style.RESET_ALL}"
         )
 
-    def log_dict(self, data: Dict, step: int, eval_step: int, event: LogEvent) -> None:
+    def log_dict(self, data: dict, step: int, eval_step: int, event: LogEvent) -> None:
         # in case the dict is nested, flatten it.
         data = flatten_dict(data, sep=" ")
 
@@ -334,7 +333,7 @@ class ConsoleLogger(BaseLogger):
         keys = [k.replace("_", " ").capitalize() for k in data.keys()]
         # Round values to 3 decimal places if they are floats.
         values = [v if isinstance(v, int) else f"{float(v):.3f}" for v in data.values()]
-        log_str = " | ".join([f"{k}: {v}" for k, v in zip(keys, values)])
+        log_str = " | ".join([f"{k}: {v}" for k, v in zip(keys, values, strict=False)])
 
         self.logger.info(
             f"{colour}{Style.BRIGHT}{event.value.upper()} - {log_str}{Style.RESET_ALL}"
@@ -343,8 +342,7 @@ class ConsoleLogger(BaseLogger):
 
 def _make_multi_logger(cfg: DictConfig) -> BaseLogger:
     """Creates a MultiLogger given a config"""
-
-    loggers: List[BaseLogger] = []
+    loggers: list[BaseLogger] = []
     unique_token = datetime.now().strftime("%Y%m%d%H%M%S") + str(uuid4())
 
     if (
@@ -380,9 +378,8 @@ def get_logger_path(config: DictConfig, logger_type: str) -> str:
     return f"{logger_type}/{config.system.system_name}"
 
 
-def describe(x: ArrayLike) -> Union[Dict[str, ArrayLike], ArrayLike]:
+def describe(x: ArrayLike) -> dict[str, ArrayLike] | ArrayLike:
     """Generate summary statistics for an array of metrics (mean, std, min, max)."""
-
     if not isinstance(x, (jax.Array, np.ndarray)):
         return x
     elif x.size <= 1:

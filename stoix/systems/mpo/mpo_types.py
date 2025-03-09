@@ -1,5 +1,3 @@
-from typing import Dict, Union
-
 import chex
 import optax
 from flashbax.buffers.trajectory_buffer import BufferState
@@ -17,7 +15,7 @@ class SequenceStep(NamedTuple):
     done: Done
     truncated: Truncated
     log_prob: chex.Array
-    info: Dict
+    info: dict
 
 
 class DualParams(NamedTuple):
@@ -34,7 +32,7 @@ class CategoricalDualParams(NamedTuple):
 class MPOParams(NamedTuple):
     actor_params: OnlineAndTarget
     q_params: OnlineAndTarget
-    dual_params: Union[DualParams, CategoricalDualParams]
+    dual_params: DualParams | CategoricalDualParams
 
 
 class MPOOptStates(NamedTuple):
@@ -55,7 +53,7 @@ class MPOLearnerState(NamedTuple):
 class VMPOParams(NamedTuple):
     actor_params: OnlineAndTarget
     critic_params: FrozenDict
-    dual_params: Union[DualParams, CategoricalDualParams]
+    dual_params: DualParams | CategoricalDualParams
 
 
 class VMPOOptStates(NamedTuple):

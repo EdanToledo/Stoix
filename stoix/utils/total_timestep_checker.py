@@ -4,7 +4,6 @@ from omegaconf import DictConfig
 
 def check_total_timesteps(config: DictConfig) -> DictConfig:
     """Check if total_timesteps is set, if not, set it based on the other parameters"""
-
     # If num_devices and update_batch_size are not in the config,
     # usually this means a sebulba config is being used.
     if "num_devices" not in config and "update_batch_size" not in config.arch:
@@ -15,7 +14,6 @@ def check_total_timesteps(config: DictConfig) -> DictConfig:
 
 def check_total_timesteps_anakin(config: DictConfig) -> DictConfig:
     """Check if total_timesteps is set, if not, set it based on the other parameters"""
-
     print(f"{Fore.YELLOW}{Style.BRIGHT}Using Anakin System!{Style.RESET_ALL}")
 
     assert config.arch.total_num_envs % (config.num_devices * config.arch.update_batch_size) == 0, (
@@ -79,7 +77,6 @@ def check_total_timesteps_anakin(config: DictConfig) -> DictConfig:
 
 def check_total_timesteps_sebulba(config: DictConfig) -> DictConfig:
     """Check if total_timesteps is set, if not, set it based on the other parameters"""
-
     print(f"{Fore.YELLOW}{Style.BRIGHT}Using Sebulba System!{Style.RESET_ALL}")
 
     assert (

@@ -1,7 +1,8 @@
 import copy
 import functools
 import time
-from typing import Any, Callable, Dict, Tuple
+from collections.abc import Callable
+from typing import Any
 
 import chex
 import flashbax as fbx
@@ -98,7 +99,6 @@ def make_root_fn(
         _: chex.ArrayTree,  # This is the env_state, which is not used in MuZero.
         rng_key: chex.PRNGKey,
     ) -> mctx.RootFnOutput:
-
         sample_key, noise_key = jax.random.split(rng_key, 2)
 
         observation_embedding = representation_apply_fn(params.world_model_params, observation)
@@ -158,8 +158,7 @@ def make_recurrent_fn(
         rng_key: chex.PRNGKey,
         action_index: chex.Array,
         search_tree_state: chex.ArrayTree,
-    ) -> Tuple[mctx.RecurrentFnOutput, chex.ArrayTree]:
-
+    ) -> tuple[mctx.RecurrentFnOutput, chex.ArrayTree]:
         state_embedding = search_tree_state["observation_embedding"]
         batch_size = action_index.shape[0]
         batch_indices = jnp.arange(batch_size)
@@ -209,7 +208,6 @@ def make_sampled_search_apply_fn(
     config: DictConfig,
     model_recurrent_fn: mctx.RecurrentFn,
 ) -> SearchApply:
-
     search_method = parse_search_method(config)
     mctx_search_apply_fn = functools.partial(
         search_method,
@@ -239,23 +237,21 @@ def make_sampled_search_apply_fn(
 def get_warmup_fn(
     env: Environment,
     params: MZParams,
-    apply_fns: Tuple[
+    apply_fns: tuple[
         RepresentationApply, DynamicsApply, ActorApply, CriticApply, RootFnApply, SearchApply
     ],
     buffer_add_fn: Callable,
     config: DictConfig,
 ) -> Callable:
-
     _, _, _, _, root_fn, search_apply_fn = apply_fns
 
     def warmup(
         env_states: LogEnvState, timesteps: TimeStep, buffer_states: BufferState, keys: chex.PRNGKey
-    ) -> Tuple[LogEnvState, TimeStep, BufferState, chex.PRNGKey]:
+    ) -> tuple[LogEnvState, TimeStep, BufferState, chex.PRNGKey]:
         def _env_step(
-            carry: Tuple[LogEnvState, TimeStep, chex.PRNGKey], _: Any
-        ) -> Tuple[Tuple[LogEnvState, TimeStep, chex.PRNGKey], SampledExItTransition]:
+            carry: tuple[LogEnvState, TimeStep, chex.PRNGKey], _: Any
+        ) -> tuple[tuple[LogEnvState, TimeStep, chex.PRNGKey], SampledExItTransition]:
             """Step the environment."""
-
             env_state, last_timestep, key = carry
             # SELECT ACTION
             key, root_key, policy_key = jax.random.split(key, num=3)
@@ -307,7 +303,7 @@ def get_warmup_fn(
 
 def get_learner_fn(
     env: Environment,
-    apply_fns: Tuple[
+    apply_fns: tuple[
         RepresentationApply,
         DynamicsApply,
         ActorApply,
@@ -316,12 +312,11 @@ def get_learner_fn(
         SearchApply,
     ],
     update_fn: optax.TransformUpdateFn,
-    buffer_fns: Tuple[Callable, Callable],
-    transform_pairs: Tuple[rlax.TxPair, rlax.TxPair],
+    buffer_fns: tuple[Callable, Callable],
+    transform_pairs: tuple[rlax.TxPair, rlax.TxPair],
     config: DictConfig,
 ) -> LearnerFn[ZLearnerState]:
     """Get the learner function."""
-
     # Get apply and update functions for actor and critic networks.
     (
         representation_apply_fn,
@@ -334,12 +329,12 @@ def get_learner_fn(
     buffer_add_fn, buffer_sample_fn = buffer_fns
     critic_tx_pair, reward_tx_pair = transform_pairs
 
-    def _update_step(learner_state: ZLearnerState, _: Any) -> Tuple[ZLearnerState, Tuple]:
+    def _update_step(learner_state: ZLearnerState, _: Any) -> tuple[ZLearnerState, tuple]:
         """A single update of the network."""
 
         def _env_step(
             learner_state: ZLearnerState, _: Any
-        ) -> Tuple[ZLearnerState, SampledExItTransition]:
+        ) -> tuple[ZLearnerState, SampledExItTransition]:
             """Step the environment."""
             params, opt_state, buffer_state, key, env_state, last_timestep = learner_state
 
@@ -383,14 +378,13 @@ def get_learner_fn(
         traj_batch = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), traj_batch)
         buffer_state = buffer_add_fn(buffer_state, traj_batch)
 
-        def _update_epoch(update_state: Tuple, _: Any) -> Tuple:
+        def _update_epoch(update_state: tuple, _: Any) -> tuple:
             def _loss_fn(
                 muzero_params: MZParams,
                 sequence: SampledExItTransition,
                 rng_key: chex.PRNGKey,
-            ) -> Tuple:
+            ) -> tuple:
                 """Calculate the total MuZero loss."""
-
                 # Calculate the value targets using n-step bootstrapped returns
                 # with the search values
                 r_t = sequence.reward[:, :-1]
@@ -405,16 +399,14 @@ def get_learner_fn(
                 # Get the state embedding of the first observation of each sequence
                 state_embedding = representation_apply_fn(
                     muzero_params.world_model_params, sequence.obs
-                )[
-                    :, 0
-                ]  # B, T=0
+                )[:, 0]  # B, T=0
 
                 def unroll_fn(
-                    carry: Tuple[chex.Array, chex.Array, MZParams, chex.Array, chex.PRNGKey],
-                    targets: Tuple[
+                    carry: tuple[chex.Array, chex.Array, MZParams, chex.Array, chex.PRNGKey],
+                    targets: tuple[
                         chex.Array, chex.Array, chex.Array, chex.Array, chex.Array, chex.Array
                     ],
-                ) -> Tuple[chex.Array, chex.Array]:
+                ) -> tuple[chex.Array, chex.Array]:
                     total_loss, state_embedding, muzero_params, mask, key = carry
                     key, rng_key = jax.random.split(key)
                     (
@@ -563,7 +555,6 @@ def get_learner_fn(
 
     def learner_fn(learner_state: ZLearnerState) -> AnakinExperimentOutput[ZLearnerState]:
         """Learner function."""
-
         batched_update_step = jax.vmap(_update_step, in_axes=(0, None), axis_name="batch")
 
         learner_state, (episode_info, loss_info) = jax.lax.scan(
@@ -594,7 +585,7 @@ def learner_setup(
     env: Environment,
     keys: chex.Array,
     config: DictConfig,
-) -> Tuple[LearnerFn[ZLearnerState], RootFnApply, SearchApply, ZLearnerState]:
+) -> tuple[LearnerFn[ZLearnerState], RootFnApply, SearchApply, ZLearnerState]:
     """Initialise learner_fn, network, optimiser, environment and states."""
     # Get available TPU cores.
     n_devices = len(jax.devices())
@@ -861,7 +852,7 @@ def run_experiment(_config: DictConfig) -> float:
 
     # Logger setup
     logger = StoixLogger(config)
-    cfg: Dict = OmegaConf.to_container(config, resolve=True)
+    cfg: dict = OmegaConf.to_container(config, resolve=True)
     cfg["arch"]["devices"] = jax.devices()
     pprint(cfg)
 

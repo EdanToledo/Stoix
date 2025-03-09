@@ -1,5 +1,4 @@
 import copy
-from typing import Tuple
 
 import gymnax
 import hydra
@@ -43,9 +42,8 @@ from stoix.wrappers.xminigrid import XMiniGridWrapper
 def make_jumanji_env(
     env_name: str,
     config: DictConfig,
-) -> Tuple[Environment, Environment]:
-    """
-    Create a Jumanji environments for training and evaluation.
+) -> tuple[Environment, Environment]:
+    """Create a Jumanji environments for training and evaluation.
 
     Args:
         env_name (str): The name of the environment to create.
@@ -64,12 +62,13 @@ def make_jumanji_env(
         env_kwargs["generator"] = generator
     env = jumanji.make(env_name, **env_kwargs)
     eval_env = jumanji.make(env_name, **env_kwargs)
-    env, eval_env = JumanjiWrapper(
-        env, config.env.observation_attribute, config.env.multi_agent
-    ), JumanjiWrapper(
-        eval_env,
-        config.env.observation_attribute,
-        config.env.multi_agent,
+    env, eval_env = (
+        JumanjiWrapper(env, config.env.observation_attribute, config.env.multi_agent),
+        JumanjiWrapper(
+            eval_env,
+            config.env.observation_attribute,
+            config.env.multi_agent,
+        ),
     )
 
     env = AutoResetWrapper(env, next_obs_in_extras=True)
@@ -78,9 +77,8 @@ def make_jumanji_env(
     return env, eval_env
 
 
-def make_gymnax_env(env_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
-    """
-    Create a Gymnax environments for training and evaluation.
+def make_gymnax_env(env_name: str, config: DictConfig) -> tuple[Environment, Environment]:
+    """Create a Gymnax environments for training and evaluation.
 
     Args:
         env_name (str): The name of the environment to create.
@@ -103,9 +101,8 @@ def make_gymnax_env(env_name: str, config: DictConfig) -> Tuple[Environment, Env
     return env, eval_env
 
 
-def make_xland_minigrid_env(env_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
-    """
-    Create a XLand Minigrid environments for training and evaluation.
+def make_xland_minigrid_env(env_name: str, config: DictConfig) -> tuple[Environment, Environment]:
+    """Create a XLand Minigrid environments for training and evaluation.
 
     Args:
         env_name (str): The name of the environment to create.
@@ -130,9 +127,8 @@ def make_xland_minigrid_env(env_name: str, config: DictConfig) -> Tuple[Environm
     return env, eval_env
 
 
-def make_brax_env(env_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
-    """
-    Create a brax environments for training and evaluation.
+def make_brax_env(env_name: str, config: DictConfig) -> tuple[Environment, Environment]:
+    """Create a brax environments for training and evaluation.
 
     Args:
         env_name (str): The name of the environment to create.
@@ -160,9 +156,8 @@ def make_brax_env(env_name: str, config: DictConfig) -> Tuple[Environment, Envir
 def make_jaxmarl_env(
     env_name: str,
     config: DictConfig,
-) -> Tuple[Environment, Environment]:
-    """
-     Create a JAXMARL environment.
+) -> tuple[Environment, Environment]:
+    """Create a JAXMARL environment.
 
     Args:
         env_name (str): The name of the environment to create.
@@ -206,9 +201,8 @@ def make_jaxmarl_env(
     return env, eval_env
 
 
-def make_craftax_env(env_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
-    """
-    Create a craftax environment for training and evaluation.
+def make_craftax_env(env_name: str, config: DictConfig) -> tuple[Environment, Environment]:
+    """Create a craftax environment for training and evaluation.
 
     Args:
         env_name (str): The name of the environment to create.
@@ -250,9 +244,8 @@ def make_craftax_env(env_name: str, config: DictConfig) -> Tuple[Environment, En
     return env, eval_env
 
 
-def make_debug_env(env_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
-    """
-    Create a debug environment for training and evaluation.
+def make_debug_env(env_name: str, config: DictConfig) -> tuple[Environment, Environment]:
+    """Create a debug environment for training and evaluation.
 
     Args:
         env_name (str): The name of the environment to create.
@@ -275,8 +268,8 @@ def make_debug_env(env_name: str, config: DictConfig) -> Tuple[Environment, Envi
 
 
 def apply_optional_wrappers(
-    envs: Tuple[Environment, Environment], config: DictConfig
-) -> Tuple[Environment, Environment]:
+    envs: tuple[Environment, Environment], config: DictConfig
+) -> tuple[Environment, Environment]:
     """Apply optional wrappers to the environments.
 
     Args:
@@ -294,9 +287,8 @@ def apply_optional_wrappers(
     return tuple(envs)  # type: ignore
 
 
-def make_pgx_env(env_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
-    """
-    Create a PGX environment for training and evaluation.
+def make_pgx_env(env_name: str, config: DictConfig) -> tuple[Environment, Environment]:
+    """Create a PGX environment for training and evaluation.
 
     Args:
         env_name (str): The name of the environment to create.
@@ -305,7 +297,6 @@ def make_pgx_env(env_name: str, config: DictConfig) -> Tuple[Environment, Enviro
     Returns:
         A tuple of the environments.
     """
-
     # Config generator and select the wrapper.
     # Create envs.
     env = pgx.make(env_name, **config.env.kwargs)
@@ -320,9 +311,8 @@ def make_pgx_env(env_name: str, config: DictConfig) -> Tuple[Environment, Enviro
     return env, eval_env
 
 
-def make_popjym_env(env_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
-    """
-    Create POPJym environments for training and evaluation.
+def make_popjym_env(env_name: str, config: DictConfig) -> tuple[Environment, Environment]:
+    """Create POPJym environments for training and evaluation.
 
     Args:
         env_name (str): The name of the environment to create.
@@ -331,7 +321,6 @@ def make_popjym_env(env_name: str, config: DictConfig) -> Tuple[Environment, Env
     Returns:
         A tuple of the environments.
     """
-
     # Create envs.
     env, env_params = popjym.make(env_name, **config.env.kwargs)
     eval_env, eval_env_params = popjym.make(env_name, **config.env.kwargs)
@@ -348,9 +337,8 @@ def make_popjym_env(env_name: str, config: DictConfig) -> Tuple[Environment, Env
     return env, eval_env
 
 
-def make_navix_env(env_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
-    """
-    Create Navix environments for training and evaluation.
+def make_navix_env(env_name: str, config: DictConfig) -> tuple[Environment, Environment]:
+    """Create Navix environments for training and evaluation.
 
     Args:
         env_name (str): The name of the environment to create.
@@ -359,7 +347,6 @@ def make_navix_env(env_name: str, config: DictConfig) -> Tuple[Environment, Envi
     Returns:
         A tuple of the environments.
     """
-
     # Create envs.
     env = navix.make(env_name, **config.env.kwargs)
     eval_env = navix.make(env_name, **config.env.kwargs)
@@ -374,22 +361,19 @@ def make_navix_env(env_name: str, config: DictConfig) -> Tuple[Environment, Envi
 
 
 def make_gymnasium_factory(env_name: str, config: DictConfig) -> GymnasiumFactory:
-
     env_factory = GymnasiumFactory(env_name, init_seed=config.arch.seed, **config.env.kwargs)
 
     return env_factory
 
 
 def make_envpool_factory(env_name: str, config: DictConfig) -> EnvPoolFactory:
-
     env_factory = EnvPoolFactory(env_name, init_seed=config.arch.seed, **config.env.kwargs)
 
     return env_factory
 
 
-def make(config: DictConfig) -> Tuple[Environment, Environment]:
-    """
-    Create environments for training and evaluation..
+def make(config: DictConfig) -> tuple[Environment, Environment]:
+    """Create environments for training and evaluation..
 
     Args:
         config (Dict): The configuration of the environment.
@@ -428,8 +412,7 @@ def make(config: DictConfig) -> Tuple[Environment, Environment]:
 
 
 def make_factory(config: DictConfig) -> EnvFactory:
-    """
-    Create a env_factory for sebulba systems.
+    """Create a env_factory for sebulba systems.
 
     Args:
         config (Dict): The configuration of the environment.

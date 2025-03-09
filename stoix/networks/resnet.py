@@ -1,6 +1,7 @@
 import enum
 import functools
-from typing import Callable, Sequence, Union
+from collections.abc import Callable, Sequence
+from typing import Union
 
 import chex
 import flax.linen as nn
@@ -51,7 +52,7 @@ class DownsamplingStrategy(enum.Enum):
 
 
 def make_downsampling_layer(
-    strategy: Union[str, DownsamplingStrategy],
+    strategy: str | DownsamplingStrategy,
     output_channels: int,
 ) -> nn.Module:
     """Returns a sequence of modules corresponding to the desired downsampling."""
@@ -116,7 +117,6 @@ class VisualResNetTorso(nn.Module):
 
     @nn.compact
     def __call__(self, observation: chex.Array) -> chex.Array:
-
         if observation.ndim > 4:
             return nn.batch_apply.BatchApply(self.__call__)(observation)
 
@@ -130,7 +130,10 @@ class VisualResNetTorso(nn.Module):
 
         output = observation
         channels_blocks_strategies = zip(
-            self.channels_per_group, self.blocks_per_group, self.downsampling_strategies
+            self.channels_per_group,
+            self.blocks_per_group,
+            self.downsampling_strategies,
+            strict=False,
         )
 
         for _, (num_channels, num_blocks, strategy) in enumerate(channels_blocks_strategies):
@@ -164,7 +167,7 @@ class ResNetTorso(nn.Module):
     @nn.compact
     def __call__(self, observation: chex.Array) -> chex.Array:
         output = observation
-        hidden_units_blocks = zip(self.hidden_units_per_group, self.blocks_per_group)
+        hidden_units_blocks = zip(self.hidden_units_per_group, self.blocks_per_group, strict=False)
 
         for _, (num_hidden_units, num_blocks) in enumerate(hidden_units_blocks):
             output = nn.Dense(features=num_hidden_units)(output)

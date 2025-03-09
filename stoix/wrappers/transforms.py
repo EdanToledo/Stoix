@@ -1,5 +1,3 @@
-from typing import Tuple
-
 import chex
 import jax
 import jax.numpy as jnp
@@ -25,7 +23,7 @@ class FlattenObservationWrapper(Wrapper):
         agent_view = obs.agent_view.astype(jnp.float32)
         return agent_view.reshape(self._obs_shape)
 
-    def reset(self, key: chex.PRNGKey) -> Tuple[State, TimeStep]:
+    def reset(self, key: chex.PRNGKey) -> tuple[State, TimeStep]:
         state, timestep = self._env.reset(key)
         agent_view = self._flatten(timestep.observation)
         timestep = timestep.replace(
@@ -38,7 +36,7 @@ class FlattenObservationWrapper(Wrapper):
             )
         return state, timestep
 
-    def step(self, state: State, action: chex.Array) -> Tuple[State, TimeStep]:
+    def step(self, state: State, action: chex.Array) -> tuple[State, TimeStep]:
         state, timestep = self._env.step(state, action)
         agent_view = self._flatten(timestep.observation)
         timestep = timestep.replace(
@@ -87,7 +85,7 @@ class MultiDiscreteToDiscrete(Wrapper):
             flat_action = self._action_spec_num_values[i] * flat_action + action_components[i]
         return flat_action
 
-    def step(self, state: State, action: chex.Array) -> Tuple[State, TimeStep[Observation]]:
+    def step(self, state: State, action: chex.Array) -> tuple[State, TimeStep[Observation]]:
         action = self.apply_factorisation(action)
         state, timestep = self._env.step(state, action)
         return state, timestep
@@ -104,7 +102,7 @@ class MultiBoundedToBounded(Wrapper):
         super().__init__(env)
         self._true_action_shape = env.action_spec().shape
 
-    def step(self, state: State, action: chex.Array) -> Tuple[State, TimeStep[Observation]]:
+    def step(self, state: State, action: chex.Array) -> tuple[State, TimeStep[Observation]]:
         action = action.reshape(self._true_action_shape)
         state, timestep = self._env.step(state, action)
         return state, timestep
@@ -140,7 +138,7 @@ class AddStartFlagAndPrevAction(Wrapper):
         if not len(self.observation_spec().agent_view.shape) == 1:
             raise ValueError("The observation must be flat.")
 
-    def reset(self, key: chex.PRNGKey) -> Tuple[State, TimeStep[Observation]]:
+    def reset(self, key: chex.PRNGKey) -> tuple[State, TimeStep[Observation]]:
         state, timestep = self._env.reset(key)
         start_flag = jnp.array(1.0)[jnp.newaxis]
         prev_action = jnp.zeros(self.action_dim)
@@ -153,7 +151,7 @@ class AddStartFlagAndPrevAction(Wrapper):
         )
         return state, timestep
 
-    def step(self, state: State, action: chex.Array) -> Tuple[State, TimeStep[Observation]]:
+    def step(self, state: State, action: chex.Array) -> tuple[State, TimeStep[Observation]]:
         state, timestep = self._env.step(state, action)
         start_flag = jnp.array(0.0)[jnp.newaxis]
         prev_action = action

@@ -1,4 +1,5 @@
-from typing import TYPE_CHECKING, Any, Callable, Dict, Generic, Optional, Tuple, TypeVar
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, Generic, TypeAlias, TypeVar
 
 import chex
 from distrax import DistributionLike
@@ -6,7 +7,7 @@ from flashbax.buffers.trajectory_buffer import BufferState
 from flax.core.frozen_dict import FrozenDict
 from jumanji.types import TimeStep
 from optax import OptState
-from typing_extensions import NamedTuple, TypeAlias
+from typing_extensions import NamedTuple
 
 if TYPE_CHECKING:  # https://github.com/python/mypy/issues/6239
     from dataclasses import dataclass
@@ -36,7 +37,7 @@ class Observation(NamedTuple):
 
     agent_view: chex.Array  # (num_obs_features,)
     action_mask: chex.Array  # (num_actions,)
-    step_count: Optional[chex.Array] = None  # (,)
+    step_count: chex.Array | None = None  # (,)
 
 
 class ObservationGlobalState(NamedTuple):
@@ -108,7 +109,8 @@ class ActorCriticHiddenStates(NamedTuple):
 
 class CoreLearnerState(NamedTuple):
     """Base state of the learner. Can be used for both on-policy and off-policy learners.
-    Mainly used for sebulba systems since we dont store env state."""
+    Mainly used for sebulba systems since we dont store env state.
+    """
 
     params: Parameters
     opt_states: OptStates
@@ -177,29 +179,29 @@ class SebulbaExperimentOutput(NamedTuple, Generic[StoixState]):
     """Experiment output."""
 
     learner_state: StoixState
-    train_metrics: Dict[str, chex.Array]
+    train_metrics: dict[str, chex.Array]
 
 
 class AnakinExperimentOutput(NamedTuple, Generic[StoixState]):
     """Experiment output."""
 
     learner_state: StoixState
-    episode_metrics: Dict[str, chex.Array]
-    train_metrics: Dict[str, chex.Array]
+    episode_metrics: dict[str, chex.Array]
+    train_metrics: dict[str, chex.Array]
 
 
 class EvaluationOutput(NamedTuple, Generic[StoixState]):
     """Evaluation output."""
 
     learner_state: StoixState
-    episode_metrics: Dict[str, chex.Array]
+    episode_metrics: dict[str, chex.Array]
 
 
-RNNObservation: TypeAlias = Tuple[Observation, Done]
+RNNObservation: TypeAlias = tuple[Observation, Done]
 LearnerFn = Callable[[StoixState], AnakinExperimentOutput[StoixState]]
 SebulbaLearnerFn = Callable[[StoixState, StoixTransition], SebulbaExperimentOutput[StoixState]]
 EvalFn = Callable[[FrozenDict, chex.PRNGKey], EvaluationOutput[StoixState]]
-SebulbaEvalFn = Callable[[FrozenDict, chex.PRNGKey], Dict[str, chex.Array]]
+SebulbaEvalFn = Callable[[FrozenDict, chex.PRNGKey], dict[str, chex.Array]]
 
 ActorApply = Callable[..., DistributionLike]
 
@@ -209,9 +211,9 @@ DistributionCriticApply = Callable[[FrozenDict, Observation], DistributionLike]
 ContinuousQApply = Callable[[FrozenDict, Observation, Action], Value]
 
 RecActorApply = Callable[
-    [FrozenDict, HiddenState, RNNObservation], Tuple[HiddenState, DistributionLike]
+    [FrozenDict, HiddenState, RNNObservation], tuple[HiddenState, DistributionLike]
 ]
 RecActFn = Callable[
-    [FrozenDict, HiddenState, RNNObservation, chex.PRNGKey], Tuple[HiddenState, chex.Array]
+    [FrozenDict, HiddenState, RNNObservation, chex.PRNGKey], tuple[HiddenState, chex.Array]
 ]
-RecCriticApply = Callable[[FrozenDict, HiddenState, RNNObservation], Tuple[HiddenState, Value]]
+RecCriticApply = Callable[[FrozenDict, HiddenState, RNNObservation], tuple[HiddenState, Value]]

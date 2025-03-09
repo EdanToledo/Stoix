@@ -1,5 +1,6 @@
 import functools
-from typing import Any, Dict, List, Sequence, Tuple, Union
+from collections.abc import Sequence
+from typing import Any
 
 import chex
 import distrax
@@ -23,7 +24,6 @@ class FeedForwardActor(nn.Module):
 
     @nn.compact
     def __call__(self, observation: Observation) -> distrax.DistributionLike:
-
         obs_embedding = self.input_layer(observation)
 
         obs_embedding = self.torso(obs_embedding)
@@ -40,7 +40,6 @@ class FeedForwardCritic(nn.Module):
 
     @nn.compact
     def __call__(self, observation: Observation) -> chex.Array:
-
         obs_embedding = self.input_layer(observation)
         obs_embedding = self.torso(obs_embedding)
         critic_output = self.critic_head(obs_embedding)
@@ -55,9 +54,8 @@ class CompositeNetwork(nn.Module):
 
     @nn.compact
     def __call__(
-        self, *network_input: Union[chex.Array, Tuple[chex.Array, ...]]
-    ) -> Union[distrax.DistributionLike, chex.Array]:
-
+        self, *network_input: chex.Array | tuple[chex.Array, ...]
+    ) -> distrax.DistributionLike | chex.Array:
         x = self.layers[0](*network_input)
         for layer in self.layers[1:]:
             x = layer(x)
@@ -67,14 +65,15 @@ class CompositeNetwork(nn.Module):
 class MultiNetwork(nn.Module):
     """Multi Network.
 
-    Takes in a sequence of networks, applies them separately and concatenates the outputs."""
+    Takes in a sequence of networks, applies them separately and concatenates the outputs.
+    """
 
     networks: Sequence[nn.Module]
 
     @nn.compact
     def __call__(
-        self, *network_input: Union[chex.Array, Tuple[chex.Array, ...]]
-    ) -> Union[distrax.DistributionLike, chex.Array]:
+        self, *network_input: chex.Array | tuple[chex.Array, ...]
+    ) -> distrax.DistributionLike | chex.Array:
         """Forward pass."""
         outputs = []
         for network in self.networks:
@@ -96,7 +95,7 @@ class ScannedRNN(nn.Module):
         split_rngs={"params": False},
     )
     @nn.compact
-    def __call__(self, rnn_state: chex.Array, x: chex.Array) -> Tuple[chex.Array, chex.Array]:
+    def __call__(self, rnn_state: chex.Array, x: chex.Array) -> tuple[chex.Array, chex.Array]:
         """Applies the module."""
         ins, resets = x
         hidden_state_reset_fn = lambda reset_state, current_state: jnp.where(
@@ -137,8 +136,7 @@ class RecurrentActor(nn.Module):
         self,
         policy_hidden_state: chex.Array,
         observation_done: RNNObservation,
-    ) -> Tuple[chex.Array, distrax.DistributionLike]:
-
+    ) -> tuple[chex.Array, distrax.DistributionLike]:
         observation, done = observation_done
 
         observation = self.input_layer(observation)
@@ -166,10 +164,9 @@ class RecurrentCritic(nn.Module):
     @nn.compact
     def __call__(
         self,
-        critic_hidden_state: Tuple[chex.Array, chex.Array],
+        critic_hidden_state: tuple[chex.Array, chex.Array],
         observation_done: RNNObservation,
-    ) -> Tuple[chex.Array, chex.Array]:
-
+    ) -> tuple[chex.Array, chex.Array]:
         observation, done = observation_done
 
         observation = self.input_layer(observation)
@@ -185,14 +182,14 @@ class RecurrentCritic(nn.Module):
         return critic_hidden_state, critic_output
 
 
-def chained_torsos(torso_cfgs: List[Dict[str, Any]]) -> nn.Module:
+def chained_torsos(torso_cfgs: list[dict[str, Any]]) -> nn.Module:
     """Create a network by chaining multiple torsos together using a list of configs.
     This makes use of hydra to instantiate the modules and the composite network
     to chain them together.
 
     Args:
         torso_cfgs: List of dictionaries containing the configuration for each torso.
-            These configs should use the same format as the individual torso configs."""
-
+            These configs should use the same format as the individual torso configs.
+    """
     torso_modules = [hydra.utils.instantiate(torso_cfg) for torso_cfg in torso_cfgs]
     return CompositeNetwork(torso_modules)

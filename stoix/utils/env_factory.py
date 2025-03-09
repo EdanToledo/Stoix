@@ -21,9 +21,7 @@ from stoix.wrappers.gymnasium import VecGymToJumanji
 
 
 class EnvFactory(abc.ABC):
-    """
-    Abstract class to create environments
-    """
+    """Abstract class to create environments"""
 
     def __init__(self, task_id: str, init_seed: int = 42, **kwargs: Any):
         self.task_id = task_id
@@ -39,9 +37,7 @@ class EnvFactory(abc.ABC):
 
 
 class EnvPoolFactory(EnvFactory):
-    """
-    Create environments with different seeds for each `Actor`
-    """
+    """Create environments with different seeds for each `Actor`"""
 
     def __call__(self, num_envs: int) -> Any:
         with self.lock:
@@ -60,9 +56,7 @@ class EnvPoolFactory(EnvFactory):
 
 
 class GymnasiumFactory(EnvFactory):
-    """
-    Create environments using gymnasium
-    """
+    """Create environments using gymnasium"""
 
     def __call__(self, num_envs: int) -> Any:
         with self.lock:

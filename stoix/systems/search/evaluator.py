@@ -1,4 +1,4 @@
-from typing import Callable, Dict, Tuple
+from collections.abc import Callable
 
 import chex
 import jax
@@ -22,7 +22,7 @@ def get_search_evaluator_fn(
 ) -> EvalFn:
     """Get the evaluator function for search-based agents."""
 
-    def eval_one_episode(params: FrozenDict, init_eval_state: EvalState) -> Dict:
+    def eval_one_episode(params: FrozenDict, init_eval_state: EvalState) -> dict:
         """Evaluate one episode. It is vectorized over the number of evaluation episodes."""
 
         def _env_step(eval_state: EvalState) -> EvalState:
@@ -48,7 +48,7 @@ def get_search_evaluator_fn(
             eval_state = EvalState(key, env_state, timestep, step_count, episode_return)
             return eval_state
 
-        def not_done(carry: Tuple) -> bool:
+        def not_done(carry: tuple) -> bool:
             """Check if the episode is done."""
             timestep = carry[2]
             is_not_done: bool = ~timestep.last()
@@ -70,7 +70,6 @@ def get_search_evaluator_fn(
 
     def evaluator_fn(trained_params: FrozenDict, key: chex.PRNGKey) -> EvaluationOutput[EvalState]:
         """Evaluator function."""
-
         # Initialise environment states and timesteps.
         n_devices = len(jax.devices())
 
@@ -114,7 +113,7 @@ def search_evaluator_setup(
     root_fn: Callable,
     params: FrozenDict,
     config: DictConfig,
-) -> Tuple[EvalFn, EvalFn, Tuple[FrozenDict, chex.Array]]:
+) -> tuple[EvalFn, EvalFn, tuple[FrozenDict, chex.Array]]:
     """Initialise evaluator_fn."""
     # Get available TPU cores.
     n_devices = len(jax.devices())

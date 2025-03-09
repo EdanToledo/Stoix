@@ -1,6 +1,6 @@
 import copy
 import time
-from typing import Any, Dict, Tuple
+from typing import Any
 
 import chex
 import flax
@@ -40,22 +40,21 @@ from stoix.wrappers.episode_metrics import get_final_step_metrics
 
 def get_learner_fn(
     env: Environment,
-    apply_fns: Tuple[ActorApply, CriticApply],
-    update_fns: Tuple[optax.TransformUpdateFn, optax.TransformUpdateFn],
+    apply_fns: tuple[ActorApply, CriticApply],
+    update_fns: tuple[optax.TransformUpdateFn, optax.TransformUpdateFn],
     config: DictConfig,
 ) -> LearnerFn[OnPolicyLearnerState]:
     """Get the learner function."""
-
     # Get apply and update functions for actor and critic networks.
     actor_apply_fn, critic_apply_fn = apply_fns
     actor_update_fn, critic_update_fn = update_fns
 
     def _update_step(
         learner_state: OnPolicyLearnerState, _: Any
-    ) -> Tuple[OnPolicyLearnerState, Tuple]:
+    ) -> tuple[OnPolicyLearnerState, tuple]:
         def _env_step(
             learner_state: OnPolicyLearnerState, _: Any
-        ) -> Tuple[OnPolicyLearnerState, Transition]:
+        ) -> tuple[OnPolicyLearnerState, Transition]:
             """Step the environment."""
             params, opt_states, key, env_state, last_timestep = learner_state
 
@@ -101,7 +100,7 @@ def get_learner_fn(
             actions: chex.Array,
             monte_carlo_returns: chex.Array,
             value_predictions: chex.Array,
-        ) -> Tuple:
+        ) -> tuple:
             """Calculate the actor loss."""
             # RERUN NETWORK
             actor_policy = actor_apply_fn(actor_params, observations)
@@ -122,7 +121,7 @@ def get_learner_fn(
             critic_params: FrozenDict,
             observations: chex.Array,
             targets: chex.Array,
-        ) -> Tuple:
+        ) -> tuple:
             """Calculate the critic loss."""
             # RERUN NETWORK
             value = critic_apply_fn(critic_params, observations)
@@ -203,7 +202,6 @@ def get_learner_fn(
     def learner_fn(
         learner_state: OnPolicyLearnerState,
     ) -> AnakinExperimentOutput[OnPolicyLearnerState]:
-
         batched_update_step = jax.vmap(_update_step, in_axes=(0, None), axis_name="batch")
 
         learner_state, (episode_info, loss_info) = jax.lax.scan(
@@ -220,7 +218,7 @@ def get_learner_fn(
 
 def learner_setup(
     env: Environment, keys: chex.Array, config: DictConfig
-) -> Tuple[LearnerFn[OnPolicyLearnerState], Actor, OnPolicyLearnerState]:
+) -> tuple[LearnerFn[OnPolicyLearnerState], Actor, OnPolicyLearnerState]:
     """Initialise learner_fn, network, optimiser, environment and states."""
     # Get available TPU cores.
     n_devices = len(jax.devices())
@@ -374,7 +372,7 @@ def run_experiment(_config: DictConfig) -> float:
 
     # Logger setup
     logger = StoixLogger(config)
-    cfg: Dict = OmegaConf.to_container(config, resolve=True)
+    cfg: dict = OmegaConf.to_container(config, resolve=True)
     cfg["arch"]["devices"] = jax.devices()
     pprint(cfg)
 

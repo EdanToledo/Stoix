@@ -1,5 +1,6 @@
+from collections.abc import Callable, Sequence
 from functools import partial
-from typing import Any, Callable, Sequence
+from typing import Any
 
 import chex
 import jax
@@ -18,7 +19,8 @@ class PostProcessedDistribution(Distribution):
     this is not the same as a bijector, which also transforms the density function of the
     distribution. This is only useful for transforming the samples and mode of the distribution.
     For example, for an algorithm that requires taking the log probability of the samples, the
-    distribution should be transformed using a bijector, not a postprocessor."""
+    distribution should be transformed using a bijector, not a postprocessor.
+    """
 
     def __init__(
         self, distribution: Distribution, postprocessor: Callable[[chex.Array], chex.Array]
@@ -66,9 +68,7 @@ class ScalePostProcessor(nn.Module):
 
     @nn.compact
     def __call__(self, distribution: Distribution) -> Distribution:
-        post_processor = partial(
-            self.scale_fn, minimum=self.minimum, maximum=self.maximum
-        )  # type: ignore
+        post_processor = partial(self.scale_fn, minimum=self.minimum, maximum=self.maximum)  # type: ignore
         return PostProcessedDistribution(distribution, post_processor)
 
 

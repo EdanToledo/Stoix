@@ -1,5 +1,3 @@
-from typing import Optional, Tuple, Union
-
 import chex
 import jax
 import jax.numpy as jnp
@@ -12,13 +10,13 @@ import jax.numpy as jnp
 def batch_truncated_generalized_advantage_estimation(
     r_t: chex.Array,
     discount_t: chex.Array,
-    lambda_: Union[chex.Array, chex.Scalar],
+    lambda_: chex.Array | chex.Scalar,
     values: chex.Array,
     stop_target_gradients: bool = True,
     time_major: bool = False,
     standardize_advantages: bool = False,
-    truncation_flags: Optional[chex.Array] = None,
-) -> Tuple[chex.Array, chex.Array]:
+    truncation_flags: chex.Array | None = None,
+) -> tuple[chex.Array, chex.Array]:
     """Computes truncated generalized advantage estimates for a sequence length k.
 
     The advantages are computed in a backwards fashion according to the equation:
@@ -48,7 +46,6 @@ def batch_truncated_generalized_advantage_estimation(
         Multistep truncated generalized advantage estimation at times [0, k-1].
         The target values at times [0, k-1] are also returned.
     """
-
     if truncation_flags is None:
         truncation_flags = jnp.zeros_like(r_t)
 
@@ -72,8 +69,8 @@ def batch_truncated_generalized_advantage_estimation(
 
     # Iterate backwards to calculate advantages.
     def _body(
-        acc: chex.Array, xs: Tuple[chex.Array, chex.Array, chex.Array, chex.Array]
-    ) -> Tuple[chex.Array, chex.Array]:
+        acc: chex.Array, xs: tuple[chex.Array, chex.Array, chex.Array, chex.Array]
+    ) -> tuple[chex.Array, chex.Array]:
         deltas, discounts, lambda_, trunc_mask = xs
         acc = deltas + discounts * lambda_ * trunc_mask * acc
         return acc, acc
@@ -215,8 +212,8 @@ def batch_general_off_policy_returns_from_q_and_v(
     g = r_t[-1] + discount_t[-1] * v_t[-1]  # G_K-1.
 
     def _body(
-        acc: chex.Array, xs: Tuple[chex.Array, chex.Array, chex.Array, chex.Array, chex.Array]
-    ) -> Tuple[chex.Array, chex.Array]:
+        acc: chex.Array, xs: tuple[chex.Array, chex.Array, chex.Array, chex.Array, chex.Array]
+    ) -> tuple[chex.Array, chex.Array]:
         reward, discount, c, v, q = xs
         acc = reward + discount * (v - c * q + c * acc)
         return acc, acc
@@ -237,7 +234,7 @@ def batch_retrace_continuous(
     r_t: chex.Array,
     discount_t: chex.Array,
     log_rhos: chex.Array,
-    lambda_: Union[chex.Array, float],
+    lambda_: chex.Array | float,
     stop_target_gradients: bool = True,
 ) -> chex.Array:
     """Retrace continuous.
@@ -261,7 +258,6 @@ def batch_retrace_continuous(
     Returns:
       Retrace error.
     """
-
     c_t = jnp.minimum(1.0, jnp.exp(log_rhos)) * lambda_
 
     # The generalized returns are independent of Q-values and cs at the final
@@ -343,7 +339,6 @@ def batch_lambda_returns(
     Returns:
         Multistep lambda returns.
     """
-
     chex.assert_rank([r_t, discount_t, v_t, lambda_], [2, 2, 2, {0, 1, 2}])
     chex.assert_type([r_t, discount_t, v_t, lambda_], float)
     chex.assert_equal_shape([r_t, discount_t, v_t])
@@ -359,8 +354,8 @@ def batch_lambda_returns(
 
     # Work backwards to compute `G_{T-1}`, ..., `G_0`.
     def _body(
-        acc: chex.Array, xs: Tuple[chex.Array, chex.Array, chex.Array, chex.Array]
-    ) -> Tuple[chex.Array, chex.Array]:
+        acc: chex.Array, xs: tuple[chex.Array, chex.Array, chex.Array, chex.Array]
+    ) -> tuple[chex.Array, chex.Array]:
         returns, discounts, values, lambda_ = xs
         acc = returns + discounts * ((1 - lambda_) * values + lambda_ * acc)
         return acc, acc

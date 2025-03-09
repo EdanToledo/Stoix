@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Tuple
+from typing import TYPE_CHECKING
 
 import chex
 import jax
@@ -29,7 +29,7 @@ class NavixWrapper(Wrapper):
         self._env = env
         self._n_actions = len(self._env.action_set)
 
-    def reset(self, key: chex.PRNGKey) -> Tuple[NavixEnvState, TimeStep]:
+    def reset(self, key: chex.PRNGKey) -> tuple[NavixEnvState, TimeStep]:
         key, key_reset = jax.random.split(key)
         navix_state = self._env.reset(key_reset)
         agent_view = navix_state.observation.astype(float)
@@ -40,7 +40,7 @@ class NavixWrapper(Wrapper):
         state = NavixEnvState(key=key, navix_state=navix_state)
         return state, timestep
 
-    def step(self, state: NavixEnvState, action: chex.Array) -> Tuple[NavixEnvState, TimeStep]:
+    def step(self, state: NavixEnvState, action: chex.Array) -> tuple[NavixEnvState, TimeStep]:
         key, key_step = jax.random.split(state.key)
 
         navix_state = self._env.step(state.navix_state, action)

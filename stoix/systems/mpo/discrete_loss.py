@@ -1,5 +1,3 @@
-from typing import Tuple
-
 import chex
 import jax
 import jax.numpy as jnp
@@ -13,7 +11,7 @@ _MPO_FLOAT_EPSILON = 1e-8
 _MIN_LOG_TEMPERATURE = -18.0
 _MIN_LOG_ALPHA = -18.0
 
-Shape = Tuple[int]
+Shape = tuple[int]
 DType = type(jnp.float32)
 
 
@@ -24,7 +22,7 @@ def categorical_mpo_loss(
     q_values: chex.Array,  # Shape [D, B].
     epsilon: float,
     epsilon_policy: float,
-) -> Tuple[chex.Array, chex.ArrayTree]:
+) -> tuple[chex.Array, chex.ArrayTree]:
     """Computes the MPO loss for a categorical policy.
 
     Args:
@@ -45,7 +43,6 @@ def categorical_mpo_loss(
         adapt the dual variables.
       Stats, for diagnostics and tracking performance.
     """
-
     q_values = jnp.transpose(q_values)  # [D, B] --> [B, D].
 
     # Transform dual variables from log-space.
@@ -111,7 +108,7 @@ def compute_weights_and_temperature_loss(
     logits: chex.Array,
     epsilon: float,
     temperature: chex.Array,
-) -> Tuple[chex.Array, chex.Array]:
+) -> tuple[chex.Array, chex.Array]:
     """Computes normalized importance weights for the policy optimization.
 
     Args:
@@ -130,7 +127,6 @@ def compute_weights_and_temperature_loss(
       Normalized importance weights, used for policy optimization.
       Temperature loss, used to adapt the temperature.
     """
-
     # Temper the given Q-values using the current temperature.
     tempered_q_values = jax.lax.stop_gradient(q_values) / temperature
 

@@ -1,6 +1,7 @@
 import copy
 import time
-from typing import Any, Callable, Dict, Tuple
+from collections.abc import Callable
+from typing import Any
 
 import chex
 import flashbax as fbx
@@ -29,9 +30,8 @@ from stoix.base_types import (
     OnlineAndTarget,
 )
 from stoix.evaluator import evaluator_setup, get_distribution_act_fn
-from stoix.networks.base import CompositeNetwork
+from stoix.networks.base import CompositeNetwork, MultiNetwork
 from stoix.networks.base import FeedForwardActor as Actor
-from stoix.networks.base import MultiNetwork
 from stoix.networks.postprocessors import tanh_to_spec
 from stoix.systems.ddpg.ddpg_types import DDPGOptStates, DDPGParams
 from stoix.systems.q_learning.dqn_types import Transition
@@ -66,17 +66,15 @@ def get_warmup_fn(
     buffer_add_fn: Callable,
     config: DictConfig,
 ) -> Callable:
-
     exploratory_actor_apply = get_default_behavior_policy(config, actor_apply_fn)
 
     def warmup(
         env_states: LogEnvState, timesteps: TimeStep, buffer_states: BufferState, keys: chex.PRNGKey
-    ) -> Tuple[LogEnvState, TimeStep, BufferState, chex.PRNGKey]:
+    ) -> tuple[LogEnvState, TimeStep, BufferState, chex.PRNGKey]:
         def _env_step(
-            carry: Tuple[LogEnvState, TimeStep, chex.PRNGKey], _: Any
-        ) -> Tuple[Tuple[LogEnvState, TimeStep, chex.PRNGKey], Transition]:
+            carry: tuple[LogEnvState, TimeStep, chex.PRNGKey], _: Any
+        ) -> tuple[tuple[LogEnvState, TimeStep, chex.PRNGKey], Transition]:
             """Step the environment."""
-
             env_state, last_timestep, key = carry
             # SELECT ACTION
             key, policy_key = jax.random.split(key)
@@ -117,13 +115,12 @@ def get_warmup_fn(
 
 def get_learner_fn(
     env: Environment,
-    apply_fns: Tuple[ActorApply, ContinuousQApply],
-    update_fns: Tuple[optax.TransformUpdateFn, optax.TransformUpdateFn],
-    buffer_fns: Tuple[Callable, Callable],
+    apply_fns: tuple[ActorApply, ContinuousQApply],
+    update_fns: tuple[optax.TransformUpdateFn, optax.TransformUpdateFn],
+    buffer_fns: tuple[Callable, Callable],
     config: DictConfig,
 ) -> LearnerFn[OffPolicyLearnerState]:
     """Get the learner function."""
-
     # Get apply and update functions for actor and critic networks.
     actor_apply_fn, q_apply_fn = apply_fns
     actor_update_fn, q_update_fn = update_fns
@@ -132,10 +129,10 @@ def get_learner_fn(
 
     def _update_step(
         learner_state: OffPolicyLearnerState, _: Any
-    ) -> Tuple[OffPolicyLearnerState, Tuple]:
+    ) -> tuple[OffPolicyLearnerState, tuple]:
         def _env_step(
             learner_state: OffPolicyLearnerState, _: Any
-        ) -> Tuple[OffPolicyLearnerState, Transition]:
+        ) -> tuple[OffPolicyLearnerState, Transition]:
             """Step the environment."""
             params, opt_states, buffer_state, key, env_state, last_timestep = learner_state
 
@@ -172,7 +169,7 @@ def get_learner_fn(
         # Add the trajectory to the buffer.
         buffer_state = buffer_add_fn(buffer_state, traj_batch)
 
-        def _update_epoch(update_state: Tuple, _: Any) -> Tuple:
+        def _update_epoch(update_state: tuple, _: Any) -> tuple:
             """Update the network for a single epoch."""
 
             def _q_loss_fn(
@@ -182,7 +179,6 @@ def get_learner_fn(
                 transitions: Transition,
                 rng_key: chex.PRNGKey,
             ) -> jnp.ndarray:
-
                 q_tm1 = q_apply_fn(q_params, transitions.obs, transitions.action)
                 action_scale = (config.system.action_maximum - config.system.action_minimum) / 2
                 noise = (
@@ -337,7 +333,6 @@ def get_learner_fn(
         updates. The `_update_step` function is vectorized over a batch of inputs.
 
         """
-
         batched_update_step = jax.vmap(_update_step, in_axes=(0, None), axis_name="batch")
 
         learner_state, (episode_info, loss_info) = jax.lax.scan(
@@ -354,7 +349,7 @@ def get_learner_fn(
 
 def learner_setup(
     env: Environment, keys: chex.Array, config: DictConfig
-) -> Tuple[LearnerFn[OffPolicyLearnerState], Actor, OffPolicyLearnerState]:
+) -> tuple[LearnerFn[OffPolicyLearnerState], Actor, OffPolicyLearnerState]:
     """Initialise learner_fn, network, optimiser, environment and states."""
     # Get available TPU cores.
     n_devices = len(jax.devices())
@@ -581,7 +576,7 @@ def run_experiment(_config: DictConfig) -> float:
 
     # Logger setup
     logger = StoixLogger(config)
-    cfg: Dict = OmegaConf.to_container(config, resolve=True)
+    cfg: dict = OmegaConf.to_container(config, resolve=True)
     cfg["arch"]["devices"] = jax.devices()
     pprint(cfg)
 

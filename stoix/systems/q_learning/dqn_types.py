@@ -1,5 +1,3 @@
-from typing import Dict
-
 import chex
 from typing_extensions import NamedTuple
 
@@ -12,7 +10,7 @@ class Transition(NamedTuple):
     reward: chex.Array
     done: chex.Array
     next_obs: chex.Array
-    info: Dict
+    info: dict
 
 
 class RNNTransition(NamedTuple):
@@ -22,5 +20,5 @@ class RNNTransition(NamedTuple):
     reset_hidden_state: chex.Array
     done: chex.Array
     truncated: chex.Array
-    info: Dict
+    info: dict
     hstate: HiddenState

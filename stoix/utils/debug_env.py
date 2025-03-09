@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Tuple
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from dataclasses import dataclass
@@ -27,7 +27,7 @@ class IdentityGame(Environment):
     def __init__(self, num_actions: int):
         self.num_actions = num_actions
 
-    def reset(self, key: chex.PRNGKey) -> Tuple[GameState, TimeStep]:
+    def reset(self, key: chex.PRNGKey) -> tuple[GameState, TimeStep]:
         state_val = jax.random.randint(key, shape=(1,), minval=0, maxval=self.num_actions)
         state = GameState(state=state_val, key=key, step_count=jnp.array(0))
         obs = Observation(
@@ -38,8 +38,7 @@ class IdentityGame(Environment):
         timestep = restart(obs, extras={})
         return state, timestep
 
-    def step(self, state: chex, action: chex.Array) -> Tuple[GameState, TimeStep]:
-
+    def step(self, state: chex, action: chex.Array) -> tuple[GameState, TimeStep]:
         reward = jnp.where(action == state.state, 1.0, 0.0).squeeze()
         state_key, rng_key = jax.random.split(state.key)
         state_val = jax.random.randint(rng_key, shape=(1,), minval=0, maxval=self.num_actions)
@@ -76,7 +75,7 @@ class SequenceGame(Environment):
     def __init__(self, num_actions: int):
         self.num_actions = num_actions
 
-    def reset(self, key: chex.PRNGKey) -> Tuple[GameState, TimeStep]:
+    def reset(self, key: chex.PRNGKey) -> tuple[GameState, TimeStep]:
         state_val = jax.random.randint(key, shape=(1,), minval=0, maxval=self.num_actions)
         state = GameState(state=state_val, key=key, step_count=jnp.array(0))
         obs = Observation(
@@ -87,8 +86,7 @@ class SequenceGame(Environment):
         timestep = restart(obs, extras={})
         return state, timestep
 
-    def step(self, state: chex, action: chex.Array) -> Tuple[GameState, TimeStep]:
-
+    def step(self, state: chex, action: chex.Array) -> tuple[GameState, TimeStep]:
         reward = jnp.where(action == state.state, 1.0, 0.0).squeeze()
         state_key, _ = jax.random.split(state.key)
         state_val = (state.state + 1) % self.num_actions

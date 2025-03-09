@@ -4,8 +4,9 @@ import threading
 import time
 import warnings
 from collections import defaultdict
+from collections.abc import Callable, Sequence
 from queue import Queue
-from typing import Any, Callable, Dict, List, Sequence, Tuple
+from typing import Any
 
 import chex
 import flax
@@ -53,16 +54,16 @@ from stoix.wrappers.episode_metrics import get_final_step_metrics
 
 
 def get_act_fn(
-    apply_fns: Tuple[ActorApply, CriticApply]
+    apply_fns: tuple[ActorApply, CriticApply],
 ) -> Callable[
-    [ActorCriticParams, Observation, chex.PRNGKey], Tuple[chex.Array, chex.Array, chex.Array]
+    [ActorCriticParams, Observation, chex.PRNGKey], tuple[chex.Array, chex.Array, chex.Array]
 ]:
     """Get the act function that is used by the actor threads."""
     actor_apply_fn, critic_apply_fn = apply_fns
 
     def actor_fn(
         params: ActorCriticParams, observation: Observation, rng_key: chex.PRNGKey
-    ) -> Tuple[chex.Array, chex.Array, chex.Array]:
+    ) -> tuple[chex.Array, chex.Array, chex.Array]:
         """Get the action, value and log_prob from the actor and critic networks."""
         rng_key, policy_key = jax.random.split(rng_key)
         pi = actor_apply_fn(params.actor_params, observation)
@@ -79,9 +80,9 @@ def get_rollout_fn(
     actor_device: jax.Device,
     params_source: ParamsSource,
     pipeline: OnPolicyPipeline,
-    apply_fns: Tuple[ActorApply, CriticApply],
+    apply_fns: tuple[ActorApply, CriticApply],
     config: DictConfig,
-    seeds: List[int],
+    seeds: list[int],
     thread_lifetime: ThreadLifetime,
 ) -> Callable[[chex.PRNGKey], None]:
     """Get the rollout function that is used by the actor threads."""
@@ -104,10 +105,10 @@ def get_rollout_fn(
             # Loop until the thread is stopped
             while not thread_lifetime.should_stop():
                 # Create the list to store transitions
-                traj: List[PPOTransition] = []
+                traj: list[PPOTransition] = []
                 # Create the dictionary to store timings for metrics
-                actor_timings_dict: Dict[str, List[float]] = defaultdict(list)
-                episode_metrics: List[Dict[str, List[float]]] = []
+                actor_timings_dict: dict[str, list[float]] = defaultdict(list)
+                episode_metrics: list[dict[str, list[float]]] = []
                 # Rollout the environment
                 with RecordTimeTo(actor_timings_dict["single_rollout_time"]):
                     # Loop until the rollout length is reached
@@ -180,15 +181,16 @@ def get_actor_thread(
     actor_device: jax.Device,
     params_source: ParamsSource,
     pipeline: OnPolicyPipeline,
-    apply_fns: Tuple[ActorApply, CriticApply],
+    apply_fns: tuple[ActorApply, CriticApply],
     rng_key: chex.PRNGKey,
     config: DictConfig,
-    seeds: List[int],
+    seeds: list[int],
     thread_lifetime: ThreadLifetime,
     name: str,
 ) -> threading.Thread:
     """Get the actor thread that once started will collect data from the
-    environment and send it to the pipeline."""
+    environment and send it to the pipeline.
+    """
     rng_key = jax.device_put(rng_key, actor_device)
 
     rollout_fn = get_rollout_fn(
@@ -212,21 +214,20 @@ def get_actor_thread(
 
 
 def get_learner_step_fn(
-    apply_fns: Tuple[ActorApply, CriticApply],
-    update_fns: Tuple[optax.TransformUpdateFn, optax.TransformUpdateFn],
+    apply_fns: tuple[ActorApply, CriticApply],
+    update_fns: tuple[optax.TransformUpdateFn, optax.TransformUpdateFn],
     config: DictConfig,
 ) -> SebulbaLearnerFn[CoreLearnerState, PPOTransition]:
     """Get the learner update function which is used to update the actor and critic networks.
-    This function is used by the learner thread to update the networks."""
-
+    This function is used by the learner thread to update the networks.
+    """
     # Get apply and update functions for actor and critic networks.
     actor_apply_fn, critic_apply_fn = apply_fns
     actor_update_fn, critic_update_fn = update_fns
 
     def _update_step(
         learner_state: CoreLearnerState, traj_batch: PPOTransition
-    ) -> Tuple[CoreLearnerState, Dict[str, chex.Array]]:
-
+    ) -> tuple[CoreLearnerState, dict[str, chex.Array]]:
         # CALCULATE ADVANTAGE
         params, opt_states, key, last_timestep = learner_state
         last_val = critic_apply_fn(params.critic_params, last_timestep.observation)
@@ -245,12 +246,11 @@ def get_learner_step_fn(
             truncation_flags=traj_batch.truncated,
         )
 
-        def _update_epoch(update_state: Tuple, _: Any) -> Tuple:
+        def _update_epoch(update_state: tuple, _: Any) -> tuple:
             """Update the network for a single epoch."""
 
-            def _update_minibatch(train_state: Tuple, batch_info: Tuple) -> Tuple:
+            def _update_minibatch(train_state: tuple, batch_info: tuple) -> tuple:
                 """Update the network for a single minibatch."""
-
                 # UNPACK TRAIN STATE AND BATCH INFO
                 params, opt_states = train_state
                 traj_batch, advantages, targets = batch_info
@@ -259,7 +259,7 @@ def get_learner_step_fn(
                     actor_params: FrozenDict,
                     traj_batch: PPOTransition,
                     gae: chex.Array,
-                ) -> Tuple:
+                ) -> tuple:
                     """Calculate the actor loss."""
                     # RERUN NETWORK
                     actor_policy = actor_apply_fn(actor_params, traj_batch.obs)
@@ -282,7 +282,7 @@ def get_learner_step_fn(
                     critic_params: FrozenDict,
                     traj_batch: PPOTransition,
                     targets: chex.Array,
-                ) -> Tuple:
+                ) -> tuple:
                     """Calculate the critic loss."""
                     # RERUN NETWORK
                     value = critic_apply_fn(critic_params, traj_batch.obs)
@@ -399,7 +399,6 @@ def get_learner_step_fn(
                 - env_state (LogEnvState): The environment state.
                 - timesteps (TimeStep): The initial timestep in the initial trajectory.
         """
-
         learner_state, loss_info = _update_step(learner_state, traj_batch)
 
         return SebulbaExperimentOutput(
@@ -420,16 +419,17 @@ def get_learner_rollout_fn(
     """Get the learner rollout function that is used by the learner thread to update the networks.
     This function is what is actually run by the learner thread. It gets the data from the pipeline
     and uses the learner update function to update the networks. It then sends these intermediate
-    network parameters to a queue for evaluation."""
+    network parameters to a queue for evaluation.
+    """
 
     def learner_rollout(learner_state: CoreLearnerState) -> None:
         # Loop for the total number of evaluations selected to be performed.
         for _ in range(config.arch.num_evaluation):
             # Create the lists to store metrics and timings for this learning iteration.
-            metrics: List[Tuple[Dict, Dict]] = []
-            actor_timings: List[Dict] = []
-            learner_timings: Dict[str, List[float]] = defaultdict(list)
-            q_sizes: List[int] = []
+            metrics: list[tuple[dict, dict]] = []
+            actor_timings: list[dict] = []
+            learner_timings: dict[str, list[float]] = defaultdict(list)
+            q_sizes: list[int] = []
             with RecordTimeTo(learner_timings["learner_time_per_eval"]):
                 # Loop for the number of updates per evaluation
                 for _ in range(config.arch.num_updates_per_eval):
@@ -499,7 +499,6 @@ def get_learner_thread(
     params_sources: Sequence[ParamsSource],
 ) -> threading.Thread:
     """Get the learner thread that is used to update the networks."""
-
     learner_rollout_fn = get_learner_rollout_fn(learn, config, eval_queue, pipeline, params_sources)
 
     learner_thread = threading.Thread(
@@ -516,13 +515,12 @@ def learner_setup(
     keys: chex.Array,
     learner_devices: Sequence[jax.Device],
     config: DictConfig,
-) -> Tuple[
+) -> tuple[
     SebulbaLearnerFn[CoreLearnerState, PPOTransition],
-    Tuple[ActorApply, CriticApply],
+    tuple[ActorApply, CriticApply],
     CoreLearnerState,
 ]:
     """Setup for the learner state and networks."""
-
     # Create a single environment just to get the observation and action specs.
     env = env_factory(num_envs=1)
     # Get number/dimension of actions.
@@ -670,7 +668,7 @@ def run_experiment(_config: DictConfig) -> float:
 
     # Logger setup
     logger = StoixLogger(config)
-    cfg: Dict = OmegaConf.to_container(config, resolve=True)
+    cfg: dict = OmegaConf.to_container(config, resolve=True)
     cfg["arch"]["devices"] = jax.devices()
     pprint(cfg)
 
@@ -706,8 +704,8 @@ def run_experiment(_config: DictConfig) -> float:
     params_sources_lifetime = ThreadLifetime()
 
     # Create the params sources and actor threads
-    params_sources: List[ParamsSource] = []
-    actor_threads: List[threading.Thread] = []
+    params_sources: list[ParamsSource] = []
+    actor_threads: list[threading.Thread] = []
     for actor_device in actor_devices:
         # Create 1 params source per actor device as this will be used
         # to pass the params to the actors

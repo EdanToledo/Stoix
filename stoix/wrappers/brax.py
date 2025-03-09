@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 import chex
 import jax.numpy as jnp
@@ -14,14 +14,14 @@ from stoix.base_types import Observation
 
 @struct.dataclass
 class BraxState(base.Base):
-    pipeline_state: Optional[base.State]
+    pipeline_state: base.State | None
     obs: chex.Array
     reward: chex.Numeric
     done: chex.Numeric
     key: chex.PRNGKey
     step_count: chex.Array
-    metrics: Dict[str, jnp.ndarray] = struct.field(default_factory=dict)
-    info: Dict[str, Any] = struct.field(default_factory=dict)
+    metrics: dict[str, jnp.ndarray] = struct.field(default_factory=dict)
+    info: dict[str, Any] = struct.field(default_factory=dict)
 
 
 class BraxJumanjiWrapper(BraxWrapper):
@@ -38,8 +38,7 @@ class BraxJumanjiWrapper(BraxWrapper):
         self._env = env
         self._action_dim = self.action_spec().shape[0]
 
-    def reset(self, key: chex.PRNGKey) -> Tuple[State, TimeStep]:
-
+    def reset(self, key: chex.PRNGKey) -> tuple[State, TimeStep]:
         state = self._env.reset(key)
 
         new_state = BraxState(
@@ -66,7 +65,7 @@ class BraxJumanjiWrapper(BraxWrapper):
 
         return new_state, timestep
 
-    def step(self, state: State, action: chex.Array) -> Tuple[State, TimeStep]:
+    def step(self, state: State, action: chex.Array) -> tuple[State, TimeStep]:
         # If the previous step was truncated
         prev_truncated = state.info["truncation"].astype(jnp.bool_)
         # If the previous step was done

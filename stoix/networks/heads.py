@@ -1,4 +1,4 @@
-from typing import Optional, Sequence, Tuple, Union
+from collections.abc import Sequence
 
 import chex
 import distrax
@@ -27,7 +27,7 @@ tfb = tfp.bijectors
 
 
 class CategoricalHead(nn.Module):
-    action_dim: Union[int, Sequence[int]]
+    action_dim: int | Sequence[int]
     kernel_init: Initializer = orthogonal(0.01)
 
     @nn.compact
@@ -41,7 +41,6 @@ class CategoricalHead(nn.Module):
 
 
 class NormalAffineTanhDistributionHead(nn.Module):
-
     action_dim: int
     minimum: float
     maximum: float
@@ -50,7 +49,6 @@ class NormalAffineTanhDistributionHead(nn.Module):
 
     @nn.compact
     def __call__(self, embedding: chex.Array) -> Independent:
-
         loc = nn.Dense(self.action_dim, kernel_init=self.kernel_init)(embedding)
         scale = (
             jax.nn.softplus(nn.Dense(self.action_dim, kernel_init=self.kernel_init)(embedding))
@@ -65,7 +63,6 @@ class NormalAffineTanhDistributionHead(nn.Module):
 
 
 class BetaDistributionHead(nn.Module):
-
     action_dim: int
     minimum: float
     maximum: float
@@ -73,7 +70,6 @@ class BetaDistributionHead(nn.Module):
 
     @nn.compact
     def __call__(self, embedding: chex.Array) -> Independent:
-
         # Use alpha and beta >= 1 according to [Chou et. al, 2017]
         alpha = (
             jax.nn.softplus(nn.Dense(self.action_dim, kernel_init=self.kernel_init)(embedding)) + 1
@@ -98,7 +94,6 @@ class BetaDistributionHead(nn.Module):
 
 
 class MultivariateNormalDiagHead(nn.Module):
-
     action_dim: int
     init_scale: float = 0.3
     min_scale: float = 1e-3
@@ -119,7 +114,6 @@ class DeterministicHead(nn.Module):
 
     @nn.compact
     def __call__(self, embedding: chex.Array) -> chex.Array:
-
         x = nn.Dense(self.action_dim, kernel_init=self.kernel_init)(embedding)
 
         return Deterministic(x)
@@ -134,10 +128,9 @@ class ScalarCriticHead(nn.Module):
 
 
 class CategoricalCriticHead(nn.Module):
-
     num_atoms: int = 601
-    vmax: Optional[float] = None
-    vmin: Optional[float] = None
+    vmax: float | None = None
+    vmin: float | None = None
     kernel_init: Initializer = orthogonal(1.0)
 
     @nn.compact
@@ -176,7 +169,7 @@ class DiscreteValuedTfpHead(nn.Module):
     vmin: float
     vmax: float
     num_atoms: int
-    logits_shape: Optional[Sequence[int]] = None
+    logits_shape: Sequence[int] | None = None
     kernel_init: Initializer = lecun_normal()
 
     def setup(self) -> None:
@@ -205,7 +198,6 @@ class DiscreteQNetworkHead(nn.Module):
 
     @nn.compact
     def __call__(self, embedding: chex.Array) -> distrax.EpsilonGreedy:
-
         q_values = nn.Dense(self.action_dim, kernel_init=self.kernel_init)(embedding)
 
         return distrax.EpsilonGreedy(preferences=q_values, epsilon=self.epsilon)
@@ -218,8 +210,7 @@ class PolicyValueHead(nn.Module):
     @nn.compact
     def __call__(
         self, embedding: chex.Array
-    ) -> Tuple[distrax.DistributionLike, Union[chex.Array, distrax.DistributionLike]]:
-
+    ) -> tuple[distrax.DistributionLike, chex.Array | distrax.DistributionLike]:
         action_distribution = self.action_head(embedding)
         value = self.critic_head(embedding)
 
@@ -237,7 +228,7 @@ class DistributionalDiscreteQNetwork(nn.Module):
     @nn.compact
     def __call__(
         self, embedding: chex.Array
-    ) -> Tuple[distrax.EpsilonGreedy, chex.Array, chex.Array]:
+    ) -> tuple[distrax.EpsilonGreedy, chex.Array, chex.Array]:
         atoms = jnp.linspace(self.vmin, self.vmax, self.num_atoms)
         q_logits = nn.Dense(self.action_dim * self.num_atoms, kernel_init=self.kernel_init)(
             embedding
@@ -259,7 +250,7 @@ class DistributionalContinuousQNetwork(nn.Module):
     @nn.compact
     def __call__(
         self, embedding: chex.Array
-    ) -> Tuple[distrax.EpsilonGreedy, chex.Array, chex.Array]:
+    ) -> tuple[distrax.EpsilonGreedy, chex.Array, chex.Array]:
         atoms = jnp.linspace(self.vmin, self.vmax, self.num_atoms)
         q_logits = nn.Dense(self.num_atoms, kernel_init=self.kernel_init)(embedding)
         q_dist = jax.nn.softmax(q_logits)
@@ -275,7 +266,7 @@ class QuantileDiscreteQNetwork(nn.Module):
     kernel_init: Initializer = lecun_normal()
 
     @nn.compact
-    def __call__(self, embedding: chex.Array) -> Tuple[distrax.EpsilonGreedy, chex.Array]:
+    def __call__(self, embedding: chex.Array) -> tuple[distrax.EpsilonGreedy, chex.Array]:
         q_logits = nn.Dense(self.action_dim * self.num_quantiles, kernel_init=self.kernel_init)(
             embedding
         )
@@ -291,5 +282,4 @@ class LinearHead(nn.Module):
 
     @nn.compact
     def __call__(self, embedding: chex.Array) -> chex.Array:
-
         return nn.Dense(self.output_dim, kernel_init=self.kernel_init)(embedding)
