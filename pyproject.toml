@@ -1,8 +1,54 @@
-[tool.black]
+[tool.ruff]
 line-length = 100
+exclude = [
+    ".tox",
+    ".git",
+    "__pycache__",
+    "build",
+    "dist",
+    "proto/*",
+    "*.pyc",
+    "*.egg-info",
+    ".cache",
+    ".eggs",
+]
+# Assume Python 3.10
+target-version = "py310"
 
-[tool.isort]
-profile = "black"
+[tool.ruff.lint]
+# Enable a comprehensive set of rules to replace multiple linters
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "I",   # isort
+    "W",   # pycodestyle warnings
+    "C4",  # flake8-comprehensions
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+    "RUF", # Ruff-specific rules
+    "SIM", # simplify
+    "T20", # flake8-print
+    "BLE", # blind-except
+    "PTH", # use pathlib
+    "ERA", # eradicate commented-out code
+    "D",   # pydocstyle
+]
+# Ignore specific rules
+ignore = [
+    "D100", # Missing docstring in public module
+    "D104", # Missing docstring in public package
+]
+# Allow autofix for all enabled rules
+fixable = ["ALL"]
+# Allow unused variables when underscore-prefixed
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+per-file-ignores = { "__init__.py" = ["F401", "F403"] } # Ignore unused imports in __init__.py files
+
+[tool.ruff.lint.isort]
+known-first-party = ["stoix"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
 
 [tool.mypy]
 python_version = "3.10"
@@ -44,39 +90,6 @@ module = [
     "scipy.*",
     "hydra.*",
     "omegaconf.*",
-]
-
-[tool.flake8]
-select = ["A","B","C","D","E","F","G","I","N","T","W"]  # Specify list of error codes to report.
-exclude = [
-    ".tox",
-    ".git",
-    "__pycache__",
-    "build",
-    "dist",
-    "proto/*",
-    "*.pyc",
-    "*.egg-info",
-    ".cache",
-    ".eggs",
-]
-max-line-length=100
-max-cognitive-complexity=18
-import-order-style = "google"
-application-import-names = "stoix"
-doctests = true
-docstring-convention = "google"
-per-file-ignores = "__init__.py:F401"
-
-ignore = [
-    "A002",  # Argument shadowing a Python builtin.
-    "A003",  # Class attribute shadowing a Python builtin.
-    "D107",  # Do not require docstrings for __init__.
-    "E266",  # Do not require block comments to only have a single leading #.
-    "E731",  # Do not assign a lambda expression, use a def.
-    "W503",  # Line break before binary operator (not compatible with black).
-    "B017",  # assertRaises(Exception): or pytest.raises(Exception) should be considered evil.
-    "E203",  # black and flake8 disagree on whitespace before ':'.
 ]
 
 [build-system]
