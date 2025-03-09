@@ -117,6 +117,7 @@ class VisualResNetTorso(nn.Module):
     @nn.compact
     def __call__(self, observation: chex.Array) -> chex.Array:
 
+        # If there is a batch of sequences of images
         if observation.ndim > 4:
             return nn.batch_apply.BatchApply(self.__call__)(observation)
 
