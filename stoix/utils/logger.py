@@ -5,10 +5,12 @@ import zipfile
 from datetime import datetime
 from enum import Enum
 from typing import Dict, List, Union
+from uuid import uuid4
 
 import jax
 import neptune
 import numpy as np
+import tensorboard_logger
 import wandb
 from colorama import Fore, Style
 from jax.typing import ArrayLike
@@ -16,7 +18,6 @@ from marl_eval.json_tools import JsonLogger as MarlEvalJsonLogger
 from neptune.utils import stringify_unsupported
 from omegaconf import DictConfig
 from pandas.io.json._normalize import _simple_json_normalize as flatten_dict
-from tensorboard_logger import configure, log_value
 
 
 class LogEvent(Enum):
@@ -60,6 +61,10 @@ class StoixLogger:
             # {metric1_name: [metrics], metric2_name: ...} ->
             # {metric1_name: {mean: metric, max: metric, ...}, metric2_name: ...}
             metrics = jax.tree_util.tree_map(describe, metrics)
+
+        metrics = jax.tree.map(
+            lambda x: x.item() if isinstance(x, (jax.Array, np.ndarray)) else x, metrics
+        )
 
         self.logger.log_dict(metrics, t, t_eval, event)
 
@@ -105,7 +110,13 @@ class BaseLogger(abc.ABC):
         data = flatten_dict(data, sep="/")
 
         for key, value in data.items():
-            self.log_stat(key, value, step, eval_step, event)
+            self.log_stat(
+                key,
+                value,
+                step,
+                eval_step,
+                event,
+            )
 
     def stop(self) -> None:
         """Stop the logger."""
@@ -230,8 +241,8 @@ class TensorboardLogger(BaseLogger):
         tb_exp_path = get_logger_path(cfg, "tensorboard")
         tb_logs_path = os.path.join(cfg.logger.base_exp_path, f"{tb_exp_path}/{unique_token}")
 
-        configure(tb_logs_path)
-        self.log = log_value
+        self.logger = tensorboard_logger.Logger(tb_logs_path)
+        self.log = self.logger.log_value
 
     def log_stat(self, key: str, value: float, step: int, eval_step: int, event: LogEvent) -> None:
         t = step if event != LogEvent.EVAL else eval_step
@@ -334,7 +345,7 @@ def _make_multi_logger(cfg: DictConfig) -> BaseLogger:
     """Creates a MultiLogger given a config"""
 
     loggers: List[BaseLogger] = []
-    unique_token = datetime.now().strftime("%Y%m%d%H%M%S")
+    unique_token = datetime.now().strftime("%Y%m%d%H%M%S") + str(uuid4())
 
     if (
         (cfg.logger.use_neptune or cfg.logger.use_wandb)
@@ -372,8 +383,10 @@ def get_logger_path(config: DictConfig, logger_type: str) -> str:
 def describe(x: ArrayLike) -> Union[Dict[str, ArrayLike], ArrayLike]:
     """Generate summary statistics for an array of metrics (mean, std, min, max)."""
 
-    if not isinstance(x, (jax.Array, np.ndarray)) or x.size <= 1:
+    if not isinstance(x, (jax.Array, np.ndarray)):
         return x
+    elif x.size <= 1:
+        return np.squeeze(x)
 
     # np instead of jnp because we don't jit here
     return {"mean": np.mean(x), "std": np.std(x), "min": np.min(x), "max": np.max(x)}

@@ -60,7 +60,7 @@ The current code in Stoix was initially **largely** taken and subsequently adapt
 
 3. **Hydra Config System:** Leverage the Hydra configuration system for efficient and consistent management of experiments, network architectures, and environments. Hydra facilitates the easy addition of new hyperparameters and supports multi-runs and Optuna hyperparameter optimization. No more need to create large bash scripts to run a series of experiments with differing hyperparameters, network architectures or environments.
 
-4. **Advanced Logging:** Stoix features advanced and configurable logging, ready for output to the terminal, TensorBoard, and other ML tracking dashboards (WandB and Neptune). It also supports logging experiments in JSON format ready for statistical tests and generating RLiable plots (see the plotting notebook). This enables statistically confident comparisons of algorithms natively.
+4. **Advanced Logging:** Stoix features advanced and configurable logging, ready for output to the terminal, TensorBoard, and other ML tracking dashboards (WandB and Neptune). It also supports logging experiments in JSON format ready for statistical tests and generating RLiable plots (see the notebook in the plotting folder). This enables statistically confident comparisons of algorithms natively.
 
 Stoix currently offers the following building blocks for Single-Agent RL research:
 
@@ -74,6 +74,7 @@ Stoix currently offers the following building blocks for Single-Agent RL researc
 - **Quantile Regression DQN (QR-DQN)** - [Paper](https://arxiv.org/abs/1710.10044)
 - **DQN with Regularized Q-learning (DQN-Reg)** [Paper](https://arxiv.org/abs/2101.03958)
 - **Rainbow** - [Paper](https://arxiv.org/abs/1710.02298)
+- **Recurrent Experience Replay in Distributed Reinforcement Learning (R2D2)** - [Paper](https://openreview.net/pdf?id=r1lyTjAqYX)
 - **REINFORCE With Baseline** - [Paper](https://people.cs.umass.edu/~barto/courses/cs687/williams92simple.pdf)
 - **Deep Deterministic Policy Gradient (DDPG)** - [Paper](https://arxiv.org/abs/1509.02971)
 - **Twin Delayed DDPG (TD3)** - [Paper](https://arxiv.org/abs/1802.09477)
@@ -162,6 +163,28 @@ or if you wanted to do dueling C51, you could do:
 python stoix/systems/q_learning/ff_c51.py network=mlp_dueling_c51
 ```
 
+### SLURM Launcher for Distributed Experiments
+
+For users with access to SLURM clusters, Stoix includes a lightweight flexible SLURM launcher that leverages Hydra and [submitit](https://github.com/facebookincubator/submitit) to simplify running large-scale experiments in parallel. This launcher lets you easily specify different algorithms (by their execution file), environments (by configs), and seeds --- and it automatically submits a separate job for each combination.
+
+**Key features include:**
+
+- **Hydra Integration:** Configure your experiments and SLURM parameters (such as time, partition, memory, etc.) in a single Hydra config file or override them on the fly from the command line.
+- **Parallel Job Submission:** Automatically submits individual SLURM jobs for each experiment combination, enabling you to distribute your workload across multiple nodes and GPUs.
+- **Resource Flexibility:** Easily customize your SLURM resource requirements (e.g., nodes, GPUs per node, cpus per task) to best suit your hardware and research needs.
+
+**Usage Example:**
+
+To launch your experiments on a SLURM cluster with a custom time limit and partition, run:
+
+```bash
+python launcher.py slurm.time=00:30:00 slurm.partition=gpu
+```
+
+In this example, the launcher uses the provided overrides to set the job timeout to 30 minutes and submit jobs to the GPU partition. For more advanced configurations, simply adjust or add more overrides as needed.
+
+This SLURM launcher is designed to assist with research, making it simple to scale up your experiments without having to write large batch scripts manually.
+
 ## Important Considerations
 
 1. If your environment does not have a timestep limit or is not guaranteed to end through some game mechanic, then it is possible for the evaluation to seem as if it is hanging forever thereby stalling the training but in fact your agent is just so good _or bad_ that the episode never finishes. Keep this in mind if you are seeing this behaviour. One solution is to simply add a time step limit or potentially action masking.
@@ -187,7 +210,6 @@ We plan to iteratively expand Stoix in the following increments:
 - 🦾 More algorithm implementations:
     - [ ] Muesli - [Paper](https://arxiv.org/abs/2104.06159)
     - [ ] DreamerV3 - [Paper](https://arxiv.org/abs/2301.04104)
-    - [ ] R2D2 - [Paper](https://openreview.net/pdf?id=r1lyTjAqYX)
 - 🎮 Self-play 2-player Systems for board games.
 
 Please do follow along as we develop this next phase!

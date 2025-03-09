@@ -148,6 +148,18 @@ class OffPolicyLearnerState(NamedTuple):
     timestep: TimeStep
 
 
+class RNNOffPolicyLearnerState(NamedTuple):
+    params: Parameters
+    opt_states: OptStates
+    buffer_state: BufferState
+    key: chex.PRNGKey
+    env_state: LogEnvState
+    timestep: TimeStep
+    dones: Done
+    truncated: Truncated
+    hstates: HiddenStates
+
+
 class OnlineAndTarget(NamedTuple):
     online: FrozenDict
     target: FrozenDict
