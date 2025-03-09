@@ -1,5 +1,3 @@
-from typing import Dict, Optional
-
 import gymnasium
 import numpy as np
 from jumanji.specs import Array, DiscreteArray, Spec
@@ -33,7 +31,7 @@ class VecGymToJumanji:
         self.episode_length = np.zeros(self.num_envs, dtype=int)
 
     def reset(
-        self, *, seed: Optional[list[int]] = None, options: Optional[list[dict]] = None
+        self, *, seed: list[int] | None = None, options: list[dict] | None = None
     ) -> TimeStep:
         obs, info = self.env.reset(seed=seed, options=options)
         obs = np.asarray(obs)
@@ -113,12 +111,12 @@ class VecGymToJumanji:
 
         return timestep
 
-    def _format_observation(self, obs: NDArray, info: Dict) -> Observation:
+    def _format_observation(self, obs: NDArray, info: dict) -> Observation:
         action_mask = self._default_action_mask
         return Observation(agent_view=obs, action_mask=action_mask)
 
     def _create_timestep(
-        self, obs: NDArray, ep_done: NDArray, terminated: NDArray, rewards: NDArray, info: Dict
+        self, obs: NDArray, ep_done: NDArray, terminated: NDArray, rewards: NDArray, info: dict
     ) -> TimeStep:
         obs = self._format_observation(obs, info)
         extras = {"metrics": info["metrics"]}

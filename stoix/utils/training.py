@@ -1,4 +1,4 @@
-from typing import Callable, Optional, Union
+from collections.abc import Callable
 
 from omegaconf import DictConfig
 
@@ -29,8 +29,8 @@ def make_learning_rate_schedule(
 
 
 def make_learning_rate(
-    init_lr: float, config: DictConfig, num_epochs: int, num_minibatches: Optional[int] = None
-) -> Union[float, Callable]:
+    init_lr: float, config: DictConfig, num_epochs: int, num_minibatches: int | None = None
+) -> float | Callable:
     """Returns a constant learning rate or a learning rate schedule.
 
     Args:

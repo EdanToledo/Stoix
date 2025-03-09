@@ -1,7 +1,8 @@
 import copy
 import time
+from collections.abc import Callable
 from functools import partial
-from typing import Any, Callable, Dict, Tuple
+from typing import Any
 
 import chex
 import flashbax as fbx
@@ -57,14 +58,14 @@ def get_warmup_fn(
         hstates: chex.Array,
         dones: chex.Array,
         truncateds: chex.Array,
-    ) -> Tuple[
+    ) -> tuple[
         LogEnvState, TimeStep, BufferState, chex.PRNGKey, chex.Array, chex.Array, chex.Array
     ]:
         def _env_step(
-            carry: Tuple[chex.PRNGKey, LogEnvState, TimeStep, chex.Array, chex.Array, chex.Array],
+            carry: tuple[chex.PRNGKey, LogEnvState, TimeStep, chex.Array, chex.Array, chex.Array],
             _: Any,
-        ) -> Tuple[
-            Tuple[chex.PRNGKey, LogEnvState, TimeStep, chex.Array, chex.Array, chex.Array],
+        ) -> tuple[
+            tuple[chex.PRNGKey, LogEnvState, TimeStep, chex.Array, chex.Array, chex.Array],
             RNNTransition,
         ]:
             """Step the environment."""
@@ -122,13 +123,16 @@ def get_warmup_fn(
 
         # STEP ENVIRONMENT FOR WARMUP LENGTH
         (
-            new_keys,
-            new_env_states,
-            new_timesteps,
-            new_done,
-            new_truncated,
-            new_hstates,
-        ), traj_batch = jax.lax.scan(
+            (
+                new_keys,
+                new_env_states,
+                new_timesteps,
+                new_done,
+                new_truncated,
+                new_hstates,
+            ),
+            traj_batch,
+        ) = jax.lax.scan(
             _env_step,
             (keys, env_states, timesteps, dones, truncateds, hstates),
             None,
@@ -163,7 +167,7 @@ def get_learner_fn(
     env: Environment,
     q_apply_fn: ActorApply,
     q_update_fn: optax.TransformUpdateFn,
-    buffer_fns: Tuple[Callable, Callable, Callable],
+    buffer_fns: tuple[Callable, Callable, Callable],
     transform_pair: TxPair,
     importance_weight_scheduler_fn: Callable,
     config: DictConfig,
@@ -199,10 +203,10 @@ def get_learner_fn(
 
     def _update_step(
         learner_state: RNNOffPolicyLearnerState, _: Any
-    ) -> Tuple[RNNOffPolicyLearnerState, Tuple]:
+    ) -> tuple[RNNOffPolicyLearnerState, tuple]:
         def _env_step(
             learner_state: RNNOffPolicyLearnerState, _: Any
-        ) -> Tuple[RNNOffPolicyLearnerState, RNNTransition]:
+        ) -> tuple[RNNOffPolicyLearnerState, RNNTransition]:
             """Step the environment."""
             (
                 params,
@@ -288,7 +292,7 @@ def get_learner_fn(
         traj_batch = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), traj_batch)
         buffer_state = buffer_add_fn(buffer_state, traj_batch)
 
-        def _update_epoch(update_state: Tuple, _: Any) -> Tuple:
+        def _update_epoch(update_state: tuple, _: Any) -> tuple:
             """Update the network for a single epoch."""
 
             def _q_loss_fn(
@@ -297,8 +301,7 @@ def get_learner_fn(
                 sequences: RNNTransition,
                 sequences_probs: chex.Array,
                 importance_sampling_exponent: float,
-            ) -> Tuple[jnp.ndarray, Dict[str, Any]]:
-
+            ) -> tuple[jnp.ndarray, dict[str, Any]]:
                 # Split sequence into burn-in and learning segments
                 # Burn-in is used to warm up the RNN hidden state without generating gradients
                 burn_in_length = config.system.burn_in_length
@@ -468,7 +471,6 @@ def get_learner_fn(
         updates. The `_update_step` function is vectorized over a batch of inputs.
 
         """
-
         batched_update_step = jax.vmap(_update_step, in_axes=(0, None), axis_name="batch")
         learner_state, (episode_info, loss_info) = jax.lax.scan(
             batched_update_step, learner_state, None, config.arch.num_updates_per_eval
@@ -484,7 +486,7 @@ def get_learner_fn(
 
 def learner_setup(
     env: Environment, keys: chex.Array, config: DictConfig
-) -> Tuple[
+) -> tuple[
     LearnerFn[RNNOffPolicyLearnerState], RecurrentActor, RNNOffPolicyLearnerState, ScannedRNN
 ]:
     """Initialize networks, optimizers and states for R2D2 training.
@@ -779,7 +781,7 @@ def run_experiment(_config: DictConfig) -> float:
 
     # Logger setup
     logger = StoixLogger(config)
-    cfg: Dict = OmegaConf.to_container(config, resolve=True)
+    cfg: dict = OmegaConf.to_container(config, resolve=True)
     cfg["arch"]["devices"] = jax.devices()
     pprint(cfg)
 

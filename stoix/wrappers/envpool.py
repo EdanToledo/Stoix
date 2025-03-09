@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional
+from typing import Any
 
 import numpy as np
 from jumanji.specs import Array, DiscreteArray, Spec
@@ -40,7 +40,7 @@ class EnvPoolToJumanji:
         self._use_gym_autoreset_api = True
 
     def reset(
-        self, *, seed: Optional[list[int]] = None, options: Optional[list[dict]] = None
+        self, *, seed: list[int] | None = None, options: list[dict] | None = None
     ) -> TimeStep:
         obs, info = self.env.reset()
 
@@ -86,10 +86,7 @@ class EnvPoolToJumanji:
                 obs[env_ids_to_reset] = reset_obs
 
         # Counting episode return and length.
-        if "reward" in info:
-            metric_reward = info["reward"]
-        else:
-            metric_reward = rewards
+        metric_reward = info.get("reward", rewards)
 
         # Counting episode return and length.
         new_episode_return = self.running_count_episode_return + metric_reward
@@ -138,12 +135,12 @@ class EnvPoolToJumanji:
 
         return timestep
 
-    def _format_observation(self, obs: NDArray, info: Dict) -> Observation:
+    def _format_observation(self, obs: NDArray, info: dict) -> Observation:
         action_mask = self._default_action_mask
         return Observation(agent_view=obs, action_mask=action_mask)
 
     def _create_timestep(
-        self, obs: NDArray, ep_done: NDArray, terminated: NDArray, rewards: NDArray, info: Dict
+        self, obs: NDArray, ep_done: NDArray, terminated: NDArray, rewards: NDArray, info: dict
     ) -> TimeStep:
         obs = self._format_observation(obs, info)
         extras = {"metrics": info["metrics"]}

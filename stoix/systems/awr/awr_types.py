@@ -1,5 +1,3 @@
-from typing import Dict
-
 import chex
 from flashbax.buffers.trajectory_buffer import BufferState
 from jumanji.types import TimeStep
@@ -29,4 +27,4 @@ class SequenceStep(NamedTuple):
     reward: chex.Array
     done: Done
     truncated: Truncated
-    info: Dict
+    info: dict

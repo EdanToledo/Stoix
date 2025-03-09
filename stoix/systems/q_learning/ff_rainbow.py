@@ -1,11 +1,12 @@
 import copy
 import time
-from typing import TYPE_CHECKING, Any, Callable, Dict, Tuple
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 from stoix.systems.q_learning.dqn_types import Transition
 from stoix.utils.checkpointing import Checkpointer
 from stoix.utils.jax_utils import unreplicate_batch_dim, unreplicate_n_dims
-from stoix.utils.loss import categorical_double_q_learning  # noqa: F401
+from stoix.utils.loss import categorical_double_q_learning
 from stoix.utils.multistep import batch_discounted_returns
 from stoix.utils.training import make_learning_rate
 from stoix.wrappers.episode_metrics import get_final_step_metrics
@@ -56,12 +57,11 @@ def get_warmup_fn(
 ) -> Callable:
     def warmup(
         env_states: LogEnvState, timesteps: TimeStep, buffer_states: BufferState, keys: chex.PRNGKey
-    ) -> Tuple[LogEnvState, TimeStep, BufferState, chex.PRNGKey]:
+    ) -> tuple[LogEnvState, TimeStep, BufferState, chex.PRNGKey]:
         def _env_step(
-            carry: Tuple[LogEnvState, TimeStep, chex.PRNGKey], _: Any
-        ) -> Tuple[Tuple[LogEnvState, TimeStep, chex.PRNGKey], Transition]:
+            carry: tuple[LogEnvState, TimeStep, chex.PRNGKey], _: Any
+        ) -> tuple[tuple[LogEnvState, TimeStep, chex.PRNGKey], Transition]:
             """Step the environment."""
-
             env_state, last_timestep, key = carry
             # SELECT ACTION
             key, policy_key, noise_key = jax.random.split(key, num=3)
@@ -107,20 +107,19 @@ def get_learner_fn(
     env: Environment,
     q_apply_fn: ActorApply,
     q_update_fn: optax.TransformUpdateFn,
-    buffer_fns: Tuple[Callable, Callable, Callable],
+    buffer_fns: tuple[Callable, Callable, Callable],
     importance_weight_scheduler_fn: Callable,
     config: DictConfig,
 ) -> LearnerFn[OffPolicyLearnerState]:
     """Get the learner function."""
-
     buffer_add_fn, buffer_sample_fn, buffer_set_priorities = buffer_fns
 
     def _update_step(
         learner_state: OffPolicyLearnerState, _: Any
-    ) -> Tuple[OffPolicyLearnerState, Tuple]:
+    ) -> tuple[OffPolicyLearnerState, tuple]:
         def _env_step(
             learner_state: OffPolicyLearnerState, _: Any
-        ) -> Tuple[OffPolicyLearnerState, Transition]:
+        ) -> tuple[OffPolicyLearnerState, Transition]:
             """Step the environment."""
             q_params, opt_states, buffer_state, key, env_state, last_timestep = learner_state
 
@@ -160,7 +159,7 @@ def get_learner_fn(
         traj_batch = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), traj_batch)
         buffer_state = buffer_add_fn(buffer_state, traj_batch)
 
-        def _update_epoch(update_state: Tuple, _: Any) -> Tuple:
+        def _update_epoch(update_state: tuple, _: Any) -> tuple:
             """Update the network for a single epoch."""
 
             def _q_loss_fn(
@@ -311,7 +310,6 @@ def get_learner_fn(
         by iteratively applying the `_update_step` function for a fixed number of
         updates. The `_update_step` function is vectorized over a batch of inputs.
         """
-
         batched_update_step = jax.vmap(_update_step, in_axes=(0, None), axis_name="batch")
 
         learner_state, (episode_info, loss_info) = jax.lax.scan(
@@ -331,14 +329,14 @@ class EvalActorWrapper:
     actor: Actor
 
     def apply(
-        self, params: FrozenDict, x: Observation, rngs: Dict[str, chex.PRNGKey]
+        self, params: FrozenDict, x: Observation, rngs: dict[str, chex.PRNGKey]
     ) -> distrax.EpsilonGreedy:
         return self.actor.apply(params, x, rngs=rngs)[0]
 
 
 def learner_setup(
     env: Environment, keys: chex.Array, config: DictConfig
-) -> Tuple[LearnerFn[OffPolicyLearnerState], EvalActorWrapper, OffPolicyLearnerState]:
+) -> tuple[LearnerFn[OffPolicyLearnerState], EvalActorWrapper, OffPolicyLearnerState]:
     """Initialise learner_fn, network, optimiser, environment and states."""
     # Get available TPU cores.
     n_devices = len(jax.devices())
@@ -554,7 +552,7 @@ def run_experiment(_config: DictConfig) -> float:
 
     # Logger setup
     logger = StoixLogger(config)
-    cfg: Dict = OmegaConf.to_container(config, resolve=True)
+    cfg: dict = OmegaConf.to_container(config, resolve=True)
     cfg["arch"]["devices"] = jax.devices()
     pprint(cfg)
 

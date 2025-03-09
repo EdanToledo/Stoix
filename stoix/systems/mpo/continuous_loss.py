@@ -1,5 +1,3 @@
-from typing import Tuple, Union
-
 import chex
 import jax
 import jax.numpy as jnp
@@ -19,7 +17,7 @@ _MPO_FLOAT_EPSILON = 1e-8
 _MIN_LOG_TEMPERATURE = -18.0
 _MIN_LOG_ALPHA = -18.0
 
-Shape = Tuple[int]
+Shape = tuple[int]
 DType = type(jnp.float32)
 
 
@@ -27,7 +25,7 @@ def compute_weights_and_temperature_loss(
     q_values: chex.Array,
     epsilon: float,
     temperature: chex.Array,
-) -> Tuple[chex.Array, chex.Array]:
+) -> tuple[chex.Array, chex.Array]:
     """Computes normalized importance weights for the policy optimization.
 
     Args:
@@ -44,7 +42,6 @@ def compute_weights_and_temperature_loss(
       Normalized importance weights, used for policy optimization.
       Temperature loss, used to adapt the temperature.
     """
-
     # Temper the given Q-values using the current temperature.
     tempered_q_values = jax.lax.stop_gradient(q_values) / temperature
 
@@ -66,7 +63,6 @@ def compute_nonparametric_kl_from_normalized_weights(
     normalized_weights: chex.Array,
 ) -> chex.Array:
     """Estimate the actualized KL between the non-parametric and target policies."""
-
     # Compute integrand.
     num_action_samples = normalized_weights.shape[0] / 1.0
     integrand = jnp.log(num_action_samples * normalized_weights + 1e-8)
@@ -94,7 +90,6 @@ def compute_cross_entropy_loss(
       loss_policy_gradient: the cross-entropy loss that, when differentiated,
         produces the policy gradient.
     """
-
     # Compute the M-step loss.
     log_prob = online_action_distribution.log_prob(sampled_actions)
 
@@ -109,7 +104,7 @@ def compute_parametric_kl_penalty_and_dual_loss(
     kl: chex.Array,
     alpha: chex.Array,
     epsilon: float,
-) -> Tuple[chex.Array, chex.Array]:
+) -> tuple[chex.Array, chex.Array]:
     """Computes the KL cost to be added to the Lagragian and its dual loss.
 
     The KL cost is simply the alpha-weighted KL divergence and it is added as a
@@ -126,7 +121,6 @@ def compute_parametric_kl_penalty_and_dual_loss(
       loss_kl: alpha-weighted KL regularization to be added to the policy loss.
       loss_alpha: The Lagrange dual loss minimized to adapt alpha.
     """
-
     # Compute the mean KL over the batch.
     mean_kl = jnp.mean(kl, axis=0)
 
@@ -151,8 +145,8 @@ def clip_dual_params(params: DualParams) -> DualParams:
 
 def mpo_loss(
     dual_params: DualParams,
-    online_action_distribution: Union[MultivariateNormalDiag, Independent],
-    target_action_distribution: Union[MultivariateNormalDiag, Independent],
+    online_action_distribution: MultivariateNormalDiag | Independent,
+    target_action_distribution: MultivariateNormalDiag | Independent,
     target_sampled_actions: chex.Array,  # Shape [N, B, D].
     target_sampled_q_values: chex.Array,  # Shape [N, B].
     epsilon: float,
@@ -161,7 +155,7 @@ def mpo_loss(
     per_dim_constraining: bool,
     action_minimum: float,
     action_maximum: float,
-) -> Tuple[chex.Array, chex.ArrayTree]:
+) -> tuple[chex.Array, chex.ArrayTree]:
     """Computes the decoupled MPO loss.
 
     Args:
@@ -189,7 +183,6 @@ def mpo_loss(
         adapt the dual variables.
         Stats, for diagnostics and tracking performance.
     """
-
     if not isinstance(target_action_distribution, Independent):
         raise ValueError("Target action distribution must be a Independent distribution.")
     if not isinstance(online_action_distribution, Independent):

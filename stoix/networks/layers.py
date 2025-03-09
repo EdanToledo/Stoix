@@ -1,5 +1,3 @@
-from typing import List, Optional, Tuple
-
 import chex
 import jax
 import jax.numpy as jnp
@@ -14,8 +12,7 @@ default_kernel_init = initializers.lecun_normal()
 
 
 class StackedRNN(nn.Module):
-    """
-    A class representing a stacked recurrent neural network (RNN).
+    """A class representing a stacked recurrent neural network (RNN).
 
     Attributes:
         rnn_size (int): The size of the hidden state for each RNN cell.
@@ -39,10 +36,9 @@ class StackedRNN(nn.Module):
         ]
 
     def __call__(
-        self, all_rnn_states: List[chex.ArrayTree], x: chex.Array
-    ) -> Tuple[List[chex.ArrayTree], chex.Array]:
-        """
-        Run the stacked RNN cells on the input.
+        self, all_rnn_states: list[chex.ArrayTree], x: chex.Array
+    ) -> tuple[list[chex.ArrayTree], chex.Array]:
+        """Run the stacked RNN cells on the input.
 
         Args:
             all_rnn_states (List[chex.ArrayTree]): List of RNN states for each layer.
@@ -61,7 +57,7 @@ class StackedRNN(nn.Module):
         ), f"Expected {self.num_layers} RNN states, but got {len(all_rnn_states)}."
 
         new_states = []
-        for cell, rnn_state in zip(self.cells, all_rnn_states):
+        for cell, rnn_state in zip(self.cells, all_rnn_states, strict=False):
             new_rnn_state, x = cell(rnn_state, x)
             new_states.append(new_rnn_state)
 
@@ -69,8 +65,7 @@ class StackedRNN(nn.Module):
 
 
 class NoisyLinear(nn.Module):
-    """
-    Noisy Linear Layer using independent Gaussian noise
+    """Noisy Linear Layer using independent Gaussian noise
     as defined in Fortunato et al. (2018):
 
     y = (μ_w + σ_w * ε_w) . x + μ_b + σ_b * ε_b,
@@ -86,7 +81,7 @@ class NoisyLinear(nn.Module):
 
     features: int
     use_bias: bool = True
-    dtype: Optional[Dtype] = None
+    dtype: Dtype | None = None
     param_dtype: Dtype = jnp.float32
     precision: PrecisionLike = None
     kernel_init: Initializer = default_kernel_init
@@ -102,11 +97,9 @@ class NoisyLinear(nn.Module):
         return self._scale_noise(jax.random.normal(self.make_rng("noise"), shape))
 
     def _get_noise_matrix_and_vect(self, shape: tuple) -> tuple[chex.Array, chex.Array]:
-        """
-        Uses Factorized Gaussian Noise to generate the noise matrix ε_w
+        """Uses Factorized Gaussian Noise to generate the noise matrix ε_w
         and noise vector ε_b.
         """
-
         n_rows, n_cols = shape
         row_noise = self._generate_noise((n_rows,))
         col_noise = self._generate_noise((n_cols,))
@@ -117,7 +110,6 @@ class NoisyLinear(nn.Module):
 
     @nn.compact
     def __call__(self, inputs: chex.Array) -> chex.Array:
-
         input_dim = jnp.shape(inputs)[-1]
         kernel_shape = (input_dim, self.features)
         bias_vector_shape = (self.features,)
