@@ -381,8 +381,8 @@ def get_sebulba_eval_fn(
     if eval_episodes % n_parallel_envs != 0:
         msg = (
             f"Please note that the number of evaluation episodes ({eval_episodes}) is not "
-            f"evenly divisible by `num_envs`. As a result, some additional evaluations will be "
-            f"conducted. The adjusted number of evaluation episodes is now "
+            f"evenly divisible by `num_envs`. As a result, some additional evaluations will "
+            f"be conducted. The adjusted number of evaluation episodes is now "
             f"{episode_loops * n_parallel_envs}."
         )
         print(f"{Fore.YELLOW}{Style.BRIGHT}{msg}{Style.RESET_ALL}")

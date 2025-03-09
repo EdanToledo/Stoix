@@ -76,9 +76,15 @@ class CNNTorso(nn.Module):
     def __call__(self, observation: chex.Array) -> chex.Array:
         """Forward pass."""
         x = observation
-        # Move channels to the last dimension if they are first
+
+        # If there is a batch of sequences of images
+        if observation.ndim > 4:
+            return nn.batch_apply.BatchApply(self.__call__)(observation)
+
+        # If the input is in the form of [B, C, H, W], we need to transpose it to [B, H, W, C]
         if self.channel_first:
             x = x.transpose((0, 2, 3, 1))
+
         # Convolutional layers
         for channel, kernel, stride in zip(
             self.channel_sizes, self.kernel_sizes, self.strides, strict=False
