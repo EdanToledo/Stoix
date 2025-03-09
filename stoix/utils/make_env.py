@@ -28,7 +28,7 @@ from stoix.utils.env_factory import EnvFactory, EnvPoolFactory, GymnasiumFactory
 from stoix.wrappers import GymnaxWrapper, JumanjiWrapper, RecordEpisodeMetrics
 from stoix.wrappers.brax import BraxJumanjiWrapper
 from stoix.wrappers.jax_to_factory import JaxEnvFactory
-from stoix.wrappers.jaxmarl import JaxMarlWrapper, MabraxWrapper, SmaxWrapper
+from stoix.wrappers.jaxmarl import JaxMarlWrapper, MabraxWrapper, MPEWrapper, SmaxWrapper
 from stoix.wrappers.navix import NavixWrapper
 from stoix.wrappers.pgx import PGXWrapper
 from stoix.wrappers.transforms import (
@@ -166,22 +166,20 @@ def make_jaxmarl_env(
     Returns:
         A JAXMARL environment.
     """
-    _jaxmarl_wrappers = {"Smax": SmaxWrapper, "MaBrax": MabraxWrapper}
+    _jaxmarl_wrappers = {"smax": SmaxWrapper, "mabrax": MabraxWrapper, "mpe": MPEWrapper}
 
     kwargs = dict(config.env.kwargs)
     if "smax" in env_name.lower():
         kwargs["scenario"] = map_name_to_scenario(config.env.scenario.task_name)
 
     # Create jaxmarl envs.
-    env = _jaxmarl_wrappers.get(config.env.env_name, JaxMarlWrapper)(
+    env = _jaxmarl_wrappers.get(config.env.env_name.lower(), JaxMarlWrapper)(
         jaxmarl.make(env_name, **kwargs),
         config.env.add_global_state,
-        config.env.add_agent_ids_to_state,
     )
-    eval_env = _jaxmarl_wrappers.get(config.env.env_name, JaxMarlWrapper)(
+    eval_env = _jaxmarl_wrappers.get(config.env.env_name.lower(), JaxMarlWrapper)(
         jaxmarl.make(env_name, **kwargs),
         config.env.add_global_state,
-        config.env.add_agent_ids_to_state,
     )
     env = MultiToSingleWrapper(env, reward_aggregator=jnp.mean)
     eval_env = MultiToSingleWrapper(eval_env, reward_aggregator=jnp.mean)

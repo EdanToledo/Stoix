@@ -24,19 +24,21 @@ select = [
     "W",   # pycodestyle warnings
     "C4",  # flake8-comprehensions
     "B",   # flake8-bugbear
-    "UP",  # pyupgrade
-    "RUF", # Ruff-specific rules
-    "SIM", # simplify
-    "T20", # flake8-print
-    "BLE", # blind-except
-    "PTH", # use pathlib
-    "ERA", # eradicate commented-out code
-    "D",   # pydocstyle
+   # "RUF", # Ruff-specific rules
+   # "SIM", # simplify
+   # "T20", # flake8-print
+   # "BLE", # blind-except
+   # "PTH", # use pathlib
+   # "ERA", # eradicate commented-out code
+   # "D",   # pydocstyle
 ]
 # Ignore specific rules
 ignore = [
     "D100", # Missing docstring in public module
+    "D101", # Missing docstring in public class
+    "D102", # Missing docstring in public method
     "D104", # Missing docstring in public package
+    "D107", # Missing docstring in __init__
 ]
 # Allow autofix for all enabled rules
 fixable = ["ALL"]

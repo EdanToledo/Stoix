@@ -13,7 +13,7 @@ def check_total_timesteps(config: DictConfig) -> DictConfig:
 
 
 def check_total_timesteps_anakin(config: DictConfig) -> DictConfig:
-    """Check if total_timesteps is set, if not, set it based on the other parameters"""
+    """Check if total_timesteps is set, if not, set it based on the other parameters."""
     print(f"{Fore.YELLOW}{Style.BRIGHT}Using Anakin System!{Style.RESET_ALL}")
 
     assert config.arch.total_num_envs % (config.num_devices * config.arch.update_batch_size) == 0, (

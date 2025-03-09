@@ -86,10 +86,7 @@ class EnvPoolToJumanji:
                 obs[env_ids_to_reset] = reset_obs
 
         # Counting episode return and length.
-        if "reward" in info:
-            metric_reward = info["reward"]
-        else:
-            metric_reward = rewards
+        metric_reward = info.get("reward", rewards)
 
         # Counting episode return and length.
         new_episode_return = self.running_count_episode_return + metric_reward

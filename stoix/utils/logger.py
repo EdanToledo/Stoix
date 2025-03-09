@@ -330,7 +330,7 @@ class ConsoleLogger(BaseLogger):
 
         colour = self._EVENT_COLOURS[event]
         # Replace underscores with spaces and capitalise keys.
-        keys = [k.replace("_", " ").capitalize() for k in data.keys()]
+        keys = [k.replace("_", " ").capitalize() for k in data]
         # Round values to 3 decimal places if they are floats.
         values = [v if isinstance(v, int) else f"{float(v):.3f}" for v in data.values()]
         log_str = " | ".join([f"{k}: {v}" for k, v in zip(keys, values, strict=False)])

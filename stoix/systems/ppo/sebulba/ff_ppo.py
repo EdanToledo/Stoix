@@ -87,11 +87,16 @@ def get_rollout_fn(
 ) -> Callable[[chex.PRNGKey], None]:
     """Get the rollout function that is used by the actor threads."""
     # Unpack and set up the functions
+
+    def move_to_device(tree: Any) -> Any:
+        """Move a pytree to the actor device."""
+        return jax.tree.map(lambda x: jax.device_put(x, actor_device), tree)
+
     act_fn = get_act_fn(apply_fns)
     act_fn = jax.jit(act_fn, device=actor_device)
     cpu = jax.devices("cpu")[0]
-    move_to_device = lambda tree: jax.tree.map(lambda x: jax.device_put(x, actor_device), tree)
     split_key_fn = jax.jit(jax.random.split, device=actor_device)
+
     # Build the environments
     envs = env_factory(config.arch.actor.num_envs_per_actor)
 

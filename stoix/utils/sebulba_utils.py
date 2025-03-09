@@ -34,7 +34,8 @@ class OnPolicyPipeline(threading.Thread):
     """
 
     def __init__(self, max_size: int, learner_devices: list[jax.Device], lifetime: ThreadLifetime):
-        """Initializes the pipeline with a maximum size and the devices to shard trajectories across.
+        """Initializes the pipeline with a maximum size and the devices to shard
+        trajectories across.
 
         Args:
             max_size: The maximum number of trajectories to keep in the pipeline.
@@ -79,8 +80,7 @@ class OnPolicyPipeline(threading.Thread):
         # Split trajectory on the num envs axis so each learner device gets a valid full rollout
         sharded_traj = jax.tree.map(lambda x: self.shard_split_playload(x, axis=1), traj)
 
-        # Timestep[(num_envs, ...), ...] -->
-        # [(num_envs / num_learner_devices, ...)] * num_learner_devices
+        # Timestep[(num_envs, ...), ...] --> [(num_envs / num_learner_devices, ...)] * num_devices
         sharded_timestep = jax.tree.map(self.shard_split_playload, timestep)
 
         # Concatenate metrics - List[Dict[str, List[float]]] --> Dict[str, List[float]]

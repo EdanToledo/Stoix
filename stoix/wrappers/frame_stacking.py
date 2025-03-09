@@ -72,7 +72,7 @@ class FrameStackingWrapper(Wrapper):
 
     def update_spec(self, spec: specs.Spec) -> specs.Spec:
         if not self._flatten:
-            new_shape = spec.shape + (self._num_frames,)
+            new_shape = (*spec.shape, self._num_frames)
         else:
             new_shape = spec.shape[:-1] + (self._num_frames * spec.shape[-1],)
         if type(spec) is specs.Array:
