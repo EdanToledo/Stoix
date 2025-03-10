@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Tuple, Union
+from typing import TYPE_CHECKING
 
 import chex
 import gymnax.environments.spaces as gymnax_spaces
@@ -21,7 +21,7 @@ else:
 
 
 def gymnax_space_to_jumanji_spec(
-    space: Union[gymnax_spaces.Discrete, gymnax_spaces.Box, gymnax_spaces.Dict]
+    space: gymnax_spaces.Discrete | gymnax_spaces.Box | gymnax_spaces.Dict,
 ) -> Spec:
     """Converts Gymnax spaces to Jumanji specs."""
     if isinstance(space, gymnax_spaces.Discrete):
@@ -64,7 +64,7 @@ class GymnaxWrapper(Wrapper):
             n_actions = self.action_spec().shape[0]
         self._legal_action_mask = jnp.ones((n_actions,), dtype=float)
 
-    def reset(self, key: chex.PRNGKey) -> Tuple[GymnaxEnvState, TimeStep]:
+    def reset(self, key: chex.PRNGKey) -> tuple[GymnaxEnvState, TimeStep]:
         key, reset_key = jax.random.split(key)
         obs, gymnax_state = self._env.reset(reset_key, self._env_params)
         obs = Observation(obs, self._legal_action_mask, jnp.array(0, dtype=int))
@@ -74,7 +74,7 @@ class GymnaxWrapper(Wrapper):
         )
         return state, timestep
 
-    def step(self, state: GymnaxEnvState, action: chex.Array) -> Tuple[GymnaxEnvState, TimeStep]:
+    def step(self, state: GymnaxEnvState, action: chex.Array) -> tuple[GymnaxEnvState, TimeStep]:
         key, key_step = jax.random.split(state.key)
         obs, gymnax_state, reward, done, _ = self._env.step(
             key_step, state.gymnax_env_state, action, self._env_params

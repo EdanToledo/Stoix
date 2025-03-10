@@ -9,9 +9,7 @@ import wandb
 
 
 def parse_args():
-    """
-    Parses command-line arguments for this script.
-    """
+    """Parses command-line arguments for this script."""
     parser = argparse.ArgumentParser(
         description="""Download and optionally unzip files from W&B runs based on given filters.
         This is mainly a helper function to pull the JSON results files from different wandb runs
@@ -57,8 +55,7 @@ def parse_args():
 
 
 def main() -> int:
-    """
-    Main entry point: queries W&B for runs with specified tags, downloads the desired file,
+    """Main entry point: queries W&B for runs with specified tags, downloads the desired file,
     and (if it's a zip) unzips it into a dedicated subdirectory.
 
     :return: Exit code (0 if everything succeeds).

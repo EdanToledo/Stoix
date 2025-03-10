@@ -1,7 +1,7 @@
 import os
 import warnings
 from datetime import datetime
-from typing import Any, Dict, NamedTuple, Optional, Tuple, Type, Union
+from typing import Any, NamedTuple
 
 import absl.logging as absl_logging
 import orbax.checkpoint
@@ -24,9 +24,8 @@ from stoix.base_types import (
 CHECKPOINTER_VERSION = 1.0
 
 
-def instantiate_namedtuple_from_dict(namedtuple_cls: Type[NamedTuple], data: Dict[str, Any]) -> Any:
-    """
-    Recursively constructs a named tuple from a dictionary.
+def instantiate_namedtuple_from_dict(namedtuple_cls: type[NamedTuple], data: dict[str, Any]) -> Any:
+    """Recursively constructs a named tuple from a dictionary.
 
     Args:
         namedtuple_cls (Type[NamedTuple]): The class of the named tuple to be instantiated.
@@ -69,12 +68,12 @@ class Checkpointer:
     def __init__(
         self,
         model_name: str,
-        metadata: Optional[Dict] = None,
+        metadata: dict | None = None,
         rel_dir: str = "checkpoints",
-        checkpoint_uid: Optional[str] = None,
+        checkpoint_uid: str | None = None,
         save_interval_steps: int = 1,
-        max_to_keep: Optional[int] = 1,
-        keep_period: Optional[int] = None,
+        max_to_keep: int | None = 1,
+        keep_period: int | None = None,
     ):
         """Initialise the checkpointer tool
 
@@ -95,7 +94,6 @@ class Checkpointer:
                 If set, will not delete any checkpoint where
                 checkpoint_step % keep_period == 0. Defaults to None.
         """
-
         # When we load an existing checkpoint, the sharding info is read from the checkpoint file,
         # rather than from 'RestoreArgs'. This is desired behaviour, so we suppress the warning.
         warnings.filterwarnings(
@@ -174,11 +172,11 @@ class Checkpointer:
 
     def restore_params(
         self,
-        timestep: Optional[int] = None,
+        timestep: int | None = None,
         restore_hstates: bool = False,
-        TParams: Type[Parameters] = ActorCriticParams,  # noqa: N803
-        THiddenState: Type[HiddenStates] = ActorCriticHiddenStates,  # noqa: N803
-    ) -> Tuple[FrozenDict, Union[HiddenStates, None]]:
+        TParams: type[Parameters] = ActorCriticParams,
+        THiddenState: type[HiddenStates] = ActorCriticHiddenStates,
+    ) -> tuple[FrozenDict, HiddenStates | None]:
         """Restore the params and the hidden state (in case of RNNs)
 
         Args:

@@ -1,5 +1,3 @@
-from typing import Dict
-
 import chex
 from typing_extensions import NamedTuple
 
@@ -16,7 +14,7 @@ class PPOTransition(NamedTuple):
     reward: chex.Array
     log_prob: chex.Array
     obs: chex.Array
-    info: Dict
+    info: dict
 
 
 class RNNPPOTransition(NamedTuple):
@@ -30,4 +28,4 @@ class RNNPPOTransition(NamedTuple):
     log_prob: chex.Array
     obs: chex.Array
     hstates: ActorCriticHiddenStates
-    info: Dict
+    info: dict

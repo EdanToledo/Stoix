@@ -1,5 +1,3 @@
-from typing import Tuple
-
 import chex
 import jax
 import jax.numpy as jnp
@@ -39,7 +37,7 @@ def ppo_penalty_loss(
     beta: float,
     pi: Distribution,
     b_pi: Distribution,
-) -> Tuple[chex.Array, chex.Array]:
+) -> tuple[chex.Array, chex.Array]:
     ratio = jnp.exp(pi_log_prob_t - b_pi_log_prob_t)
     kl_div = b_pi.kl_divergence(pi).mean()
     objective = ratio * gae_t - beta * kl_div
@@ -172,7 +170,6 @@ def categorical_td_learning(
     v_atoms_t: chex.Array,
 ) -> chex.Array:
     """Implements TD-learning for categorical value distributions. Each input is a batch."""
-
     # Scale and shift time-t distribution atoms by discount and reward.
     target_z = r_t[:, jnp.newaxis] + d_t[:, jnp.newaxis] * v_atoms_t
 
@@ -245,7 +242,6 @@ def quantile_regression_loss(
     Returns:
         Quantile regression loss.
     """
-
     batch_indices = jnp.arange(dist_src.shape[0])
 
     # Calculate quantile error.

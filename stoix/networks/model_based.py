@@ -1,5 +1,4 @@
 from functools import cached_property
-from typing import List
 
 import chex
 import jax
@@ -46,7 +45,7 @@ class RewardBasedWorldModel(nn.Module):
             hidden_state_size = sum([self.rnn_size * self.num_stacked_rnn_layers]) * 2
         return hidden_state_size
 
-    def _rnn_to_flat(self, state: List[chex.ArrayTree]) -> chex.Array:
+    def _rnn_to_flat(self, state: list[chex.ArrayTree]) -> chex.Array:
         """Maps list of RNN states to flat vector."""
         states = []
         for cell_state in state:
@@ -56,7 +55,7 @@ class RewardBasedWorldModel(nn.Module):
             states.extend(cell_state)
         return jnp.concatenate(states, axis=-1)
 
-    def _flat_to_rnn(self, state: chex.Array) -> List[chex.ArrayTree]:
+    def _flat_to_rnn(self, state: chex.Array) -> list[chex.ArrayTree]:
         """Maps flat vector to RNN state."""
         tensors = []
         cur_idx = 0

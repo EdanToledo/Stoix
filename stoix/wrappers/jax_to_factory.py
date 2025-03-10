@@ -1,5 +1,4 @@
 import threading
-from typing import Optional
 
 import jax
 import numpy as np
@@ -37,10 +36,9 @@ class JaxToStateful:
         self.vmapped_step = jax.jit(jax.vmap(self.env.step, in_axes=(0, 0)), device=self.device)
 
     def reset(
-        self, *, seed: Optional[list[int]] = None, options: Optional[list[dict]] = None
+        self, *, seed: list[int] | None = None, options: list[dict] | None = None
     ) -> TimeStep:
         with jax.default_device(self.device):
-
             self.state, timestep = self.vmapped_reset(self.rng_keys)
 
             # Reset the metrics
@@ -110,9 +108,7 @@ class JaxToStateful:
 
 
 class JaxEnvFactory(EnvFactory):
-    """
-    Create environments using stoix-ready JAX environments
-    """
+    """Create environments using stoix-ready JAX environments"""
 
     def __init__(self, jax_env: Environment, init_seed: int):
         self.jax_env = jax_env

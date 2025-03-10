@@ -1,5 +1,3 @@
-from typing import Tuple
-
 import chex
 import jax.numpy as jnp
 from jumanji import specs
@@ -28,7 +26,7 @@ class JumanjiWrapper(Wrapper):
         self._observation_attribute = observation_attribute
         self._num_actions = self.action_spec().num_values
 
-    def reset(self, key: chex.PRNGKey) -> Tuple[State, TimeStep]:
+    def reset(self, key: chex.PRNGKey) -> tuple[State, TimeStep]:
         state, timestep = self._env.reset(key)
         if hasattr(timestep.observation, "action_mask"):
             legal_action_mask = timestep.observation.action_mask.astype(float)
@@ -48,7 +46,7 @@ class JumanjiWrapper(Wrapper):
         )
         return state, timestep
 
-    def step(self, state: State, action: chex.Array) -> Tuple[State, TimeStep]:
+    def step(self, state: State, action: chex.Array) -> tuple[State, TimeStep]:
         state, timestep = self._env.step(state, action)
         if hasattr(timestep.observation, "action_mask"):
             legal_action_mask = timestep.observation.action_mask.astype(float)

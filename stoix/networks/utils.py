@@ -1,4 +1,4 @@
-from typing import Callable, Dict
+from collections.abc import Callable
 
 import chex
 from flax import linen as nn
@@ -6,7 +6,7 @@ from flax import linen as nn
 
 def parse_activation_fn(activation_fn_name: str) -> Callable[[chex.Array], chex.Array]:
     """Get the activation function."""
-    activation_fns: Dict[str, Callable[[chex.Array], chex.Array]] = {
+    activation_fns: dict[str, Callable[[chex.Array], chex.Array]] = {
         "relu": nn.relu,
         "tanh": nn.tanh,
         "silu": nn.silu,
@@ -27,7 +27,7 @@ def parse_activation_fn(activation_fn_name: str) -> Callable[[chex.Array], chex.
 
 def parse_rnn_cell(rnn_cell_name: str) -> nn.RNNCellBase:
     """Get the rnn cell."""
-    rnn_cells: Dict[str, Callable[[chex.Array], chex.Array]] = {
+    rnn_cells: dict[str, Callable[[chex.Array], chex.Array]] = {
         "lstm": nn.LSTMCell,
         "optimised_lstm": nn.OptimizedLSTMCell,
         "gru": nn.GRUCell,
