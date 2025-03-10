@@ -177,17 +177,16 @@ class AddStartFlagAndPrevAction(Wrapper):
         )
 
 
-
 class MakeChannelLast(Wrapper):
-    """Simple wrapper for observations that have the channel dim first. 
+    """Simple wrapper for observations that have the channel dim first.
     This makes the channel dim last."""
 
     def __init__(self, env: Environment) -> None:
         self._env = env
         obs_shape = jnp.array(self._env.observation_spec().agent_view.shape)
-        self._obs_shape = jnp.roll(obs_shape, len(obs_shape)-1)
-        
-        assert len(self._obs_shape)> 2, "for > 2 dimensional observations"
+        self._obs_shape = jnp.roll(obs_shape, len(obs_shape) - 1)
+
+        assert len(self._obs_shape) > 2, "for > 2 dimensional observations"
 
     def _make_channel_last(self, obs: Observation) -> Array:
         agent_view = obs.agent_view

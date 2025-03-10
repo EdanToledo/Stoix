@@ -114,7 +114,7 @@ class JaxEnvFactory(EnvFactory):
     Create environments using stoix-ready JAX environments
     """
 
-    def __init__(self, jax_env: Environment, init_seed: int, apply_wrapper_fn : Callable):
+    def __init__(self, jax_env: Environment, init_seed: int, apply_wrapper_fn: Callable):
         self.jax_env = jax_env
         self.cpu = jax.devices("cpu")[0]
         self.seed = init_seed
@@ -127,4 +127,6 @@ class JaxEnvFactory(EnvFactory):
         with self.lock:
             seed = self.seed
             self.seed += num_envs
-            return self.apply_wrapper_fn(JaxToStateful(self.jax_env, num_envs, self.cpu, seed))
+            return self.apply_wrapper_fn(  # type: ignore
+                JaxToStateful(self.jax_env, num_envs, self.cpu, seed)
+            )

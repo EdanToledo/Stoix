@@ -25,7 +25,13 @@ class EnvFactory(abc.ABC):
     Abstract class to create environments
     """
 
-    def __init__(self, task_id: str, init_seed: int = 42, apply_wrapper_fn : Callable = lambda x: x, **kwargs: Any):
+    def __init__(
+        self,
+        task_id: str,
+        init_seed: int = 42,
+        apply_wrapper_fn: Callable = lambda x: x,
+        **kwargs: Any,
+    ):
         self.task_id = task_id
         self.seed = init_seed
         self.apply_wrapper_fn = apply_wrapper_fn
@@ -48,16 +54,18 @@ class EnvPoolFactory(EnvFactory):
         with self.lock:
             seed = self.seed
             self.seed += num_envs
-            return self.apply_wrapper_fn(EnvPoolToJumanji(
-                envpool.make(
-                    task_id=self.task_id,
-                    env_type="gymnasium",
-                    num_envs=num_envs,
-                    seed=seed,
-                    gym_reset_return_info=True,
-                    **self.kwargs,
+            return self.apply_wrapper_fn(
+                EnvPoolToJumanji(
+                    envpool.make(
+                        task_id=self.task_id,
+                        env_type="gymnasium",
+                        num_envs=num_envs,
+                        seed=seed,
+                        gym_reset_return_info=True,
+                        **self.kwargs,
+                    )
                 )
-            ))
+            )
 
 
 class GymnasiumFactory(EnvFactory):
