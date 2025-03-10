@@ -175,3 +175,52 @@ class AddStartFlagAndPrevAction(Wrapper):
                 dtype=jnp.float32,
             )
         )
+
+
+
+class MakeChannelLast(Wrapper):
+    """Simple wrapper for observations that have the channel dim first. 
+    This makes the channel dim last."""
+
+    def __init__(self, env: Environment) -> None:
+        self._env = env
+        obs_shape = jnp.array(self._env.observation_spec().agent_view.shape)
+        self._obs_shape = jnp.roll(obs_shape, len(obs_shape)-1)
+        
+        assert len(self._obs_shape)> 2, "for > 2 dimensional observations"
+
+    def _make_channel_last(self, obs: Observation) -> Array:
+        agent_view = obs.agent_view
+        agent_view = jnp.rollaxis(agent_view, 0, len(self._obs_shape))
+        return agent_view
+
+    def reset(self, key: chex.PRNGKey) -> Tuple[State, TimeStep]:
+        state, timestep = self._env.reset(key)
+        agent_view = self._make_channel_last(timestep.observation)
+        timestep = timestep.replace(
+            observation=timestep.observation._replace(agent_view=agent_view),
+        )
+        if "next_obs" in timestep.extras:
+            agent_view = self._make_channel_last(timestep.extras["next_obs"])
+            timestep.extras["next_obs"] = timestep.extras["next_obs"]._replace(
+                agent_view=agent_view
+            )
+        return state, timestep
+
+    def step(self, state: State, action: chex.Array) -> Tuple[State, TimeStep]:
+        state, timestep = self._env.step(state, action)
+        agent_view = self._make_channel_last(timestep.observation)
+        timestep = timestep.replace(
+            observation=timestep.observation._replace(agent_view=agent_view),
+        )
+        if "next_obs" in timestep.extras:
+            agent_view = self._make_channel_last(timestep.extras["next_obs"])
+            timestep.extras["next_obs"] = timestep.extras["next_obs"]._replace(
+                agent_view=agent_view
+            )
+        return state, timestep
+
+    def observation_spec(self) -> Spec:
+        return self._env.observation_spec().replace(
+            agent_view=Array(shape=self._obs_shape, dtype=jnp.float32)
+        )

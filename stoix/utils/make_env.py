@@ -1,5 +1,5 @@
 import copy
-from typing import Tuple
+from typing import Callable, Tuple
 
 import gymnax
 import hydra
@@ -373,23 +373,23 @@ def make_navix_env(env_name: str, config: DictConfig) -> Tuple[Environment, Envi
     return env, eval_env
 
 
-def make_gymnasium_factory(env_name: str, config: DictConfig) -> GymnasiumFactory:
+def make_gymnasium_factory(env_name: str, config: DictConfig, apply_wrapper_fn: Callable) -> GymnasiumFactory:
 
-    env_factory = GymnasiumFactory(env_name, init_seed=config.arch.seed, **config.env.kwargs)
+    env_factory = GymnasiumFactory(env_name, init_seed=config.arch.seed, apply_wrapper_fn=apply_wrapper_fn, **config.env.kwargs)
 
     return env_factory
 
 
-def make_envpool_factory(env_name: str, config: DictConfig) -> EnvPoolFactory:
+def make_envpool_factory(env_name: str, config: DictConfig, apply_wrapper_fn: Callable) -> EnvPoolFactory:
 
-    env_factory = EnvPoolFactory(env_name, init_seed=config.arch.seed, **config.env.kwargs)
+    env_factory = EnvPoolFactory(env_name, init_seed=config.arch.seed, apply_wrapper_fn=apply_wrapper_fn, **config.env.kwargs)
 
     return env_factory
 
 
 def make(config: DictConfig) -> Tuple[Environment, Environment]:
     """
-    Create environments for training and evaluation..
+    Create environments for training and evaluation.
 
     Args:
         config (Dict): The configuration of the environment.
@@ -439,10 +439,14 @@ def make_factory(config: DictConfig) -> EnvFactory:
     """
     env_name = config.env.scenario.name
     suite_name = config.env.env_name
+    
+    apply_wrapper_fn = lambda x : x
+    if "wrapper" in config.env and config.env.wrapper is not None:
+        apply_wrapper_fn = hydra.utils.instantiate(config.env.wrapper, _partial_ = True)
 
     if "envpool" in suite_name:
-        return make_envpool_factory(env_name, config)
+        return make_envpool_factory(env_name, config, apply_wrapper_fn)
     elif "gymnasium" in suite_name:
-        return make_gymnasium_factory(env_name, config)
+        return make_gymnasium_factory(env_name, config, apply_wrapper_fn)
     else:
-        return JaxEnvFactory(make(config)[0], init_seed=config.arch.seed)
+        return JaxEnvFactory(make(config)[0], init_seed=config.arch.seed, apply_wrapper_fn=apply_wrapper_fn)
