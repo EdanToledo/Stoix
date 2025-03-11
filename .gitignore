@@ -157,6 +157,9 @@ logs
 .devcontainer/devcontainer.json
 3.9
 3.10
+wandb/
+*.csv
+*.out
 
 # PyCharm
 .idea/
