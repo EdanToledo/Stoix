@@ -132,9 +132,11 @@ def get_learner_fn(
 
         # For each trajectory (axis=1), find the episode ending (first of either done_- or truncation_index along time dimension (axis=0))
         done_indices = jnp.argmax(traj_batch.done, axis=0)  # shape: (num_trajectories,)
-        done_indices = jnp.where(jnp.any(traj_batch.done, axis=0), done_indices, trajectory_length)
+        def _set_index_to_max_if_not_any_condition(condition: bool, array_of_indices: chex.Array, max_position: int) -> chex.Array:
+            return jnp.where(jnp.any(condition, axis=0), array_of_indices, max_position)
+        done_indices = _set_index_to_max_if_not_any_condition(traj_batch.done, done_indices, trajectory_length)
         truncation_indices = jnp.argmax(traj_batch.truncated, axis=0) # shape: (num_trajectories,)
-        truncation_indices = jnp.where(jnp.any(traj_batch.truncated, axis=0), truncation_indices, trajectory_length)
+        truncation_indices = _set_index_to_max_if_not_any_condition(traj_batch.truncated, truncation_indices, trajectory_length)
         episode_termination_indices = jnp.minimum(done_indices, truncation_indices)
 
         # Create mask for non-valid transitions (time > done_index for each trajectory)
