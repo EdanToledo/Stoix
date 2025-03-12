@@ -73,6 +73,7 @@ Stoix currently offers the following building blocks for Single-Agent RL researc
 - **Munchausen DQN (M-DQN)** [Paper](https://arxiv.org/abs/2007.14430)
 - **Quantile Regression DQN (QR-DQN)** - [Paper](https://arxiv.org/abs/1710.10044)
 - **DQN with Regularized Q-learning (DQN-Reg)** [Paper](https://arxiv.org/abs/2101.03958)
+- **Parallelised Q-network (PQN)** [Paper](https://arxiv.org/abs/2407.04811)
 - **Rainbow** - [Paper](https://arxiv.org/abs/1710.02298)
 - **Recurrent Experience Replay in Distributed Reinforcement Learning (R2D2)** - [Paper](https://openreview.net/pdf?id=r1lyTjAqYX)
 - **REINFORCE With Baseline** - [Paper](https://people.cs.umass.edu/~barto/courses/cs687/williams92simple.pdf)
