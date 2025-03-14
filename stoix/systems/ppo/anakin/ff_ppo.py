@@ -131,9 +131,13 @@ def get_learner_fn(
         trajectory_length = traj_batch.done.shape[0] # type: ignore
 
         # For each trajectory (axis=1), find the episode ending (first of either done_- or truncation_index along time dimension (axis=0))
-        done_indices = jnp.argmax(traj_batch.done, axis=0)  # shape: (num_trajectories,)
+        # FIXME: This leads to memory movement between GPU and CPU. Thus, this should not be merged to main,
+        # but is rather a reference implementation of overcoming the ptxas shared memory error.
         def _set_index_to_max_if_not_any_condition(condition: bool, array_of_indices: chex.Array, max_position: int) -> chex.Array:
-            return jnp.where(jnp.any(condition, axis=0), array_of_indices, max_position)
+            def _inner_set_index(condition, array_of_indices, max_position): # Need to define inner function for callback
+                return jnp.where(jnp.any(condition, axis=0), array_of_indices, max_position)
+            return jax.pure_callback(_inner_set_index, array_of_indices, condition, array_of_indices, max_position) # Wrap in pure_callback
+        done_indices = jnp.argmax(traj_batch.done, axis=0)  # shape: (num_trajectories,)
         done_indices = _set_index_to_max_if_not_any_condition(traj_batch.done, done_indices, trajectory_length)
         truncation_indices = jnp.argmax(traj_batch.truncated, axis=0) # shape: (num_trajectories,)
         truncation_indices = _set_index_to_max_if_not_any_condition(traj_batch.truncated, truncation_indices, trajectory_length)
