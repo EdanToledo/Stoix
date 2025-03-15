@@ -75,14 +75,14 @@ tfd = tfp.distributions
 
 def check_distribution_type(action_distribution: Distribution) -> None:
     """Verify that the policy's action distribution is of required types.
-    
+
     This function ensures that the action distribution follows the expected structure
     for the SPO algorithm, which requires an Independent distribution wrapping an
     AffineTanhTransformedDistribution.
-    
+
     Args:
         action_distribution: The distribution to check, typically produced by the policy.
-        
+
     Raises:
         ValueError: If the distribution is not an Independent distribution or if
             its wrapped distribution is not an AffineTanhTransformedDistribution.
@@ -96,15 +96,15 @@ def check_distribution_type(action_distribution: Distribution) -> None:
 
 def broadcast_tree(struct: chex.ArrayTree, add_dims: Tuple[int], axis: int = 0) -> chex.ArrayTree:
     """Add dimensions to each array in a tree structure and broadcast values along those dimensions.
-    
+
     This function takes a PyTree of arrays and adds additional dimensions at the specified axis,
     then broadcasts the original values across the newly added dimensions.
-    
+
     Args:
         struct: A PyTree of arrays to be broadcasted.
         add_dims: A tuple specifying the dimensions to add at the specified axis.
         axis: The axis position where new dimensions should be inserted. Default is 0.
-        
+
     Returns:
         A new PyTree with the same structure but with arrays that have been expanded
         and broadcasted along the new dimensions.
@@ -169,17 +169,17 @@ def make_root_fn(
     config: DictConfig,
 ) -> SPORootFnApply:
     """Create the root function for initializing SPO search.
-    
-    This function returns a callable that generates the root objects needed for 
-    Sequential Monte Carlo (SMC) search. The root function samples initial actions, 
-    computes their values and log probabilities, and prepares environment states for 
+
+    This function returns a callable that generates the root objects needed for
+    Sequential Monte Carlo (SMC) search. The root function samples initial actions,
+    computes their values and log probabilities, and prepares environment states for
     particle-based simulation.
-    
+
     Args:
         actor_apply_fn: Function for applying the actor network to observations.
         critic_apply_fn: Function for applying the critic network to observations.
         config: Configuration dictionary containing search parameters.
-        
+
     Returns:
         A function that takes parameters, observation, environment state, and an RNG key,
         and returns a SPORootFnOutput containing initial particle states and actions.
@@ -192,17 +192,17 @@ def make_root_fn(
         rng_key: chex.PRNGKey,
     ) -> SPORootFnOutput:
         """Initialize the root node for Sequential Monte Carlo (SMC) search.
-        
+
         This function creates the starting point for SMC search by sampling actions from
         the current policy, evaluating their values, and preparing environment states for
         particle-based simulation.
-        
+
         Args:
             params: Network parameters including actor, critic, and dual parameters.
             observation: Current environment observation.
             env_state: Current environment state.
             rng_key: Random key for stochastic operations.
-            
+
         Returns:
             SPORootFnOutput containing initial particle states, actions, values and logits.
         """
@@ -256,17 +256,17 @@ def make_recurrent_fn(
     config: DictConfig,
 ) -> SPORecurrentFn:
     """Create the recurrent function for advancing particles during SMC search.
-    
+
     This function returns a callable that steps particles through the environment model
     during the Sequential Monte Carlo (SMC) search. For each particle, it advances
     the environment state, computes rewards and values, and samples next actions.
-    
+
     Args:
         environment_step: Function for stepping the environment model forward.
         actor_apply_fn: Function for applying the actor network to observations.
         critic_apply_fn: Function for applying the critic network to observations.
         config: Configuration dictionary containing search parameters.
-        
+
     Returns:
         A function that takes parameters, RNG key, particle actions, and environment states,
         and returns updated states and recurrent function outputs for each particle.
@@ -276,14 +276,14 @@ def make_recurrent_fn(
         recurrent_fn_output: SPORecurrentFnOutput, particle_actions: chex.Array
     ) -> None:
         """Verify that recurrent function outputs have the expected shapes.
-        
-        This function performs shape assertions to ensure that the outputs from the 
+
+        This function performs shape assertions to ensure that the outputs from the
         recurrent function match the expected shapes based on the configuration.
-        
+
         Args:
             recurrent_fn_output: Output from the recurrent function step.
             particle_actions: Actions taken by the particles.
-            
+
         Raises:
             AssertionError: If any of the shapes don't match expectations.
         """
@@ -303,17 +303,17 @@ def make_recurrent_fn(
         env_state: chex.ArrayTree,
     ) -> Tuple[SPORecurrentFnOutput, chex.ArrayTree]:
         """Execute one step of the environment for each particle during SMC search.
-        
+
         This function advances the environment state for each particle using its selected action,
         computes new values and rewards, and samples new actions for the next state. It is designed
         to be vmapped across the batch dimension during search.
-        
+
         Args:
             params: Network parameters including actor, critic, and dual parameters.
             rng_key: Random key for stochastic operations.
             particle_actions: Actions for each particle to take in the environment.
             env_state: Current environment state for each particle.
-            
+
         Returns:
             A tuple containing:
                 - SPORecurrentFnOutput with rewards, discounts, value estimates and next actions.
@@ -333,7 +333,7 @@ def make_recurrent_fn(
             next_sampled_actions, (config.system.num_particles, config.system.action_dim)
         )
         # Check to see if the environment truncated
-        truncated_step = (next_timestep.last() & (next_timestep.discount != 0.0))
+        truncated_step = next_timestep.last() & (next_timestep.discount != 0.0)
 
         # Get the log probabilities of the next sampled actions
         next_log_probs = pi.log_prob(next_sampled_actions)
@@ -356,10 +356,10 @@ def make_recurrent_fn(
 
 class Particles(NamedTuple):
     """Container for particle states used in Sequential Monte Carlo (SMC) search.
-    
+
     This class stores the state of all particles being simulated during the SMC search.
     Each field has the leading dimensions [NumEnvs, NumParticles, ...] for batch processing.
-    
+
     Attributes:
         state_embedding: Environment states for each particle.
         root_actions: Actions sampled at the root for each particle.
@@ -370,6 +370,7 @@ class Particles(NamedTuple):
         depth: The depth/step count of each particle in its trajectory.
         gae: Generalized Advantage Estimates for each particle.
     """
+
     state_embedding: chex.ArrayTree
     root_actions: chex.Array
     resample_td_weights: chex.Array
@@ -382,18 +383,18 @@ class Particles(NamedTuple):
 
 class SPO:
     """Sequential Policy Optimization Search.
-    
-    This class implements the Sequential Monte Carlo (SMC) search process for the 
+
+    This class implements the Sequential Monte Carlo (SMC) search process for the
     Sequential Policy Optimization (SPO) algorithm. It manages the creation,
     advancement, and resampling of particles to explore possible action trajectories
     and improve policy performance.
-    
+
     The search process involves:
     1. Initializing particles from a root state
     2. Advancing particles through the environment model
     3. Resampling particles based on their performance
     4. Selecting the best actions based on the search results
-    
+
     Attributes:
         config: Configuration parameters for the SPO algorithm.
         recurrent_fn: Function used to step particles through the environment.
@@ -529,10 +530,12 @@ class SPO:
             xs=(jnp.arange(self.config.system.search_depth), keys),
         )
         (particles, _) = final_carry
-        
-        
-        rollout_metrics = {f"ess_fraction_depth:{d}": ess_metrics[d] / self.config.system.num_particles for d in range(ess_metrics.shape[0])}
-        
+
+        rollout_metrics = {
+            f"ess_fraction_depth:{d}": ess_metrics[d] / self.config.system.num_particles
+            for d in range(ess_metrics.shape[0])
+        }
+
         return particles, rollout_metrics  # type: ignore
 
     def one_step_rollout(
@@ -603,10 +606,14 @@ class SPO:
 
         # --- Compute ESS before resampling ---
         if self.config.system.temperature.adaptive:
-            ess = self.calculate_ess(updated_td_weights, log_temperature=params.dual_params.log_temperature)
+            ess = self.calculate_ess(
+                updated_td_weights, log_temperature=params.dual_params.log_temperature
+            )
         else:
-            ess = self.calculate_ess(updated_td_weights, temperature=self.config.system.temperature.fixed_temperature)
-        
+            ess = self.calculate_ess(
+                updated_td_weights, temperature=self.config.system.temperature.fixed_temperature
+            )
+
         root_action = jnp.where(
             current_depth == 0,
             sampled_actions,
@@ -621,28 +628,25 @@ class SPO:
             recurrent_output,
             particles,
         )
-        
+
         # Compute logits for resampling based on updated TD weights and temperature
         if self.config.system.temperature.adaptive:
-            resample_logits = self.get_resample_logits( # Fix this if we want a fixed temperature
+            resample_logits = self.get_resample_logits(  # Fix this if we want a fixed temperature
                 updated_td_weights,
                 log_temperature=params.dual_params.log_temperature,
             )
         else:
-            resample_logits = self.get_resample_logits( # Fix this if we want a fixed temperature
+            resample_logits = self.get_resample_logits(  # Fix this if we want a fixed temperature
                 updated_td_weights,
                 temperature=self.config.system.temperature.fixed_temperature,
             )
 
-        # --- New Conditional Resampling ---
         # Decide whether to resample based on the configured mode.
-        batch_size = particles.value.shape[0]
         resampling_mode = self.config.system.resampling.mode
         if resampling_mode == "period":
             # Check if (current_depth+1) satisfies the period condition.
             should_resample = ((current_depth + 1) % self.config.system.resampling.period) == 0
-            
-            
+
             # Conditionally resample particles if the resampling period is met
             updated_particles = jax.lax.cond(
                 should_resample,
@@ -651,24 +655,29 @@ class SPO:
                 None,
             )
             return (updated_particles, next_sampled_actions), ess
-        
+
         elif resampling_mode == "ess":
             # Resample if the ESS fraction is below the provided threshold.
             # Here, `ess` is a vector so that each batch element can be treated independently.
-            condition = ess < (self.config.system.resampling.ess_threshold * self.config.system.num_particles)
-            
+            condition = ess < (
+                self.config.system.resampling.ess_threshold * self.config.system.num_particles
+            )
+
             # Compute resampled particles for all batch elements.
             resampled_particles = self.resample(updated_particles, key_resampling, resample_logits)
-            
-            # Element-wise, if condition[i] is True, select the resampled particle; otherwise, keep the original.
-            def select_fn(new_field, old_field):
+
+            # Element-wise, if condition[i] is True, select the resampled particle; otherwise,
+            # keep the original.
+            def select_fn(new_field: chex.Array, old_field: chex.Array) -> chex.Array:
                 # Broadcast condition to match the shape of each field.
                 cond = condition.reshape((condition.shape[0],) + (1,) * (old_field.ndim - 1))
                 return jnp.where(cond, new_field, old_field)
-            
-            updated_particles = jax.tree_util.tree_map(select_fn, resampled_particles, updated_particles)
+
+            updated_particles = jax.tree_util.tree_map(
+                select_fn, resampled_particles, updated_particles
+            )
             return (updated_particles, next_sampled_actions), ess
-            
+
         else:
             raise ValueError(f"Invalid resampling mode: {resampling_mode}")
 
@@ -937,13 +946,14 @@ class SPO:
     ) -> chex.Array:
         """
         Calculate the Effective Sample Size (ESS) for a given set of TD weights and temperature.
-        The ESS is defined as 1 / sum(w_i^2), where w_i are normalized weights computed using softmax.
-        
+        The ESS is defined as 1 / sum(w_i^2), where w_i are normalized weights computed using
+        softmax.
+
         Args:
             td_weights (chex.Array): Temporal difference weights for each particle.
             log_temperature (chex.Array): Optional log temperature for adaptive scaling.
             temperature (float): Optional fixed temperature if not using adaptive scaling.
-            
+
         Returns:
             chex.Array: Effective Sample Size per batch element.
         """
@@ -952,7 +962,7 @@ class SPO:
         # Normalize the logits to obtain probabilities.
         weights = jax.nn.softmax(logits, axis=-1)
         # ESS is the inverse of the sum of squared normalized weights.
-        ess = 1.0 / jnp.sum(weights ** 2, axis=-1)
+        ess = 1.0 / jnp.sum(weights**2, axis=-1)
         return ess
 
 
@@ -964,17 +974,17 @@ def get_warmup_fn(
     config: DictConfig,
 ) -> Callable:
     """Create a function for warming up the replay buffer before training.
-    
-    This function generates trajectories for initial buffer population by stepping 
+
+    This function generates trajectories for initial buffer population by stepping
     through the environment using the current policy.
-    
+
     Args:
         env: Environment to interact with.
         params: Network parameters including actor, critic, and dual parameters.
         apply_fns: Tuple of network apply functions (actor, critic, root_fn, search_apply_fn).
         buffer_add_fn: Function for adding transitions to the replay buffer.
         config: Configuration dictionary containing algorithm parameters.
-        
+
     Returns:
         A function that steps through the environment and adds transitions to the replay buffer.
     """
@@ -1005,8 +1015,11 @@ def get_warmup_fn(
             # LOG EPISODE METRICS
             done = (timestep.discount == 0.0).reshape(-1)
             truncated_step = (timestep.last() & (timestep.discount != 0.0)).reshape(-1)
-            
-            info = {**timestep.extras["episode_metrics"], "rollout_metrics": search_output.rollout_metrics}
+
+            info = {
+                **timestep.extras["episode_metrics"],
+                "rollout_metrics": search_output.rollout_metrics,
+            }
 
             transition = SPOTransition(
                 done,
@@ -1031,7 +1044,7 @@ def get_warmup_fn(
         # Add the trajectory to the buffer.
         # Swap the batch and time axes.
         traj_batch = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), traj_batch)
-        
+
         buffer_states = buffer_add_fn(buffer_states, traj_batch)
 
         return env_states, timesteps, keys, buffer_states
@@ -1051,7 +1064,7 @@ def get_learner_fn(
     config: DictConfig,
 ) -> LearnerFn[OffPolicyLearnerState]:
     """Create the learner function for training the SPO agent.
-    
+
     This function builds a learner for the Sequential Policy Optimization (SPO) algorithm.
     The learner function handles the entire training loop, including:
     1. Collecting experience by interacting with the environment
@@ -1059,14 +1072,14 @@ def get_learner_fn(
     3. Sampling experience batches for training
     4. Computing actor, critic, and dual losses
     5. Updating network parameters
-    
+
     Args:
         env: Environment to interact with during training.
         apply_fns: Tuple of network apply functions (actor, critic, root_fn, search_apply_fn).
         update_fns: Tuple of optimizer update functions for actor, critic, and dual networks.
         buffer_fns: Tuple of buffer functions (add_fn, sample_fn) for replay buffer operations.
         config: Configuration dictionary containing algorithm parameters.
-        
+
     Returns:
         A learner function that takes a learner state and returns updated state and metrics.
     """
@@ -1084,18 +1097,18 @@ def get_learner_fn(
         learner_state: OffPolicyLearnerState, _: Any
     ) -> Tuple[OffPolicyLearnerState, Tuple]:
         """Execute a single update step of the SPO training loop.
-        
+
         This function performs a complete update cycle, including:
         1. Collecting experience by rolling out the current policy in the environment
         2. Adding new transitions to the replay buffer
         3. Sampling experiences from the buffer
         4. Computing and applying updates to network parameters
-        
+
         Args:
             learner_state: Current state of the learner including network parameters,
                 optimizer states, buffer state, and environment state.
             _: Dummy argument for compatibility with jax.lax.scan.
-            
+
         Returns:
             A tuple containing:
                 - Updated learner state after the update step.
@@ -1123,7 +1136,10 @@ def get_learner_fn(
             # LOG EPISODE METRICS
             done = (timestep.discount == 0.0).reshape(-1)
             truncated_step = (timestep.last() & (timestep.discount != 0.0)).reshape(-1)
-            info = {**timestep.extras["episode_metrics"], "rollout_metrics": search_output.rollout_metrics}
+            info = {
+                **timestep.extras["episode_metrics"],
+                "rollout_metrics": search_output.rollout_metrics,
+            }
 
             transition = SPOTransition(
                 done,
@@ -1458,15 +1474,15 @@ def get_learner_fn(
         learner_state: OffPolicyLearnerState,
     ) -> AnakinExperimentOutput[OffPolicyLearnerState]:
         """Execute the SPO training loop for a series of update steps.
-        
+
         This is the main learner function exposed to the training system. It handles
         batching and vectorization of update steps across devices, and wraps results
         in the expected experiment output format.
-        
+
         Args:
             learner_state: Current state of the learner including network parameters,
                 optimizer states, buffer state, and environment state.
-                
+
         Returns:
             An AnakinExperimentOutput containing the updated learner state, episode metrics,
             and training metrics collected during the update steps.
@@ -1490,18 +1506,18 @@ def learner_setup(
     env: Environment, keys: chex.Array, config: DictConfig, model_env: Environment
 ) -> Tuple[LearnerFn[OffPolicyLearnerState], SPORootFnApply, SPOApply, OffPolicyLearnerState]:
     """Initialize all components needed for SPO training.
-    
+
     This function handles the setup of networks, optimizers, environments, and initial states
-    required for SPO training. It constructs the actor, critic, and dual networks, 
+    required for SPO training. It constructs the actor, critic, and dual networks,
     initializes parameters and optimizer states, creates the environment model for search,
     and prepares the replay buffer.
-    
+
     Args:
         env: Training environment to interact with.
         keys: PRNG keys for initialization.
         config: Configuration dictionary containing algorithm parameters.
         model_env: Environment model used for SMC search.
-        
+
     Returns:
         A tuple containing:
             - The learner function for training.
@@ -1622,9 +1638,15 @@ def learner_setup(
         search_apply_fn,
     )
     update_fns = (actor_optim.update, critic_optim.update, dual_optim.update)
-    
-    dummy_info = {"episode_return": 0.0, "episode_length": 0, "is_terminal_step": False} # TODO: Add dumm,y rollout metrics for each dpeth
-    dummy_info["rollout_metrics"] = {f"ess_fraction_depth:{d}": 0.0 for d in range(config.system.search_depth)}
+
+    dummy_info = {
+        "episode_return": 0.0,
+        "episode_length": 0,
+        "is_terminal_step": False,
+        "rollout_metrics": {
+            f"ess_fraction_depth:{d}": 0.0 for d in range(config.system.search_depth)
+        },
+    }
 
     # Create replay buffer
     dummy_transition = SPOTransition(
