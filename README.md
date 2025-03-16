@@ -88,6 +88,7 @@ Stoix currently offers the following building blocks for Single-Agent RL researc
 - **AlphaZero** - [Paper](https://arxiv.org/abs/1712.01815)
 - **MuZero** - [Paper](https://arxiv.org/abs/1911.08265)
 - **Sampled Alpha/Mu-Zero** - [Paper](https://arxiv.org/abs/2104.06303)
+- **Sequential Monte Carlo Policy Optimisation (SPO)** - [Paper](https://arxiv.org/abs/2402.07963)
 
 ### Environment Wrappers 🍬
 Stoix offers wrappers for:
