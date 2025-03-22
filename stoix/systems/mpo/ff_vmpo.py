@@ -1,6 +1,6 @@
 import copy
 import time
-from typing import Any, Dict, Tuple
+from typing import Any
 
 import chex
 import flax
@@ -56,20 +56,19 @@ from stoix.wrappers.episode_metrics import get_final_step_metrics
 
 def get_learner_fn(
     env: Environment,
-    apply_fns: Tuple[ActorApply, CriticApply],
-    update_fns: Tuple[optax.TransformUpdateFn, optax.TransformUpdateFn, optax.TransformUpdateFn],
+    apply_fns: tuple[ActorApply, CriticApply],
+    update_fns: tuple[optax.TransformUpdateFn, optax.TransformUpdateFn, optax.TransformUpdateFn],
     config: DictConfig,
 ) -> LearnerFn[VMPOLearnerState]:
     """Get the learner function."""
-
     # Get apply and update functions for actor and critic networks.
     actor_apply_fn, critic_apply_fn = apply_fns
     actor_update_fn, critic_update_fn, dual_update_fn = update_fns
 
-    def _update_step(learner_state: VMPOLearnerState, _: Any) -> Tuple[VMPOLearnerState, Tuple]:
+    def _update_step(learner_state: VMPOLearnerState, _: Any) -> tuple[VMPOLearnerState, tuple]:
         def _env_step(
             learner_state: VMPOLearnerState, _: Any
-        ) -> Tuple[VMPOLearnerState, SequenceStep]:
+        ) -> tuple[VMPOLearnerState, SequenceStep]:
             """Step the environment."""
             params, opt_states, key, env_state, last_timestep, learner_step_count = learner_state
 
@@ -110,7 +109,7 @@ def get_learner_fn(
             traj_batch, (config.arch.num_envs, config.system.rollout_length)
         )
 
-        def _update_epoch(update_state: Tuple, _: Any) -> Tuple:
+        def _update_epoch(update_state: tuple, _: Any) -> tuple:
             """Update the network for a single epoch."""
 
             def _actor_loss_fn(
@@ -120,7 +119,6 @@ def get_learner_fn(
                 advantages: chex.Array,
                 sequence: SequenceStep,
             ) -> chex.Array:
-
                 # Remove the last timestep from the sequence.
                 sequence = jax.tree_util.tree_map(lambda x: x[:, :-1], sequence)
 
@@ -164,7 +162,6 @@ def get_learner_fn(
                 value_target: chex.Array,
                 sequence: SequenceStep,
             ) -> chex.Array:
-
                 # Remove the last timestep from the sequence.
                 sequence = jax.tree_util.tree_map(lambda x: x[:, :-1], sequence)
 
@@ -312,7 +309,6 @@ def get_learner_fn(
         by iteratively applying the `_update_step` function for a fixed number of
         updates. The `_update_step` function is vectorized over a batch of inputs.
         """
-
         batched_update_step = jax.vmap(_update_step, in_axes=(0, None), axis_name="batch")
 
         learner_state, (episode_info, loss_info) = jax.lax.scan(
@@ -329,7 +325,7 @@ def get_learner_fn(
 
 def learner_setup(
     env: Environment, keys: chex.Array, config: DictConfig
-) -> Tuple[LearnerFn[VMPOLearnerState], Actor, VMPOLearnerState]:
+) -> tuple[LearnerFn[VMPOLearnerState], Actor, VMPOLearnerState]:
     """Initialise learner_fn, network, optimiser, environment and states."""
     # Get available TPU cores.
     n_devices = len(jax.devices())
@@ -417,9 +413,13 @@ def learner_setup(
     env_states, timesteps = jax.vmap(env.reset, in_axes=(0))(
         jnp.stack(env_keys),
     )
-    reshape_states = lambda x: x.reshape(
-        (n_devices, config.arch.update_batch_size, config.arch.num_envs) + x.shape[1:]
-    )
+
+    def reshape_states(x: chex.Array) -> chex.Array:
+        """Reshape states to add device and batch dimensions."""
+        return x.reshape(
+            (n_devices, config.arch.update_batch_size, config.arch.num_envs) + x.shape[1:]
+        )
+
     # (devices, update batch size, num_envs, ...)
     env_states = jax.tree_util.tree_map(reshape_states, env_states)
     timesteps = jax.tree_util.tree_map(reshape_states, timesteps)
@@ -438,14 +438,21 @@ def learner_setup(
     # Define params to be replicated across devices and batches.
     key, step_key = jax.random.split(key, num=2)
     step_keys = jax.random.split(step_key, n_devices * config.arch.update_batch_size)
-    reshape_keys = lambda x: x.reshape((n_devices, config.arch.update_batch_size) + x.shape[1:])
+
+    def reshape_keys(x: chex.Array) -> chex.Array:
+        """Reshape keys to add device and batch dimensions."""
+        return x.reshape((n_devices, config.arch.update_batch_size) + x.shape[1:])
+
     step_keys = reshape_keys(jnp.stack(step_keys))
     learner_step_count = jnp.int32(0)
 
     replicate_learner = (params, opt_states, learner_step_count)
 
     # Duplicate learner for update_batch_size.
-    broadcast = lambda x: jnp.broadcast_to(x, (config.arch.update_batch_size,) + x.shape)
+    def broadcast(x: Any) -> Any:
+        """Broadcast array to include update_batch_size dimension."""
+        return jnp.broadcast_to(x, (config.arch.update_batch_size,) + x.shape)
+
     replicate_learner = jax.tree_util.tree_map(broadcast, replicate_learner)
 
     # Duplicate learner across devices.
@@ -507,7 +514,7 @@ def run_experiment(_config: DictConfig) -> float:
 
     # Logger setup
     logger = StoixLogger(config)
-    cfg: Dict = OmegaConf.to_container(config, resolve=True)
+    cfg: dict = OmegaConf.to_container(config, resolve=True)
     cfg["arch"]["devices"] = jax.devices()
     pprint(cfg)
 

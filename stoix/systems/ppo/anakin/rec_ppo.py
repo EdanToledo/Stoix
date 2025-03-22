@@ -1,6 +1,6 @@
 import copy
 import time
-from typing import Any, Dict, Tuple
+from typing import Any
 
 import chex
 import flax
@@ -39,16 +39,15 @@ from stoix.wrappers.episode_metrics import get_final_step_metrics
 
 def get_learner_fn(
     env: Environment,
-    apply_fns: Tuple[RecActorApply, RecCriticApply],
-    update_fns: Tuple[optax.TransformUpdateFn, optax.TransformUpdateFn],
+    apply_fns: tuple[RecActorApply, RecCriticApply],
+    update_fns: tuple[optax.TransformUpdateFn, optax.TransformUpdateFn],
     config: DictConfig,
 ) -> LearnerFn[RNNLearnerState]:
     """Get the learner function."""
-
     actor_apply_fn, critic_apply_fn = apply_fns
     actor_update_fn, critic_update_fn = update_fns
 
-    def _update_step(learner_state: RNNLearnerState, _: Any) -> Tuple[RNNLearnerState, Tuple]:
+    def _update_step(learner_state: RNNLearnerState, _: Any) -> tuple[RNNLearnerState, tuple]:
         """A single update of the network.
 
         This function steps the environment and records the trajectory batch for
@@ -70,7 +69,7 @@ def get_learner_fn(
 
         def _env_step(
             learner_state: RNNLearnerState, _: Any
-        ) -> Tuple[RNNLearnerState, RNNPPOTransition]:
+        ) -> tuple[RNNLearnerState, RNNPPOTransition]:
             """Step the environment."""
             (
                 params,
@@ -194,12 +193,11 @@ def get_learner_fn(
             truncation_flags=traj_batch.truncated,
         )
 
-        def _update_epoch(update_state: Tuple, _: Any) -> Tuple:
+        def _update_epoch(update_state: tuple, _: Any) -> tuple:
             """Update the network for a single epoch."""
 
-            def _update_minibatch(train_state: Tuple, batch_info: Tuple) -> Tuple:
+            def _update_minibatch(train_state: tuple, batch_info: tuple) -> tuple:
                 """Update the network for a single minibatch."""
-
                 params, opt_states = train_state
                 (
                     traj_batch,
@@ -211,7 +209,7 @@ def get_learner_fn(
                     actor_params: FrozenDict,
                     traj_batch: RNNPPOTransition,
                     gae: chex.Array,
-                ) -> Tuple:
+                ) -> tuple:
                     """Calculate the actor loss."""
                     # RERUN NETWORK
                     reset_hidden_state = jnp.logical_or(traj_batch.done, traj_batch.truncated)
@@ -240,7 +238,7 @@ def get_learner_fn(
                     critic_params: FrozenDict,
                     traj_batch: RNNPPOTransition,
                     targets: chex.Array,
-                ) -> Tuple:
+                ) -> tuple:
                     """Calculate the critic loss."""
                     # RERUN NETWORK
                     reset_hidden_state = jnp.logical_or(traj_batch.done, traj_batch.truncated)
@@ -417,7 +415,6 @@ def get_learner_fn(
                 - dones (bool): Whether the initial timestep was a terminal state.
                 - hstateS (ActorCriticHiddenStates): The initial hidden states of the RNN.
         """
-
         batched_update_step = jax.vmap(_update_step, in_axes=(0, None), axis_name="batch")
 
         learner_state, (episode_info, loss_info) = jax.lax.scan(
@@ -434,7 +431,7 @@ def get_learner_fn(
 
 def learner_setup(
     env: Environment, keys: chex.Array, config: DictConfig
-) -> Tuple[LearnerFn[RNNLearnerState], RecurrentActor, ScannedRNN, RNNLearnerState]:
+) -> tuple[LearnerFn[RNNLearnerState], RecurrentActor, ScannedRNN, RNNLearnerState]:
     """Initialise learner_fn, network, optimiser, environment and states."""
     # Get available TPU cores.
     n_devices = len(jax.devices())
@@ -549,9 +546,13 @@ def learner_setup(
     env_states, timesteps = jax.vmap(env.reset, in_axes=(0))(
         jnp.stack(env_keys),
     )
-    reshape_states = lambda x: x.reshape(
-        (n_devices, config.arch.update_batch_size, config.arch.num_envs) + x.shape[1:]
-    )
+
+    def reshape_states(x: chex.Array) -> chex.Array:
+        """Reshape states to add device and batch dimensions."""
+        return x.reshape(
+            (n_devices, config.arch.update_batch_size, config.arch.num_envs) + x.shape[1:]
+        )
+
     # (devices, update batch size, num_envs, ...)
     env_states = jax.tree_util.tree_map(reshape_states, env_states)
     timesteps = jax.tree_util.tree_map(reshape_states, timesteps)
@@ -567,13 +568,20 @@ def learner_setup(
     )
     key, step_key = jax.random.split(key)
     step_keys = jax.random.split(step_key, n_devices * config.arch.update_batch_size)
-    reshape_keys = lambda x: x.reshape((n_devices, config.arch.update_batch_size) + x.shape[1:])
+
+    def reshape_keys(x: chex.Array) -> chex.Array:
+        """Reshape keys to add device and batch dimensions."""
+        return x.reshape((n_devices, config.arch.update_batch_size) + x.shape[1:])
+
     step_keys = reshape_keys(jnp.stack(step_keys))
     opt_states = ActorCriticOptStates(actor_opt_state, critic_opt_state)
     replicate_learner = (params, opt_states, hstates, dones, truncated)
 
     # Duplicate learner for update_batch_size.
-    broadcast = lambda x: jnp.broadcast_to(x, (config.arch.update_batch_size,) + x.shape)
+    def broadcast(x: Any) -> Any:
+        """Broadcast array to include update_batch_size dimension."""
+        return jnp.broadcast_to(x, (config.arch.update_batch_size,) + x.shape)
+
     replicate_learner = jax.tree_util.tree_map(broadcast, replicate_learner)
 
     # Duplicate learner across devices.
@@ -650,7 +658,7 @@ def run_experiment(_config: DictConfig) -> float:
 
     # Logger setup
     logger = StoixLogger(config)
-    cfg: Dict = OmegaConf.to_container(config, resolve=True)
+    cfg: dict = OmegaConf.to_container(config, resolve=True)
     cfg["arch"]["devices"] = jax.devices()
     pprint(cfg)
 

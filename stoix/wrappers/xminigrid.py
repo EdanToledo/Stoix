@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Tuple
+from typing import TYPE_CHECKING
 
 import chex
 import jax
@@ -30,7 +30,7 @@ class XMiniGridWrapper(Wrapper):
 
         self._legal_action_mask = jnp.ones((self.action_spec().num_values,), dtype=jnp.float32)
 
-    def reset(self, key: chex.PRNGKey) -> Tuple[XMiniGridEnvState, TimeStep]:
+    def reset(self, key: chex.PRNGKey) -> tuple[XMiniGridEnvState, TimeStep]:
         key, reset_key = jax.random.split(key)
         minigrid_state_timestep = self._env.reset(self._env_params, reset_key)
         obs = minigrid_state_timestep.observation
@@ -45,7 +45,7 @@ class XMiniGridWrapper(Wrapper):
         state = XMiniGridEnvState(key=key, minigrid_state_timestep=minigrid_state_timestep)
         return state, timestep
 
-    def step(self, state: XMiniGridEnvState, action: chex.Array) -> Tuple[State, TimeStep]:
+    def step(self, state: XMiniGridEnvState, action: chex.Array) -> tuple[State, TimeStep]:
         minigrid_state_timestep = self._env.step(
             self._env_params, state.minigrid_state_timestep, action
         )

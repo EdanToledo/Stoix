@@ -1,4 +1,4 @@
-from typing import Callable, Dict, Tuple, Union
+from collections.abc import Callable
 
 import chex
 import mctx
@@ -12,10 +12,10 @@ from stoix.base_types import Action, ActorCriticParams, Done, Observation, Value
 
 SearchApply = Callable[[FrozenDict, chex.PRNGKey, mctx.RootFnOutput], mctx.PolicyOutput]
 RootFnApply = Callable[[FrozenDict, Observation, chex.ArrayTree, chex.PRNGKey], mctx.RootFnOutput]
-EnvironmentStep = Callable[[chex.ArrayTree, Action], Tuple[chex.ArrayTree, TimeStep]]
+EnvironmentStep = Callable[[chex.ArrayTree, Action], tuple[chex.ArrayTree, TimeStep]]
 
 RepresentationApply = Callable[[FrozenDict, Observation], chex.Array]
-DynamicsApply = Callable[[FrozenDict, chex.Array, chex.Array], Tuple[chex.Array, DistributionLike]]
+DynamicsApply = Callable[[FrozenDict, chex.Array, chex.Array], tuple[chex.Array, DistributionLike]]
 
 
 class ExItTransition(NamedTuple):
@@ -25,7 +25,7 @@ class ExItTransition(NamedTuple):
     search_value: Value
     search_policy: chex.Array
     obs: chex.Array
-    info: Dict
+    info: dict
 
 
 class SampledExItTransition(NamedTuple):
@@ -36,7 +36,7 @@ class SampledExItTransition(NamedTuple):
     search_value: Value
     search_policy: chex.Array
     obs: chex.Array
-    info: Dict
+    info: dict
 
 
 class MZParams(NamedTuple):
@@ -45,7 +45,7 @@ class MZParams(NamedTuple):
 
 
 class ZLearnerState(NamedTuple):
-    params: Union[MZParams, ActorCriticParams]
+    params: MZParams | ActorCriticParams
     opt_states: OptState
     buffer_state: chex.ArrayTree
     key: chex.PRNGKey

@@ -8,8 +8,7 @@ from omegaconf import DictConfig
 
 
 def run_experiment(algorithm_exec_file: str, environment: str, seed: int) -> None:
-    """
-    Runs a single Stoix experiment via a subprocess run.
+    """Runs a single Stoix experiment via a subprocess run.
 
     Args:
         algorithm_exec_file: Algorithm/system (e.g. 'dqn', 'ppo') exec file.
@@ -17,7 +16,6 @@ def run_experiment(algorithm_exec_file: str, environment: str, seed: int) -> Non
         environment: Environment config (e.g. 'gymnax/cartpole or brax/ant')
         seed: Random seed for reproducibility
     """
-
     cmd = f"python {algorithm_exec_file} env={environment} arch.seed={seed}"
 
     print(f"Running command: {cmd}")
@@ -25,12 +23,12 @@ def run_experiment(algorithm_exec_file: str, environment: str, seed: int) -> Non
 
 
 def filter_none_values(d: dict) -> dict:
-    """
-    Returns a new dictionary containing only the items from the input dictionary
+    """Returns a new dictionary containing only the items from the input dictionary
     where the value is not None.
 
     Args:
         d: The input dictionary.
+
     Returns:
         A dictionary with keys whose values are not None.
     """
@@ -39,8 +37,7 @@ def filter_none_values(d: dict) -> dict:
 
 @hydra.main(version_base="1.2", config_path="./configs/launcher", config_name="slurm")
 def main(cfg: DictConfig) -> None:
-    """
-    Main entry point for launching multiple Stoix experiments on SLURM-based cluster.
+    """Main entry point for launching multiple Stoix experiments on SLURM-based cluster.
 
     Args:
         cfg: The Hydra-populated configuration object.

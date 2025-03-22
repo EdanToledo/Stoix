@@ -1,5 +1,3 @@
-from typing import Dict
-
 import chex
 from typing_extensions import NamedTuple
 
@@ -12,4 +10,4 @@ class Transition(NamedTuple):
     value: Value
     reward: chex.Array
     obs: chex.Array
-    info: Dict
+    info: dict

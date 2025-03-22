@@ -1,4 +1,5 @@
-from typing import TYPE_CHECKING, Sequence, Tuple
+from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 import chex
 import jax.numpy as jnp
@@ -71,7 +72,7 @@ class FrameStackingWrapper(Wrapper):
 
     def update_spec(self, spec: specs.Spec) -> specs.Spec:
         if not self._flatten:
-            new_shape = spec.shape + (self._num_frames,)
+            new_shape = (*spec.shape, self._num_frames)
         else:
             new_shape = spec.shape[:-1] + (self._num_frames * spec.shape[-1],)
         if type(spec) is specs.Array:
@@ -103,7 +104,7 @@ class FrameStackingWrapper(Wrapper):
         )
         return new_stack_state, timestep.replace(observation=observation)
 
-    def reset(self, key: chex.PRNGKey) -> Tuple[FrameStackEnvState, TimeStep]:
+    def reset(self, key: chex.PRNGKey) -> tuple[FrameStackEnvState, TimeStep]:
         stack_state = self._stacker.reset()
         env_state, timestep = self._env.reset(key)
         new_stack_state, timestep = self._process_timestep(stack_state, timestep)
@@ -112,7 +113,7 @@ class FrameStackingWrapper(Wrapper):
 
     def step(
         self, state: FrameStackEnvState, action: chex.Array
-    ) -> Tuple[FrameStackEnvState, TimeStep]:
+    ) -> tuple[FrameStackEnvState, TimeStep]:
         env_state, timestep = self._env.step(state.env_state, action)
         new_stack_state, timestep = self._process_timestep(state.stack_state, timestep)
         return FrameStackEnvState(env_state=env_state, stack_state=new_stack_state), timestep
