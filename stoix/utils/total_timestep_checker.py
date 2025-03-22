@@ -135,9 +135,9 @@ def check_total_timesteps_sebulba(config: DictConfig) -> DictConfig:
         f"{Style.RESET_ALL}"
     )
 
-    assert config.arch.num_updates > config.arch.num_evaluation, (
-        "Number of updates per evaluation must be less than total number of updates."
-    )
+    assert (
+        config.arch.num_updates > config.arch.num_evaluation
+    ), "Number of updates per evaluation must be less than total number of updates."
 
     # We then perform a simple check to ensure that the number of envs per actor is
     # divisible by the number of learner devices. This is because we shard the envs
