@@ -1,14 +1,15 @@
 from typing import Optional, Tuple, Union
 
 import chex
-from chex import Scalar
-from jax import Array
 import jax
 import jax.numpy as jnp
+from chex import Scalar
+from jax import Array
 
 # These functions are generally taken from rlax but edited to explicitly take in a batch of data.
 # This is because the original rlax functions are not batched and are meant to be used with vmap,
 # which can be much slower.
+
 
 def batch_truncated_generalized_advantage_estimation(
     r_t: Array,
@@ -18,7 +19,7 @@ def batch_truncated_generalized_advantage_estimation(
     stop_target_gradients: bool = False,
     time_major: bool = False,
     standardize_advantages: bool = False,
-    truncation_t: Optional[Array]= None,
+    truncation_t: Optional[Array] = None,
 ) -> Array:
     """Computes truncated generalized advantage estimates for batched sequences of length k.
 
@@ -79,7 +80,7 @@ def batch_truncated_generalized_advantage_estimation(
     delta_t = r_t + discount_t * values[1:] - values[:-1]
 
     # Iterate backwards to calculate advantages.
-    def _body(acc, xs):
+    def _body(acc: Array, xs: Tuple[Array, Array, Array, Array]) -> Tuple[Array, Array]:
         deltas, discounts, lambda_, truncation = xs
         # Reset accumulator at truncation points while still using the current delta
         acc = deltas + discounts * lambda_ * acc * (1.0 - truncation)
@@ -216,9 +217,7 @@ def batch_general_off_policy_returns_from_q_and_v(
 
     g = r_t[-1] + discount_t[-1] * v_t[-1]  # G_K-1.
 
-    def _body(
-        acc: Array, xs: Tuple[Array, Array, Array, Array, Array]
-    ) -> Tuple[Array, Array]:
+    def _body(acc: Array, xs: Tuple[Array, Array, Array, Array, Array]) -> Tuple[Array, Array]:
         reward, discount, c, v, q = xs
         acc = reward + discount * (v - c * q + c * acc)
         return acc, acc
@@ -360,9 +359,7 @@ def batch_lambda_returns(
     lambda_ = jnp.ones_like(discount_t) * lambda_
 
     # Work backwards to compute `G_{T-1}`, ..., `G_0`.
-    def _body(
-        acc: Array, xs: Tuple[Array, Array, Array, Array]
-    ) -> Tuple[Array, Array]:
+    def _body(acc: Array, xs: Tuple[Array, Array, Array, Array]) -> Tuple[Array, Array]:
         returns, discounts, values, lambda_ = xs
         acc = returns + discounts * ((1 - lambda_) * values + lambda_ * acc)
         return acc, acc
@@ -478,7 +475,7 @@ def importance_corrected_td_errors(
     one_step_delta = r_t + discount_t * v_t - v_tm1
 
     # Work backwards to compute `delta_{T-1}`, ..., `delta_0`.
-    def _body(acc, xs):
+    def _body(acc: Array, xs: Tuple[Array, Array, Array, Array, Array]) -> Tuple[Array, Array]:
         deltas, discounts, rho_t, lambda_, truncation = xs
         # Reset accumulator at truncation points while still using the current delta
         acc = deltas + discounts * rho_t * lambda_ * acc * (1.0 - truncation)
