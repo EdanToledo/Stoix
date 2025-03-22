@@ -67,8 +67,8 @@ def batch_truncated_generalized_advantage_estimation(
         truncation_t = jnp.zeros_like(discount_t)
     else:
         chex.assert_rank([truncation_t], 2)
-        chex.assert_type([truncation_t], float)
         chex.assert_equal_shape([truncation_t, discount_t])
+        truncation_t = truncation_t.astype(float)
 
     if not time_major:
         r_t = jnp.transpose(r_t, (1, 0))
