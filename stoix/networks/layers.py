@@ -52,9 +52,9 @@ class StackedRNN(nn.Module):
         if not isinstance(all_rnn_states, list):
             all_rnn_states = [all_rnn_states]
 
-        assert (
-            len(all_rnn_states) == self.num_layers
-        ), f"Expected {self.num_layers} RNN states, but got {len(all_rnn_states)}."
+        assert len(all_rnn_states) == self.num_layers, (
+            f"Expected {self.num_layers} RNN states, but got {len(all_rnn_states)}."
+        )
 
         new_states = []
         for cell, rnn_state in zip(self.cells, all_rnn_states, strict=False):

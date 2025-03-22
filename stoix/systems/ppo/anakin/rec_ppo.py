@@ -610,17 +610,17 @@ def run_experiment(_config: DictConfig) -> float:
     n_devices = len(jax.devices())
     config.num_devices = n_devices
     config = check_total_timesteps(config)
-    assert (
-        config.arch.num_updates >= config.arch.num_evaluation
-    ), "Number of updates per evaluation must be less than total number of updates."
+    assert config.arch.num_updates >= config.arch.num_evaluation, (
+        "Number of updates per evaluation must be less than total number of updates."
+    )
 
     # Set recurrent chunk size.
     if config.system.recurrent_chunk_size is None:
         config.system.recurrent_chunk_size = config.system.rollout_length
     else:
-        assert (
-            config.system.rollout_length % config.system.recurrent_chunk_size == 0
-        ), "Rollout length must be divisible by recurrent chunk size."
+        assert config.system.rollout_length % config.system.recurrent_chunk_size == 0, (
+            "Rollout length must be divisible by recurrent chunk size."
+        )
 
     # Create the environments for train and eval.
     env, eval_env = environments.make(config)

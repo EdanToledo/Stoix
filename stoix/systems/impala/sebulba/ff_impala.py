@@ -692,9 +692,9 @@ def run_experiment(_config: DictConfig) -> float:
     # Get the learner and actor devices
     local_devices = jax.local_devices()
     global_devices = jax.devices()
-    assert len(local_devices) == len(
-        global_devices
-    ), "Local and global devices must be the same for now. We dont support multihost just yet"
+    assert len(local_devices) == len(global_devices), (
+        "Local and global devices must be the same for now. We dont support multihost just yet"
+    )
     # Extract the actor and learner devices
     if len(config.arch.actor.device_ids) > len(global_devices):
         raise ValueError(
@@ -727,9 +727,9 @@ def run_experiment(_config: DictConfig) -> float:
 
     # Create the environment factory.
     env_factory = environments.make_factory(config)
-    assert isinstance(
-        env_factory, EnvFactory
-    ), "Environment factory must be an instance of EnvFactory"
+    assert isinstance(env_factory, EnvFactory), (
+        "Environment factory must be an instance of EnvFactory"
+    )
 
     # PRNG keys.
     key, key_e, actor_net_key, critic_net_key = jax.random.split(
