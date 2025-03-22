@@ -242,7 +242,7 @@ def get_learner_step_fn(
             v_t,
             time_major=True,
             standardize_advantages=config.system.standardize_advantages,
-            truncation_t=traj_batch.truncated,
+            truncation_t=traj_batch.truncated.astype(float),
         )
 
         def _update_epoch(update_state: Tuple, _: Any) -> Tuple:
