@@ -128,7 +128,7 @@ def get_learner_fn(
             v_t,
             time_major=True,
             standardize_advantages=config.system.standardize_advantages,
-            truncation_flags=traj_batch.truncated,
+            truncation_t=traj_batch.truncated,
         )
         behaviour_actor_params = params.actor_params
 
