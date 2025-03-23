@@ -13,4 +13,4 @@ IMPALA decouples acting from learning for efficient distributed training:
 - Enables efficient scaling with reduced actor-learner coupling
 
 ## Key Papers
-- [IMPALA: Scalable Distributed Deep-RL with Importance Weighted Actor-Learner Architectures](https://arxiv.org/abs/1802.01561) (Espeholt et al., 2018) 
+- [IMPALA: Scalable Distributed Deep-RL with Importance Weighted Actor-Learner Architectures](https://arxiv.org/abs/1802.01561) (Espeholt et al., 2018)

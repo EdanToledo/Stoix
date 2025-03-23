@@ -30,4 +30,4 @@ Extends DDPG with distributional RL:
 ## Key Papers
 - [Continuous Control with Deep Reinforcement Learning](https://arxiv.org/abs/1509.02971) (Lillicrap et al., 2015) - DDPG
 - [Addressing Function Approximation Error in Actor-Critic Methods](https://arxiv.org/abs/1802.09477) (Fujimoto et al., 2018) - TD3
-- [Distributed Distributional Deterministic Policy Gradients](https://arxiv.org/abs/1804.08617) (Barth-Maron et al., 2018) - D4PG 
+- [Distributed Distributional Deterministic Policy Gradients](https://arxiv.org/abs/1804.08617) (Barth-Maron et al., 2018) - D4PG

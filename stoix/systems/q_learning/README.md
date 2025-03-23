@@ -50,4 +50,4 @@ Extends DQN to partially observable environments with:
 - [Distributional Reinforcement Learning with Quantile Regression](https://arxiv.org/abs/1710.10044) (Dabney et al., 2017) - QR-DQN
 - [Rainbow: Combining Improvements in Deep Reinforcement Learning](https://arxiv.org/abs/1710.02298) (Hessel et al., 2018) - Rainbow
 - [Recurrent Experience Replay in Distributed Reinforcement Learning](https://openreview.net/forum?id=r1lyTjAqYX) (Kapturowski et al., 2019) - R2D2
-- [Munchausen Reinforcement Learning](https://arxiv.org/abs/2007.14430) (Vieillard et al., 2020) - Munchausen DQN 
+- [Munchausen Reinforcement Learning](https://arxiv.org/abs/2007.14430) (Vieillard et al., 2020) - Munchausen DQN

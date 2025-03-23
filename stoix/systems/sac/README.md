@@ -14,4 +14,4 @@ SAC combines off-policy learning with entropy maximization, encouraging both rew
 
 ## Key Papers
 - [Soft Actor-Critic: Off-Policy Maximum Entropy Deep RL with a Stochastic Actor](https://arxiv.org/abs/1801.01290) (Haarnoja et al., 2018)
-- [Soft Actor-Critic Algorithms and Applications](https://arxiv.org/abs/1812.05905) (Haarnoja et al., 2018) - With automatic temperature tuning 
+- [Soft Actor-Critic Algorithms and Applications](https://arxiv.org/abs/1812.05905) (Haarnoja et al., 2018) - With automatic temperature tuning

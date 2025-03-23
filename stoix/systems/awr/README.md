@@ -13,4 +13,4 @@ AWR optimizes policies through weighted regression using advantages:
 - Designed for stability and simplicity while maintaining effectiveness
 
 ## Key Papers
-- [Advantage-Weighted Regression: Simple and Scalable Off-Policy Reinforcement Learning](https://arxiv.org/abs/1910.00177) (Peng et al., 2019) 
+- [Advantage-Weighted Regression: Simple and Scalable Off-Policy Reinforcement Learning](https://arxiv.org/abs/1910.00177) (Peng et al., 2019)

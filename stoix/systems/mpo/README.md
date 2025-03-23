@@ -26,4 +26,4 @@ An on-policy adaptation that:
 ## Key Papers
 - [Maximum a Posteriori Policy Optimisation](https://arxiv.org/abs/1806.06920) (Abdolmaleki et al., 2018) - MPO
 - [Relative Entropy Regularized Policy Iteration](https://arxiv.org/abs/1812.02256) (Abdolmaleki et al., 2018) - Related work
-- [V-MPO: On-Policy Maximum a Posteriori Policy Optimization](https://arxiv.org/abs/1909.12238) (Song et al., 2019) - V-MPO 
+- [V-MPO: On-Policy Maximum a Posteriori Policy Optimization](https://arxiv.org/abs/1909.12238) (Song et al., 2019) - V-MPO

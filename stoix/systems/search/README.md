@@ -31,4 +31,4 @@ Stochastic variants of AZ/MZ tree search:
 ## Key Papers
 - [Mastering Chess and Shogi by Self-Play](https://arxiv.org/abs/1712.01815) (Silver et al., 2017) - AlphaZero
 - [Mastering Atari, Go, Chess and Shogi by Planning with a Learned Model](https://arxiv.org/abs/1911.08265) (Schrittwieser et al., 2019) - MuZero
-- [Monte-Carlo Tree Search as Regularized Policy Optimization](https://arxiv.org/abs/2007.12509) (Grill et al., 2020) - Theory 
+- [Monte-Carlo Tree Search as Regularized Policy Optimization](https://arxiv.org/abs/2007.12509) (Grill et al., 2020) - Theory
