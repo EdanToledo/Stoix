@@ -47,8 +47,11 @@ python -m tests.performance_tests.main --establish-baseline
 # List available tests
 python -m tests.performance_tests.main --list
 
-# Set maximum training steps
-python -m tests.performance_tests.main --max-steps 1000000
+# Specify configuration overrides from a JSON file
+python -m tests.performance_tests.main --config path/to/config.json
+
+# Specify directory to save reports
+python -m tests.performance_tests.main --report-dir path/to/reports
 
 # Enable verbose logging
 python -m tests.performance_tests.main --verbose
@@ -66,17 +69,50 @@ To add a new test for an algorithm:
 from tests.performance_tests.framework.registry import register_test
 from tests.performance_tests.framework.utils import test_algorithm_performance
 
-@register_test(algorithm="ff_ppo", environment="brax/ant")
-def test_ppo_ant(establish_baseline=False, max_steps=None, config_overrides=None):
+@register_test(
+    algorithm="ff_ppo", 
+    environment="brax/ant",
+    module_path="stoix.systems.ppo.ff_ppo",
+    arch="anakin"
+)
+def test_ppo_ant(establish_baseline=False, config_overrides=None):
+    """
+    Test PPO performance on the Brax Ant environment.
+    
+    Args:
+        establish_baseline: If True, save results as new baseline.
+        config_overrides: Dictionary of configuration overrides.
+        
+    Returns:
+        TestResult object with performance metrics and comparison to baseline.
+    """
     # Implement your test here
+    all_overrides = {
+        # Environment-specific configuration overrides
+    }
+    
+    # Apply user-provided overrides
+    if config_overrides:
+        all_overrides.update(config_overrides)
+    
     return test_algorithm_performance(
         algorithm="ff_ppo",
         environment="brax/ant",
+        module_path="stoix.systems.ppo.anakin.ff_ppo",
+        arch="anakin",
         establish_baseline=establish_baseline,
-        max_steps=max_steps,
-        config_overrides=config_overrides
+        config_overrides=all_overrides
     )
 ```
+
+### Required Test Registration Parameters
+
+When registering a test, you must provide these parameters:
+
+- `algorithm`: Name of the algorithm being tested (e.g., "ff_sac")
+- `environment`: Name of the environment being tested (e.g., "brax/ant")
+- `module_path`: Path to the module containing the algorithm implementation (e.g., "stoix.systems.sac.ff_sac")
+- `arch`: Architecture identifier used for configuration (e.g., "anakin")
 
 ## Baselines
 

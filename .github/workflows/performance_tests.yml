@@ -1,0 +1,180 @@
+name: Performance Tests
+
+# This workflow runs performance tests for Stoix algorithms
+# It can be triggered manually or automatically on pull requests
+# that modify relevant code paths
+
+on:
+  # Manual trigger with parameters
+  workflow_dispatch:
+    inputs:
+      algorithm:
+        description: 'Specific algorithm to test (leave blank for all)'
+        required: false
+        type: string
+      environment:
+        description: 'Specific environment to test (leave blank for all)'
+        required: false
+        type: string
+      max_steps:
+        description: 'Maximum number of training steps'
+        required: false
+        type: string
+      establish_baseline:
+        description: 'Establish new baselines'
+        required: false
+        type: boolean
+        default: false
+      tolerance:
+        description: 'Regression tolerance in percentage (e.g., 5 means allow 5% regression)'
+        required: false
+        type: number
+        default: 5
+
+  # Auto-trigger on relevant changes
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'stoix/systems/**'     # Algorithm implementations
+      - 'stoix/networks/**'    # Network architectures
+      - 'stoix/utils/**'       # Utility functions
+      - 'stoix/tests/performance_tests/**'  # Test code
+
+jobs:
+  performance_tests:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+      with:
+        # Fetch complete history for accurate regression detection
+        fetch-depth: 0
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+        cache: 'pip'  # Enable caching of pip dependencies
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        # Install the package in development mode
+        pip install -e .
+        # Install testing dependencies
+        pip install pytest pytest-cov
+        # Log installed packages for debugging
+        pip list
+        
+    - name: Prepare test command
+      id: prepare_command
+      run: |
+        # Build the test command with appropriate flags
+        CMD="python -m stoix.tests.performance_tests.main --verbose"
+        
+        # Add algorithm filter if provided
+        if [ "${{ inputs.algorithm }}" != "" ]; then
+          CMD="$CMD --algorithm ${{ inputs.algorithm }}"
+        fi
+        
+        # Add environment filter if provided
+        if [ "${{ inputs.environment }}" != "" ]; then
+          CMD="$CMD --environment ${{ inputs.environment }}"
+        fi
+        
+        # Add max steps if provided
+        if [ "${{ inputs.max_steps }}" != "" ]; then
+          CMD="$CMD --max-steps ${{ inputs.max_steps }}"
+        fi
+        
+        # Add establish baseline flag if true
+        if [ "${{ inputs.establish_baseline }}" == "true" ]; then
+          CMD="$CMD --establish-baseline"
+        fi
+        
+        # Create reports directory
+        mkdir -p stoix/tests/performance_tests/data/reports
+        
+        # Set output for next step
+        echo "command=$CMD" >> $GITHUB_OUTPUT
+        
+        # Log the command to be run
+        echo "Will run: $CMD"
+        
+    - name: Run performance tests
+      id: run_tests
+      run: |
+        # Run the test command
+        ${{ steps.prepare_command.outputs.command }}
+        
+        # Save exit code to use in following steps
+        echo "exit_code=$?" >> $GITHUB_OUTPUT
+      continue-on-error: true  # Continue even if tests fail
+      
+    - name: Upload test report
+      uses: actions/upload-artifact@v3
+      with:
+        name: performance-test-report
+        path: stoix/tests/performance_tests/data/reports/
+        if-no-files-found: warn
+        
+    - name: Check for performance regression
+      if: ${{ inputs.establish_baseline != 'true' && github.event_name == 'pull_request' }}
+      run: |
+        # More robust regression detection with tolerance
+        echo "Checking for performance regressions..."
+        
+        # Get the latest report file
+        REPORT_FILE=$(ls -t stoix/tests/performance_tests/data/reports/performance_report_*.md | head -1)
+        
+        if [ ! -f "$REPORT_FILE" ]; then
+          echo "No test report found!"
+          exit 1
+        fi
+        
+        # Set tolerance (default 5% if not provided)
+        TOLERANCE="${{ inputs.tolerance }}"
+        if [ -z "$TOLERANCE" ]; then
+          TOLERANCE=5
+        fi
+        echo "Using regression tolerance of $TOLERANCE%"
+        
+        # Check for failed tests first
+        FAILED_COUNT=$(grep -c "Failed tests: [1-9]" "$REPORT_FILE" || echo "0")
+        if [ "$FAILED_COUNT" != "0" ]; then
+          echo "Performance tests failed! See the test report for details."
+          exit 1
+        fi
+        
+        # Look for regressions beyond tolerance
+        # This looks for negative percentage differences exceeding tolerance
+        REGRESSION_FOUND=$(grep -P "\| .+ \| .+ \| .+ \| -[0-9]{2,}\.[0-9]+% \| 🔴 \|" "$REPORT_FILE" || echo "")
+        
+        if [ ! -z "$REGRESSION_FOUND" ]; then
+          echo "Performance regression(s) detected exceeding $TOLERANCE% threshold:"
+          echo "$REGRESSION_FOUND"
+          
+          # Find specific regressions exceeding tolerance
+          SEVERE_REGRESSION=$(grep -P "\| .+ \| .+ \| .+ \| -($(echo "$TOLERANCE" | awk '{print $1+0.01}')|[0-9]{2,})\.[0-9]+% \| 🔴 \|" "$REPORT_FILE" || echo "")
+          
+          if [ ! -z "$SEVERE_REGRESSION" ]; then
+            echo "Severe regressions exceeding $TOLERANCE% threshold were found:"
+            echo "$SEVERE_REGRESSION"
+            exit 1
+          else
+            echo "Regressions found but within acceptable threshold of $TOLERANCE%"
+          fi
+        else
+          echo "No significant performance regressions detected."
+        fi
+        
+    - name: Report test status
+      if: always()
+      run: |
+        if [ "${{ steps.run_tests.outputs.exit_code }}" == "0" ]; then
+          echo "Performance tests completed successfully."
+        else
+          echo "Performance tests failed with exit code ${{ steps.run_tests.outputs.exit_code }}"
+          exit 1
+        fi 

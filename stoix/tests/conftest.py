@@ -6,9 +6,6 @@ import jax.numpy as jnp
 import numpy as np
 from typing import Dict, Any, Optional, Callable, Tuple
 
-# Ensure the stoix module is in the path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
 @pytest.fixture
 def fixed_seed():
     """Fixture to provide a fixed seed for tests."""

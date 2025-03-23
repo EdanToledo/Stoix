@@ -21,11 +21,23 @@ Usage:
     # Run tests for a specific algorithm
     python -m tests.performance_tests.main --algorithm ff_sac
 
+    # Run tests for a specific environment
+    python -m tests.performance_tests.main --environment brax/ant
+
     # Establish new baseline
     python -m tests.performance_tests.main --establish-baseline
 
-    # Override configuration parameters
-    python -m tests.performance_tests.main --config-override "system.learning_rate=1e-4"
+    # List available tests
+    python -m tests.performance_tests.main --list
+
+    # Load configuration overrides from a JSON file
+    python -m tests.performance_tests.main --config path/to/config.json
+
+    # Specify report output directory
+    python -m tests.performance_tests.main --report-dir path/to/reports
+
+    # Enable verbose logging
+    python -m tests.performance_tests.main --verbose
 """
 
 import os
@@ -34,22 +46,18 @@ import argparse
 import json
 import logging
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
-logger = logging.getLogger(__name__)
-
-# Ensure the project root is in the Python path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
-
-# Import core functionality
-from tests.performance_tests.framework.runner import (
+from stoix.tests.performance_tests.framework.runner import (
     discover_tests,
     run_tests,
     generate_report,
     list_available_tests,
 )
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
 
 
 def main():
@@ -86,7 +94,7 @@ def main():
     parser.add_argument(
         "--report-dir",
         type=str,
-        default="tests/performance_tests/data/reports",
+        default="stoix/tests/performance_tests/data/reports",
         help="Directory to save reports",
     )
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
@@ -113,8 +121,8 @@ def main():
             print("No tests have been registered.")
         else:
             print("Available tests:")
-            for algo, env in sorted(tests):
-                print(f"  {algo} on {env}")
+            for algo, env, module_path, arch in sorted(tests):
+                print(f"  {algo} on {env} from {module_path} with arch {arch}")
         return
 
     # Load config overrides from JSON file if specified
@@ -133,7 +141,6 @@ def main():
         algorithms=args.algorithms,
         environments=args.environments,
         establish_baseline=args.establish_baseline,
-        max_steps=args.max_steps,
         config_overrides=config_overrides,
     )
 
