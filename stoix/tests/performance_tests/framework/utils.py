@@ -23,6 +23,7 @@ import numpy as np
 from scipy import stats
 from dataclasses import dataclass, field
 from typing import Callable, Dict, Any, Optional, List, Tuple, cast, Union
+from datetime import datetime
 
 import hydra
 from omegaconf import DictConfig, OmegaConf
@@ -68,6 +69,13 @@ class TestResult:
     seed_metrics: Dict[int, Dict[str, float]] = field(default_factory=dict)
     metric_stats: Dict[str, Dict[str, float]] = field(default_factory=dict)
     num_seeds: int = 1
+    
+    # Run identifier for tracking experiment data
+    run_id: Optional[str] = None
+    
+    # Extended baseline information
+    baseline_statistics: Dict[str, Dict[str, float]] = field(default_factory=dict)
+    baseline_seeds: Dict[str, Dict[str, float]] = field(default_factory=dict)
 
     @property
     def summary(self) -> str:
@@ -204,8 +212,13 @@ def get_baseline_path(algorithm: str, environment: str) -> str:
     filename = f"{algorithm}_{safe_env_name}.json"
     return os.path.join(BASELINE_DIR, filename)
 
-def load_baseline(algorithm: str, environment: str) -> Dict[str, float]:
-    """Load baseline metrics for a given algorithm and environment."""
+def load_baseline(algorithm: str, environment: str) -> Dict[str, Any]:
+    """
+    Load baseline metrics for a given algorithm and environment.
+    
+    Returns:
+        Dictionary containing baseline metrics and statistical data
+    """
     baseline_path = get_baseline_path(algorithm, environment)
 
     if not os.path.exists(baseline_path):
@@ -214,9 +227,10 @@ def load_baseline(algorithm: str, environment: str) -> Dict[str, float]:
 
     try:
         with open(baseline_path, "r") as f:
-            baseline = json.load(f)
+            baseline_data = json.load(f)
+
         logger.info(f"Loaded baseline from {baseline_path}")
-        return cast(Dict[str, float], baseline)
+        return baseline_data
     except json.JSONDecodeError:
         logger.warning(f"Failed to load baseline from {baseline_path}. Invalid JSON.")
     except Exception as e:
@@ -225,19 +239,55 @@ def load_baseline(algorithm: str, environment: str) -> Dict[str, float]:
     return {}
 
 
-def save_baseline(algorithm: str, environment: str, metrics: Dict[str, float]) -> bool:
+def save_baseline(algorithm: str, environment: str, metrics: Dict[str, float], metric_stats: Optional[Dict[str, Dict[str, float]]] = None, seeds_info: Optional[Dict[int, Dict[str, float]]] = None) -> bool:
     """
     Save metrics as baseline for a given algorithm and environment.
+    
+    Args:
+        algorithm: Name of the algorithm
+        environment: Name of the environment
+        metrics: Dictionary of metric means
+        metric_stats: Optional dictionary of statistical metrics (std, min, max, etc.)
+        seeds_info: Optional dictionary containing per-seed metrics
     
     Returns:
         True if saving was successful, False otherwise.
     """
     baseline_path = get_baseline_path(algorithm, environment)
     
+    # Create baseline data structure with richer information
+    baseline_data = {
+        "metrics": metrics,
+        "meta": {
+            "created_at": datetime.now().isoformat(),
+            "contains_statistics": metric_stats is not None,
+            "num_seeds": len(seeds_info) if seeds_info else 1
+        }
+    }
+    
+    # Add statistical metrics if available
+    if metric_stats:
+        baseline_data["statistics"] = metric_stats
+        
+    # Add per-seed information if available (but limit to key metrics to avoid huge files)
+    if seeds_info:
+        # Only store seed data for main performance metrics to keep file size reasonable
+        filtered_seed_data = {}
+        for seed, seed_metrics in seeds_info.items():
+            filtered_metrics = {}
+            for metric_name in MAIN_PERFORMANCE_METRICS:
+                if metric_name in seed_metrics:
+                    filtered_metrics[metric_name] = seed_metrics[metric_name]
+            if filtered_metrics:
+                filtered_seed_data[str(seed)] = filtered_metrics
+                
+        if filtered_seed_data:
+            baseline_data["seeds"] = filtered_seed_data
+    
     try:
         os.makedirs(os.path.dirname(baseline_path), exist_ok=True)
         with open(baseline_path, "w") as f:
-            json.dump(metrics, f, indent=2)
+            json.dump(baseline_data, f, indent=2)
         logger.info(f"Saved baseline to {baseline_path}")
         return True
     except Exception as e:
@@ -494,16 +544,28 @@ def test_algorithm_performance(
             
         # Get baseline if needed
         if use_baseline and not establish_baseline:
-            baseline_metrics = load_baseline(algorithm, environment)
-            result.baseline_metrics = baseline_metrics
+            baseline_data = load_baseline(algorithm, environment)
             
-            # Compare to baseline if available
-            if baseline_metrics:
-                result.comparison = compare_metrics(result.metrics, baseline_metrics)
+            # Extract baseline information
+            if baseline_data:
+                # Extract baseline metrics
+                if "metrics" in baseline_data:
+                    result.baseline_metrics = baseline_data["metrics"]
+                    
+                    # Store baseline statistics if available
+                    if "statistics" in baseline_data:
+                        result.baseline_statistics = baseline_data["statistics"]
+                        
+                    # Store baseline seed data if available
+                    if "seeds" in baseline_data:
+                        result.baseline_seeds = baseline_data["seeds"]
+                
+                    # Compare to baseline
+                    result.comparison = compare_metrics(result.metrics, result.baseline_metrics)
                 
         # Establish new baseline if requested
         if establish_baseline:
-            if save_baseline(algorithm, environment, result.metrics):
+            if save_baseline(algorithm, environment, result.metrics, result.metric_stats, result.seed_metrics):
                 result.established_baseline = True
                 result.message = f"Established new baseline for {algorithm} on {environment}"
                 logger.info(result.message)

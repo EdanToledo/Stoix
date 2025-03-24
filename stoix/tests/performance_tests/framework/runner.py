@@ -255,8 +255,8 @@ def generate_report(
                 # Check if we have multi-seed statistics
                 if result.num_seeds > 1 and result.metric_stats:
                     report_lines.extend([
-                        "| Metric | Current (Mean ± 95% CI) | Baseline | Change |",
-                        "| ------ | ----------------------- | -------- | ------ |",
+                        "| Metric | Current (Mean ± 95% CI) | Baseline (Mean ± 95% CI) | Change |",
+                        "| ------ | ----------------------- | ------------------------ | ------ |",
                     ])
                     
                     for metric, value in sorted(result.metrics.items()):
@@ -273,8 +273,16 @@ def generate_report(
                             else:
                                 value_str = f"{value:.4f}"
                                 
+                            # Add baseline statistics if available
+                            if metric in result.baseline_statistics:
+                                baseline_stats = result.baseline_statistics[metric]
+                                baseline_ci95 = baseline_stats.get('ci95', 0)
+                                baseline_str = f"{baseline:.4f} ± {baseline_ci95:.4f}"
+                            else:
+                                baseline_str = f"{baseline:.4f}"
+                                
                             report_lines.append(
-                                f"| {metric} | {value_str} | {baseline:.4f} | {change_str} |"
+                                f"| {metric} | {value_str} | {baseline_str} | {change_str} |"
                             )
                 else:
                     report_lines.extend([
@@ -353,6 +361,43 @@ def generate_report(
                 # If we truncated metrics, note this
                 if len(all_metrics) > len(display_metrics):
                     report_lines.append(f"*Note: {len(all_metrics) - len(display_metrics)} additional metrics not shown*")
+            
+            # Show baseline seed information if available
+            if result.baseline_seeds and any(result.baseline_seeds.values()):
+                report_lines.extend([
+                    "",
+                    "#### Baseline Seed Data",
+                    "",
+                    "The baseline was established using multiple seeds. Here are the individual seed results:",
+                    "",
+                ])
+                
+                # Find common metrics across seeds
+                baseline_metrics = set()
+                for seed_data in result.baseline_seeds.values():
+                    baseline_metrics.update(seed_data.keys())
+                
+                # Prioritize main metrics
+                display_metrics = [m for m in MAIN_PERFORMANCE_METRICS if m in baseline_metrics]
+                if not display_metrics:
+                    display_metrics = sorted(baseline_metrics)[:3]
+                
+                # Create header
+                header = "| Seed | " + " | ".join(display_metrics) + " |"
+                separator = "| ---- | " + " | ".join(["-" * len(m) for m in display_metrics]) + " |"
+                
+                report_lines.extend([header, separator])
+                
+                # Add rows for each seed
+                for seed, seed_metrics in sorted(result.baseline_seeds.items(), key=lambda x: int(x[0]) if x[0].isdigit() else x[0]):
+                    values = []
+                    for metric in display_metrics:
+                        value = seed_metrics.get(metric, "N/A")
+                        if isinstance(value, (int, float)):
+                            value = f"{value:.4f}"
+                        values.append(value)
+                    
+                    report_lines.append(f"| {seed} | " + " | ".join(values) + " |")
             
             report_lines.append("")
     
