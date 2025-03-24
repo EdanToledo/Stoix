@@ -14,7 +14,7 @@ from stoix.tests.performance_tests.framework.utils import test_algorithm_perform
     module_path="stoix.systems.ppo.anakin.ff_ppo",
     arch="anakin"
 )
-def test_ppo_cartpole(establish_baseline=False, config_overrides=None):
+def test_ppo_cartpole(establish_baseline=False, config_overrides=None, num_seeds=1):
     """
     Test PPO performance on the CartPole environment.
     This is a simple environment that should converge quickly.
@@ -22,6 +22,7 @@ def test_ppo_cartpole(establish_baseline=False, config_overrides=None):
     Args:
         establish_baseline: If True, save results as new baseline.
         config_overrides: Dictionary of configuration overrides.
+        num_seeds: Number of seeds to use for the test.
     """
     all_overrides = {
         "arch.total_num_envs": 128,
@@ -49,7 +50,8 @@ def test_ppo_cartpole(establish_baseline=False, config_overrides=None):
         module_path="stoix.systems.ppo.anakin.ff_ppo",
         arch="anakin",
         establish_baseline=establish_baseline,
-        config_overrides=all_overrides
+        config_overrides=all_overrides,
+        num_seeds=num_seeds
     )
 
 @register_test(
@@ -58,7 +60,7 @@ def test_ppo_cartpole(establish_baseline=False, config_overrides=None):
     module_path="stoix.systems.ppo.anakin.ff_ppo",
     arch="anakin"
 )
-def test_ppo_ant(establish_baseline=False, config_overrides=None):
+def test_ppo_ant(establish_baseline=False, config_overrides=None, num_seeds=1):
     """
     Test PPO performance on the Brax Ant environment.
     This is a standard continuous control benchmark.
@@ -66,6 +68,7 @@ def test_ppo_ant(establish_baseline=False, config_overrides=None):
     Args:
         establish_baseline: If True, save results as new baseline.
         config_overrides: Dictionary of configuration overrides.
+        num_seeds: Number of seeds to use for the test.
     """
     all_overrides = {
         "arch.total_num_envs": 1024,
@@ -93,7 +96,8 @@ def test_ppo_ant(establish_baseline=False, config_overrides=None):
         module_path="stoix.systems.ppo.anakin.ff_ppo",
         arch="anakin",
         establish_baseline=establish_baseline,
-        config_overrides=all_overrides
+        config_overrides=all_overrides,
+        num_seeds=num_seeds
     )
 
 @register_test(
@@ -102,7 +106,7 @@ def test_ppo_ant(establish_baseline=False, config_overrides=None):
     module_path="stoix.systems.ppo.anakin.ff_ppo",
     arch="anakin"
 )
-def test_ppo_humanoid(establish_baseline=False, config_overrides=None):
+def test_ppo_humanoid(establish_baseline=False, config_overrides=None, num_seeds=1):
     """
     Test PPO performance on the Brax Humanoid environment.
     This is a complex continuous control benchmark.
@@ -110,6 +114,7 @@ def test_ppo_humanoid(establish_baseline=False, config_overrides=None):
     Args:
         establish_baseline: If True, save results as new baseline.
         config_overrides: Dictionary of configuration overrides.
+        num_seeds: Number of seeds to use for the test.
     """
     all_overrides = {
         "arch.total_num_envs": 1024,
@@ -137,7 +142,8 @@ def test_ppo_humanoid(establish_baseline=False, config_overrides=None):
         module_path="stoix.systems.ppo.anakin.ff_ppo",
         arch="anakin",
         establish_baseline=establish_baseline,
-        config_overrides=all_overrides
+        config_overrides=all_overrides,
+        num_seeds=num_seeds
     )
 
 @register_test(
@@ -146,7 +152,7 @@ def test_ppo_humanoid(establish_baseline=False, config_overrides=None):
     module_path="stoix.systems.ppo.anakin.ff_ppo",
     arch="anakin"
 )
-def test_ppo_halfcheetah(establish_baseline=False, config_overrides=None):
+def test_ppo_halfcheetah(establish_baseline=False, config_overrides=None, num_seeds=1):
     """
     Test PPO performance on the Brax HalfCheetah environment.
     This is a standard continuous control benchmark.
@@ -154,6 +160,7 @@ def test_ppo_halfcheetah(establish_baseline=False, config_overrides=None):
     Args:
         establish_baseline: If True, save results as new baseline.
         config_overrides: Dictionary of configuration overrides.
+        num_seeds: Number of seeds to use for the test.
     """
     all_overrides = {
         "arch.total_num_envs": 1024,
@@ -181,5 +188,6 @@ def test_ppo_halfcheetah(establish_baseline=False, config_overrides=None):
         module_path="stoix.systems.ppo.anakin.ff_ppo",
         arch="anakin",
         establish_baseline=establish_baseline,
-        config_overrides=all_overrides
+        config_overrides=all_overrides,
+        num_seeds=num_seeds
     )

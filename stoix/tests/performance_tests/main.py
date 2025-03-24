@@ -38,6 +38,9 @@ Usage:
 
     # Enable verbose logging
     python -m tests.performance_tests.main --verbose
+    
+    # Run each test with multiple seeds
+    python -m tests.performance_tests.main --num-seeds 3
 """
 
 import argparse
@@ -96,6 +99,12 @@ def main():
         help="Directory to save reports",
     )
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
+    parser.add_argument(
+        "--num-seeds", 
+        type=int, 
+        default=1, 
+        help="Number of seeds (runs) per test for statistical analysis"
+    )
 
     args = parser.parse_args()
 
@@ -140,6 +149,7 @@ def main():
         environments=args.environments,
         establish_baseline=args.establish_baseline,
         config_overrides=config_overrides,
+        num_seeds=args.num_seeds,
     )
 
     # Generate report

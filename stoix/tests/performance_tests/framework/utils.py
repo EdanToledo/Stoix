@@ -19,8 +19,10 @@ import os
 import json
 import logging
 import traceback
+import numpy as np
+from scipy import stats
 from dataclasses import dataclass, field
-from typing import Callable, Dict, Any, Optional, List, Tuple, cast
+from typing import Callable, Dict, Any, Optional, List, Tuple, cast, Union
 
 import hydra
 from omegaconf import DictConfig, OmegaConf
@@ -41,6 +43,9 @@ MAIN_PERFORMANCE_METRICS = [
     "reward",             # Raw reward value
 ]
 
+# Confidence level for intervals (0.95 = 95% confidence)
+CONFIDENCE_LEVEL = 0.95
+
 
 @dataclass
 class TestResult:
@@ -58,6 +63,11 @@ class TestResult:
     comparison: Dict[str, float] = field(default_factory=dict)
     message: str = ""
     established_baseline: bool = False
+    
+    # Multi-seed run data
+    seed_metrics: Dict[int, Dict[str, float]] = field(default_factory=dict)
+    metric_stats: Dict[str, Dict[str, float]] = field(default_factory=dict)
+    num_seeds: int = 1
 
     @property
     def summary(self) -> str:
@@ -71,7 +81,11 @@ class TestResult:
         main_metric = self._find_main_performance_metric()
         if main_metric:
             metric_name, value, baseline, pct_diff = main_metric
-            return f"{metric_name}: {value:.2f} vs {baseline:.2f} ({pct_diff:+.2f}%)"
+            if self.num_seeds > 1 and metric_name in self.metric_stats:
+                stats = self.metric_stats[metric_name]
+                return f"{metric_name}: {value:.2f} ± {stats['ci95']:.2f} vs {baseline:.2f} ({pct_diff:+.2f}%)"
+            else:
+                return f"{metric_name}: {value:.2f} vs {baseline:.2f} ({pct_diff:+.2f}%)"
 
         return "Success (no metrics available)"
 
@@ -104,6 +118,72 @@ class TestResult:
             pct_diff = float('inf') if value > 0 else float('-inf') if value < 0 else 0.0
             
         return (metric_name, value, baseline, pct_diff)
+    
+    def add_seed_run(self, seed: int, metrics: Dict[str, float]) -> None:
+        """
+        Add results from a single seed run.
+        
+        Args:
+            seed: The random seed used for this run
+            metrics: Performance metrics from this run
+        """
+        self.seed_metrics[seed] = metrics
+        self.num_seeds = len(self.seed_metrics)
+        
+        # Update the main metrics dictionary with aggregated values
+        self._calculate_stats()
+    
+    def _calculate_stats(self) -> None:
+        """Calculate statistics across all seed runs."""
+        if not self.seed_metrics:
+            return
+            
+        # First, identify all unique metrics across all seeds
+        all_metrics = set()
+        for seed_data in self.seed_metrics.values():
+            all_metrics.update(seed_data.keys())
+            
+        # For each metric, calculate statistics
+        self.metric_stats = {}
+        self.metrics = {}
+        
+        for metric in all_metrics:
+            # Collect all values for this metric across all seeds
+            values = []
+            for seed_data in self.seed_metrics.values():
+                if metric in seed_data:
+                    values.append(seed_data[metric])
+            
+            if not values:
+                continue
+                
+            # Convert to numpy array for statistical operations
+            values_array = np.array(values)
+            
+            # Calculate mean (this will be our primary metric value)
+            mean = float(np.mean(values_array))
+            self.metrics[metric] = mean
+            
+            # Calculate additional statistics if we have multiple seeds
+            if len(values) > 1:
+                std = float(np.std(values_array, ddof=1))  # Sample standard deviation
+                sem = float(stats.sem(values_array))  # Standard error of the mean
+                
+                # Calculate 95% confidence interval
+                # For small sample sizes, use t-distribution
+                n = len(values)
+                ci95 = float(stats.t.ppf((1 + CONFIDENCE_LEVEL) / 2, n-1) * sem)
+                
+                # Store the statistics
+                self.metric_stats[metric] = {
+                    "mean": mean,
+                    "std": std,
+                    "sem": sem,
+                    "ci95": ci95,
+                    "min": float(np.min(values_array)),
+                    "max": float(np.max(values_array)),
+                    "count": n
+                }
 
 
 # ---- Baseline Management Functions ----
@@ -271,13 +351,15 @@ def get_run_experiment_function(module_path: str) -> Callable[[DictConfig], Any]
     module = importlib.import_module(module_path)
     return getattr(module, 'run_experiment')
 
-def run_algorithm_with_config(cfg: DictConfig, module_path: str, mock: bool = False) -> Dict[str, float]:
+def run_algorithm_with_config(cfg: DictConfig, module_path: str, mock: bool = False, seed: Optional[int] = None) -> Dict[str, float]:
     """
     Run an algorithm with the given configuration and return performance metrics.
     
     Args:
         cfg: Hydra configuration to use for the algorithm
+        module_path: Path to the module containing the algorithm
         mock: If True, return mock metrics instead of running the algorithm
+        seed: Optional random seed to use for this run
         
     Returns:
         Dictionary of performance metrics
@@ -286,6 +368,10 @@ def run_algorithm_with_config(cfg: DictConfig, module_path: str, mock: bool = Fa
         logger.info("Using mock metrics (test mode)")
         # Return mock metrics for testing
         import random
+        # If seed is provided, set the random seed for reproducibility
+        if seed is not None:
+            random.seed(seed)
+            
         metrics = {
             "episode_return": random.uniform(800, 1200),
             "evaluation_return": random.uniform(900, 1300),
@@ -299,14 +385,19 @@ def run_algorithm_with_config(cfg: DictConfig, module_path: str, mock: bool = Fa
     # Normal execution path
     logger.info(f"Running algorithm with config: {cfg.system.system_name} on {cfg.env}")
     
+    OmegaConf.set_struct(cfg, False)
+
+    # If seed is provided, set it in the config
+    if seed is not None:
+        logger.info(f"Setting seed to {seed}")
+        cfg.arch.seed = seed
+    
     try:
-        
         # Import the algorithm module and get the appropriate run_experiment function
         run_experiment = get_run_experiment_function(module_path)
         
         # Run the training with the provided config
         logger.debug("Starting training run")
-        OmegaConf.set_struct(cfg, False)
         results = run_experiment(cfg)
         logger.debug("Training run completed")
         
@@ -331,6 +422,8 @@ def test_algorithm_performance(
     use_baseline: bool = True,
     establish_baseline: bool = False,
     mock: bool = False,
+    num_seeds: int = 1,
+    start_seed: int = 42,
 ) -> TestResult:
     """
     Test the performance of an algorithm on a specific environment.
@@ -347,17 +440,20 @@ def test_algorithm_performance(
         use_baseline: Whether to compare to baseline
         establish_baseline: Whether to establish a new baseline
         mock: If True, use mock metrics instead of running the real algorithm
+        num_seeds: Number of seeds (runs) to perform for statistical analysis
+        start_seed: Starting seed value, will increment for each run
         
     Returns:
         TestResult object with test results
     """
-    logger.info(f"Testing {algorithm} on {environment}")
+    logger.info(f"Testing {algorithm} on {environment} with {num_seeds} seeds")
     
     # Initialize result object
     result = TestResult(
         algorithm=algorithm,
         environment=environment,
         success=False,
+        num_seeds=num_seeds,
     )
     
     # Prepare config overrides
@@ -370,26 +466,32 @@ def test_algorithm_performance(
     overrides.append(f"env={environment}")
     
     try:
-        if mock:
-            # Skip config creation and use mock metrics
-            logger.info("Using mock mode - skipping Hydra config creation")
-            metrics = run_algorithm_with_config(None, None, mock=True)
-        else:
-            # Create config with overrides
-            # Use a specific config file for the algorithm
-            config_name = f"default_{algorithm}"
+        # For each seed, run a separate experiment
+        for seed_idx in range(num_seeds):
+            current_seed = start_seed + seed_idx
+            logger.info(f"Running with seed {current_seed} ({seed_idx+1}/{num_seeds})")
             
-            cfg = create_hydra_config(
-                config_path=f"../../../configs/default/{arch}",
-                config_name=config_name,
-                overrides=overrides
-            )
+            if mock:
+                # Skip config creation and use mock metrics
+                logger.info("Using mock mode - skipping Hydra config creation")
+                metrics = run_algorithm_with_config(None, None, mock=True, seed=current_seed)
+            else:
+                # Create config with overrides
+                # Use a specific config file for the algorithm
+                config_name = f"default_{algorithm}"
+                
+                cfg = create_hydra_config(
+                    config_path=f"../../../configs/default/{arch}",
+                    config_name=config_name,
+                    overrides=overrides
+                )
+                
+                # Run algorithm with config
+                metrics = run_algorithm_with_config(cfg, module_path, mock=False, seed=current_seed)
+                
+            # Add this seed run to our results
+            result.add_seed_run(current_seed, metrics)
             
-            # Run algorithm with config
-            metrics = run_algorithm_with_config(cfg, module_path, mock=False)
-            
-        result.metrics = metrics
-        
         # Get baseline if needed
         if use_baseline and not establish_baseline:
             baseline_metrics = load_baseline(algorithm, environment)
@@ -397,11 +499,11 @@ def test_algorithm_performance(
             
             # Compare to baseline if available
             if baseline_metrics:
-                result.comparison = compare_metrics(metrics, baseline_metrics)
+                result.comparison = compare_metrics(result.metrics, baseline_metrics)
                 
         # Establish new baseline if requested
         if establish_baseline:
-            if save_baseline(algorithm, environment, metrics):
+            if save_baseline(algorithm, environment, result.metrics):
                 result.established_baseline = True
                 result.message = f"Established new baseline for {algorithm} on {environment}"
                 logger.info(result.message)

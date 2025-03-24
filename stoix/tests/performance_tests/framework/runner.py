@@ -15,6 +15,7 @@ from typing import Dict, List, Tuple, Optional, Any
 from uuid import uuid4
 
 from stoix.tests.performance_tests.framework.registry import get_registry
+from stoix.tests.performance_tests.framework.utils import MAIN_PERFORMANCE_METRICS
 
 
 # Configure logging
@@ -85,6 +86,7 @@ def run_tests(
     environments: Optional[List[str]] = None,
     establish_baseline: bool = False,
     config_overrides: Optional[Dict[str, Any]] = None,
+    num_seeds: int = 1,
 ) -> Dict[str, Dict[str, Any]]:
     """
     Run performance tests for specified algorithms and environments.
@@ -94,6 +96,7 @@ def run_tests(
         environments: List of environments to test (if None, test all)
         establish_baseline: Whether to establish new baselines
         config_overrides: Configuration overrides to apply to all tests
+        num_seeds: Number of seeds to run for each test
         
     Returns:
         Dictionary mapping test names to test results
@@ -122,7 +125,7 @@ def run_tests(
             logger.warning("No tests found")
         return {}
     
-    logger.info(f"Running {len(tests_to_run)} tests")
+    logger.info(f"Running {len(tests_to_run)} tests with {num_seeds} seeds each")
     
     # Run the tests
     results = {}
@@ -132,12 +135,15 @@ def run_tests(
         
         try:
             # Run the test function with the appropriate arguments
+            if config_overrides is None:
+                config_overrides = {}
             config_overrides.update({"logger.use_json" : "True"})
             config_overrides.update({"logger.base_exp_path" : f"stoix/tests/performance_tests/data/experiment_runs"})
             config_overrides.update({"logger.kwargs.json_path" : f"{test_name}/{datetime.now().strftime('%Y%m%d%H%M%S') + str(uuid4())}"})
             result = test_func(
                 establish_baseline=establish_baseline,
                 config_overrides=config_overrides,
+                num_seeds=num_seeds,
             )
             
             # Add result to results dictionary
@@ -219,6 +225,8 @@ def generate_report(
         notes = []
         if result.established_baseline:
             notes.append("Baseline established")
+        if result.num_seeds > 1:
+            notes.append(f"Ran with {result.num_seeds} seeds")
         if not result.success and result.message:
             notes.append(result.message)
             
@@ -244,28 +252,107 @@ def generate_report(
             
             # If we have baseline metrics, show comparison
             if result.baseline_metrics:
-                report_lines.extend([
-                    "| Metric | Current | Baseline | Change |",
-                    "| ------ | ------- | -------- | ------ |",
-                ])
-                
-                for metric, value in sorted(result.metrics.items()):
-                    if metric in result.baseline_metrics:
-                        baseline = result.baseline_metrics[metric]
-                        change = value - baseline
-                        change_str = f"{change:+.4f}"
-                        report_lines.append(
-                            f"| {metric} | {value:.4f} | {baseline:.4f} | {change_str} |"
-                        )
+                # Check if we have multi-seed statistics
+                if result.num_seeds > 1 and result.metric_stats:
+                    report_lines.extend([
+                        "| Metric | Current (Mean ± 95% CI) | Baseline | Change |",
+                        "| ------ | ----------------------- | -------- | ------ |",
+                    ])
+                    
+                    for metric, value in sorted(result.metrics.items()):
+                        if metric in result.baseline_metrics:
+                            baseline = result.baseline_metrics[metric]
+                            change = value - baseline
+                            change_str = f"{change:+.4f}"
+                            
+                            # Add confidence intervals if available
+                            if metric in result.metric_stats:
+                                stats = result.metric_stats[metric]
+                                ci95 = stats.get('ci95', 0)
+                                value_str = f"{value:.4f} ± {ci95:.4f}"
+                            else:
+                                value_str = f"{value:.4f}"
+                                
+                            report_lines.append(
+                                f"| {metric} | {value_str} | {baseline:.4f} | {change_str} |"
+                            )
+                else:
+                    report_lines.extend([
+                        "| Metric | Current | Baseline | Change |",
+                        "| ------ | ------- | -------- | ------ |",
+                    ])
+                    
+                    for metric, value in sorted(result.metrics.items()):
+                        if metric in result.baseline_metrics:
+                            baseline = result.baseline_metrics[metric]
+                            change = value - baseline
+                            change_str = f"{change:+.4f}"
+                            report_lines.append(
+                                f"| {metric} | {value:.4f} | {baseline:.4f} | {change_str} |"
+                            )
             else:
                 # Just show current metrics
+                if result.num_seeds > 1 and result.metric_stats:
+                    report_lines.extend([
+                        "| Metric | Mean | Std Dev | Min | Max | 95% CI |",
+                        "| ------ | ---- | ------- | --- | --- | ------ |",
+                    ])
+                    
+                    for metric, value in sorted(result.metrics.items()):
+                        if metric in result.metric_stats:
+                            stats = result.metric_stats[metric]
+                            report_lines.append(
+                                f"| {metric} | {value:.4f} | {stats['std']:.4f} | {stats['min']:.4f} | {stats['max']:.4f} | ±{stats['ci95']:.4f} |"
+                            )
+                        else:
+                            report_lines.append(f"| {metric} | {value:.4f} | N/A | N/A | N/A | N/A |")
+                else:
+                    report_lines.extend([
+                        "| Metric | Value |",
+                        "| ------ | ----- |",
+                    ])
+                    
+                    for metric, value in sorted(result.metrics.items()):
+                        report_lines.append(f"| {metric} | {value:.4f} |")
+            
+            # Add seed details if multiple seeds were used
+            if result.num_seeds > 1 and result.seed_metrics:
                 report_lines.extend([
-                    "| Metric | Value |",
-                    "| ------ | ----- |",
+                    "",
+                    "#### Individual Seed Results",
+                    "",
                 ])
                 
-                for metric, value in sorted(result.metrics.items()):
-                    report_lines.append(f"| {metric} | {value:.4f} |")
+                # Get all unique metrics across all seeds
+                all_metrics = set()
+                for seed_data in result.seed_metrics.values():
+                    all_metrics.update(seed_data.keys())
+                
+                # Get primary metrics first (if they exist)
+                primary_metrics = [m for m in MAIN_PERFORMANCE_METRICS if m in all_metrics]
+                other_metrics = sorted(all_metrics - set(primary_metrics))
+                display_metrics = primary_metrics + other_metrics[:3]  # Show primary metrics + up to 3 others
+                
+                # Create header
+                header = "| Seed | " + " | ".join(display_metrics) + " |"
+                separator = "| ---- | " + " | ".join(["-" * len(m) for m in display_metrics]) + " |"
+                
+                report_lines.extend([header, separator])
+                
+                # Add rows for each seed
+                for seed, seed_metrics in sorted(result.seed_metrics.items()):
+                    values = []
+                    for metric in display_metrics:
+                        value = seed_metrics.get(metric, "N/A")
+                        if isinstance(value, (int, float)):
+                            value = f"{value:.4f}"
+                        values.append(value)
+                    
+                    report_lines.append(f"| {seed} | " + " | ".join(values) + " |")
+                
+                # If we truncated metrics, note this
+                if len(all_metrics) > len(display_metrics):
+                    report_lines.append(f"*Note: {len(all_metrics) - len(display_metrics)} additional metrics not shown*")
             
             report_lines.append("")
     
