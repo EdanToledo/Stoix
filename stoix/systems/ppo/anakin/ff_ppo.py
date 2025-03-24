@@ -483,15 +483,16 @@ def run_experiment(_config: DictConfig) -> float:
     # Run experiment for a total number of evaluations.
     max_episode_return = jnp.float32(-1e7)
     best_params = unreplicate_batch_dim(learner_state.params.actor_params)
+    experiment_start = time.monotonic()
     for eval_step in range(config.arch.num_evaluation):
         # Train.
-        start_time = time.time()
+        start_time = time.monotonic()
 
         learner_output = learn(learner_state)
         jax.block_until_ready(learner_output)
 
         # Log the results of the training.
-        elapsed_time = time.time() - start_time
+        elapsed_time = time.monotonic() - start_time
         t = int(steps_per_rollout * (eval_step + 1))
         episode_metrics, ep_completed = get_final_step_metrics(learner_output.episode_metrics)
         episode_metrics["steps_per_second"] = steps_per_rollout / elapsed_time
@@ -563,12 +564,14 @@ def run_experiment(_config: DictConfig) -> float:
         evaluator_output.episode_metrics["steps_per_second"] = steps_per_eval / elapsed_time
         logger.log(evaluator_output.episode_metrics, t, eval_step, LogEvent.ABSOLUTE)
 
+    experiment_end = time.monotonic()
     # Stop the logger.
     logger.stop()
     # Record the performance for the final evaluation run. If the absolute metric is not
     # calculated, this will be the final evaluation run.
     eval_performance = float(jnp.mean(evaluator_output.episode_metrics[config.env.eval_metric]))
-    return eval_performance
+    final_metrics = {'eval_performance' : eval_performance, 'experiment_time' : experiment_end - experiment_start}
+    return final_metrics
 
 
 @hydra.main(
@@ -582,10 +585,10 @@ def hydra_entry_point(cfg: DictConfig) -> float:
     OmegaConf.set_struct(cfg, False)
 
     # Run experiment.
-    eval_performance = run_experiment(cfg)
+    experiment_metrics = run_experiment(cfg)
 
     print(f"{Fore.CYAN}{Style.BRIGHT}PPO experiment completed{Style.RESET_ALL}")
-    return eval_performance
+    return experiment_metrics['eval_performance']
 
 
 if __name__ == "__main__":

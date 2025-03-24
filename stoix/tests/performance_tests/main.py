@@ -40,8 +40,6 @@ Usage:
     python -m tests.performance_tests.main --verbose
 """
 
-import os
-import sys
 import argparse
 import json
 import logging
@@ -126,7 +124,7 @@ def main():
         return
 
     # Load config overrides from JSON file if specified
-    config_overrides = None
+    config_overrides = {}
     if args.config:
         try:
             with open(args.config, "r") as f:

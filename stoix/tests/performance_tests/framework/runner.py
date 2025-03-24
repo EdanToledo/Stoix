@@ -7,11 +7,12 @@ including test discovery, execution, and report generation.
 """
 
 import os
-import datetime
+from datetime import datetime
 import logging
 import importlib
 import traceback
 from typing import Dict, List, Tuple, Optional, Any
+from uuid import uuid4
 
 from stoix.tests.performance_tests.framework.registry import get_registry
 
@@ -131,6 +132,9 @@ def run_tests(
         
         try:
             # Run the test function with the appropriate arguments
+            config_overrides.update({"logger.use_json" : "True"})
+            config_overrides.update({"logger.base_exp_path" : f"stoix/tests/performance_tests/data/experiment_runs"})
+            config_overrides.update({"logger.kwargs.json_path" : f"{test_name}/{datetime.now().strftime('%Y%m%d%H%M%S') + str(uuid4())}"})
             result = test_func(
                 establish_baseline=establish_baseline,
                 config_overrides=config_overrides,
@@ -172,7 +176,7 @@ def generate_report(
     Returns:
         Report content as string, or path to the saved report file
     """
-    timestamp = datetime.datetime.now()
+    timestamp = datetime.now()
     report_lines = [
         "# Performance Test Report",
         f"Generated: {timestamp}",
