@@ -37,7 +37,7 @@ resampling:
   period: 4 # If using period mode this is the frequency of resampling
   ess_threshold: 0.5 # If using ess mode this is the threshold for resampling
 temperature:
-  adaptive: True # Whether to use adaptive temperature for search
+  adaptive: False # Whether to use adaptive temperature for search
   fixed_temperature: 0.5 # Fixed temperature value if adaptive is False
 search_gamma: 1.0 # Discount factor used for search (can differ from training gamma)
 search_gae_lambda: 1.0 # GAE lambda parameter used in search

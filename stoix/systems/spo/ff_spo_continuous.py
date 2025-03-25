@@ -521,7 +521,7 @@ class SPO:
         initial_sampled_actions = initial_particles.root_actions
         carry = (initial_particles, initial_sampled_actions)
         # Scan over depth and record ESS (effective sample size) at each step.
-        final_carry, (ess_metrics, entropy_metrics, mean_td_weights) = jax.lax.scan(
+        final_carry, (ess_metrics, entropy_metrics, mean_td_weights, terminal_masks) = jax.lax.scan(
             functools.partial(
                 self.one_step_rollout,
                 params=params,
@@ -532,18 +532,23 @@ class SPO:
         (particles, _) = final_carry
 
         rollout_metrics = {
-            f"ess_fraction_depth:{d}": ess_metrics[d] / self.config.system.num_particles
+            f"ess_fraction_depth:{d}": ess_metrics[d-1] / self.config.system.num_particles
             for d in range(1, ess_metrics.shape[0] + 1)
         }
         
         rollout_metrics.update({
-            f"entropy_depth:{d}": entropy_metrics[d]
+            f"entropy_depth:{d}": entropy_metrics[d-1]
             for d in range(1, entropy_metrics.shape[0] + 1)
         })
         
         rollout_metrics.update({
-            f"mean_raw_td_weights_depth:{d}": mean_td_weights[d]
+            f"mean_raw_td_weights_depth:{d}": mean_td_weights[d-1]
             for d in range(1, mean_td_weights.shape[0] + 1)
+        })
+       
+        rollout_metrics.update({
+            f"terminal_mask_depth:{d}": terminal_masks[d-1].mean(-1)
+            for d in range(1, terminal_masks.shape[0] + 1)
         })
 
         return particles, rollout_metrics  # type: ignore
@@ -613,6 +618,8 @@ class SPO:
             particles=particles,
             recurrent_output=recurrent_output,
         )
+        # TODO: remove this
+        terminal_mask = 1 - particles.terminal.astype(jnp.int32)
 
         # --- Compute ESS before resampling ---
         if self.config.system.temperature.adaptive:
@@ -664,7 +671,8 @@ class SPO:
                 lambda _: updated_particles,
                 None,
             )
-            return (updated_particles, next_sampled_actions), (ess, entropy, updated_td_weights.mean(axis = -1))
+            # TODO: fix returning metrics more generically and cleaner
+            return (updated_particles, next_sampled_actions), (ess, entropy, updated_td_weights.mean(axis = -1), terminal_mask)
 
         elif resampling_mode == "ess":
             # Resample if the ESS fraction is below the provided threshold.
@@ -686,6 +694,7 @@ class SPO:
             updated_particles = jax.tree_util.tree_map(
                 select_fn, resampled_particles, updated_particles
             )
+            # TODO: fix returning metrics more generically and cleaner
             return (updated_particles, next_sampled_actions), (ess, entropy, updated_td_weights.mean(axis = -1))
 
         else:
@@ -761,9 +770,9 @@ class SPO:
         terminal_mask = 1 - particles.terminal.astype(jnp.int32)
 
         # Update TD weights by accumulating the TD error, considering the terminal mask
-        #next_td_weights = td_error * terminal_mask + particles.resample_td_weights
-        next_td_weights = td_error + particles.resample_td_weights
-        #next_td_weights = particles.resample_td_weights + 1 # Debugging
+        # we do not want to add td errors after autoresetting or particles die.
+        next_td_weights = td_error * terminal_mask + particles.resample_td_weights
+        
         # Validate the shape of the updated TD weights
         chex.assert_shape(
             next_td_weights,
@@ -972,7 +981,6 @@ class SPO:
         # Compute the scaled logits from the TD weights.
         logits = self.get_resample_logits(td_weights, log_temperature, temperature)
 
-        
         # Normalize the logits to obtain probabilities.
         weights = jax.nn.softmax(logits, axis=-1)
         
@@ -980,6 +988,7 @@ class SPO:
         ess = 1.0 / jnp.sum(weights**2, axis=-1)
         
         # Compute the entropy of the weights.
+        # TODO: add safe entropy calculation
         entropy = -jnp.sum(weights * jnp.log(weights), axis=-1)
         
         return ess, entropy
@@ -1363,7 +1372,7 @@ def get_learner_fn(
                     (1 - sequence.done)[:, :-1] * config.system.gamma,
                     config.system.gae_lambda,
                     target_value,
-                    truncation_flags=sequence.truncated[:, :-1],
+                    truncation_t=sequence.truncated[:, :-1],
                 )
 
                 # Calculate L2 loss between predicted values and targets.
@@ -1669,6 +1678,10 @@ def learner_setup(
     
     rollout_metrics.update({
         f"mean_raw_td_weights_depth:{d}": 0.0 for d in range(1, config.system.search_depth + 1)
+    })
+    
+    rollout_metrics.update({
+        f"terminal_mask_depth:{d}": 0.0 for d in range(1, config.system.search_depth + 1)
     })
 
     dummy_info = {
