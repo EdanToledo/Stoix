@@ -251,7 +251,7 @@ def get_learner_fn(
                 params.online,
                 params.target,
                 transitions,
-                transition_sample.priorities,
+                transition_sample.probabilities,
                 noise_key,
                 importance_sampling_exponent,
             )
