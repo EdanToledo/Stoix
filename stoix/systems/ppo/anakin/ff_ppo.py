@@ -570,7 +570,10 @@ def run_experiment(_config: DictConfig) -> float:
     # Record the performance for the final evaluation run. If the absolute metric is not
     # calculated, this will be the final evaluation run.
     eval_performance = float(jnp.mean(evaluator_output.episode_metrics[config.env.eval_metric]))
-    final_metrics = {'eval_performance' : eval_performance, 'experiment_time' : experiment_end - experiment_start}
+    final_metrics = {
+        "eval_performance": eval_performance,
+        "experiment_time": experiment_end - experiment_start,
+    }
     return final_metrics
 
 
@@ -588,7 +591,7 @@ def hydra_entry_point(cfg: DictConfig) -> float:
     experiment_metrics = run_experiment(cfg)
 
     print(f"{Fore.CYAN}{Style.BRIGHT}PPO experiment completed{Style.RESET_ALL}")
-    return experiment_metrics['eval_performance']
+    return experiment_metrics["eval_performance"]
 
 
 if __name__ == "__main__":

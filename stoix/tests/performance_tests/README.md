@@ -70,7 +70,7 @@ from tests.performance_tests.framework.registry import register_test
 from tests.performance_tests.framework.utils import test_algorithm_performance
 
 @register_test(
-    algorithm="ff_ppo", 
+    algorithm="ff_ppo",
     environment="brax/ant",
     module_path="stoix.systems.ppo.ff_ppo",
     arch="anakin"
@@ -78,11 +78,11 @@ from tests.performance_tests.framework.utils import test_algorithm_performance
 def test_ppo_ant(establish_baseline=False, config_overrides=None):
     """
     Test PPO performance on the Brax Ant environment.
-    
+
     Args:
         establish_baseline: If True, save results as new baseline.
         config_overrides: Dictionary of configuration overrides.
-        
+
     Returns:
         TestResult object with performance metrics and comparison to baseline.
     """
@@ -90,11 +90,11 @@ def test_ppo_ant(establish_baseline=False, config_overrides=None):
     all_overrides = {
         # Environment-specific configuration overrides
     }
-    
+
     # Apply user-provided overrides
     if config_overrides:
         all_overrides.update(config_overrides)
-    
+
     return test_algorithm_performance(
         algorithm="ff_ppo",
         environment="brax/ant",
@@ -120,4 +120,4 @@ Baseline performance metrics are stored in JSON files in the `data/baselines/` d
 
 ## Reports
 
-Test reports are saved as Markdown files in the `data/reports/` directory. They include summary statistics, detailed metrics, and comparisons to baselines. 
+Test reports are saved as Markdown files in the `data/reports/` directory. They include summary statistics, detailed metrics, and comparisons to baselines.

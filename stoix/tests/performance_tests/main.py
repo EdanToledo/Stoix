@@ -41,20 +41,24 @@ Usage:
 
     # Enable verbose logging
     python -m tests.performance_tests.main --verbose
-    
+
     # Run each test with multiple seeds
     python -m tests.performance_tests.main --num-seeds 3
+
+    # Use SLURM for parallel test execution
+    python -m tests.performance_tests.main --use-slurm
 """
 
 import argparse
 import json
 import logging
+from typing import Dict, List, Tuple
 
 from stoix.tests.performance_tests.framework.runner import (
     discover_tests,
-    run_tests,
     generate_report,
     list_available_tests,
+    run_tests,
 )
 
 # Configure logging
@@ -64,7 +68,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def main():
+def main() -> None:
     """Main entry point for the performance testing script."""
     # Configure argument parser
     parser = argparse.ArgumentParser(
@@ -89,18 +93,12 @@ def main():
         action="append",
         help="Environment suite to test (e.g., 'brax' for all brax environments)",
     )
-    parser.add_argument(
-        "--establish-baseline", action="store_true", help="Establish new baselines"
-    )
-    parser.add_argument(
-        "--max-steps", type=int, help="Maximum number of training steps"
-    )
+    parser.add_argument("--establish-baseline", action="store_true", help="Establish new baselines")
+    parser.add_argument("--max-steps", type=int, help="Maximum number of training steps")
     parser.add_argument(
         "--config", type=str, help="Path to a JSON file with configuration overrides"
     )
-    parser.add_argument(
-        "--list", action="store_true", help="List available tests and exit"
-    )
+    parser.add_argument("--list", action="store_true", help="List available tests and exit")
     parser.add_argument(
         "--report-dir",
         type=str,
@@ -109,10 +107,19 @@ def main():
     )
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
     parser.add_argument(
-        "--num-seeds", 
-        type=int, 
-        default=1, 
-        help="Number of seeds (runs) per test for statistical analysis"
+        "--num-seeds",
+        type=int,
+        default=1,
+        help="Number of seeds (runs) per test for statistical analysis",
+    )
+    parser.add_argument(
+        "--use-slurm", action="store_true", help="Use SLURM to run tests in parallel on a cluster"
+    )
+    parser.add_argument(
+        "--slurm-config",
+        type=str,
+        default="slurm",
+        help="Name of the Slurm config file to use (without .yaml extension)",
     )
 
     args = parser.parse_args()
@@ -137,16 +144,16 @@ def main():
             print("No tests have been registered.")
         else:
             print("Available tests:")
-            
+
             # Organize tests by algorithm, env suite, and specific env
-            algos_dict = {}
+            algos_dict: Dict[str, Dict[str, Dict[str, List[Tuple[str, str]]]]] = {}
             for algo, env, module_path, arch in sorted(tests):
                 # Split environment into suite and scenario
-                if '/' in env:
-                    env_suite, env_scenario = env.split('/', 1)
+                if "/" in env:
+                    env_suite, env_scenario = env.split("/", 1)
                 else:
-                    env_suite, env_scenario = 'other', env
-                
+                    env_suite, env_scenario = "other", env
+
                 if algo not in algos_dict:
                     algos_dict[algo] = {}
                 if env_suite not in algos_dict[algo]:
@@ -154,7 +161,7 @@ def main():
                 if env_scenario not in algos_dict[algo][env_suite]:
                     algos_dict[algo][env_suite][env_scenario] = []
                 algos_dict[algo][env_suite][env_scenario].append((module_path, arch))
-            
+
             # Display tests in organized format
             for algo in sorted(algos_dict.keys()):
                 print(f"\n📊 Algorithm: {algo}")
@@ -185,6 +192,8 @@ def main():
         establish_baseline=args.establish_baseline,
         config_overrides=config_overrides,
         num_seeds=args.num_seeds,
+        use_slurm=args.use_slurm,
+        slurm_config=args.slurm_config,
     )
 
     # Generate report

@@ -8,17 +8,18 @@ and maintains performance relative to established baselines.
 from stoix.tests.performance_tests.framework.registry import register_test
 from stoix.tests.performance_tests.framework.utils import test_algorithm_performance
 
+
 @register_test(
     algorithm="ff_sac",
     environment="brax/ant",
     module_path="stoix.systems.sac.anakin.ff_sac",
-    arch="anakin"
+    arch="anakin",
 )
 def test_sac_ant(establish_baseline=False, config_overrides=None, num_seeds=1):
     """
     Test SAC performance on the Brax Ant environment.
     This is a standard continuous control benchmark.
-    
+
     Args:
         establish_baseline: If True, save results as new baseline.
         config_overrides: Dictionary of configuration overrides.
@@ -42,12 +43,12 @@ def test_sac_ant(establish_baseline=False, config_overrides=None, num_seeds=1):
         "system.max_grad_norm": 0.5,
         "system.decay_learning_rates": False,
         "arch.total_timesteps": 1e6,
-        "arch.num_evaluation": 10
+        "arch.num_evaluation": 10,
     }
-    
+
     if config_overrides:
         all_overrides.update(config_overrides)
-    
+
     return test_algorithm_performance(
         algorithm="ff_sac",
         environment="brax/ant",
@@ -55,20 +56,21 @@ def test_sac_ant(establish_baseline=False, config_overrides=None, num_seeds=1):
         arch="anakin",
         establish_baseline=establish_baseline,
         config_overrides=all_overrides,
-        num_seeds=num_seeds
+        num_seeds=num_seeds,
     )
+
 
 @register_test(
     algorithm="ff_sac",
     environment="brax/halfcheetah",
     module_path="stoix.systems.sac.anakin.ff_sac",
-    arch="anakin"
+    arch="anakin",
 )
 def test_sac_halfcheetah(establish_baseline=False, config_overrides=None, num_seeds=1):
     """
     Test SAC performance on the Brax HalfCheetah environment.
     This is a standard continuous control benchmark.
-    
+
     Args:
         establish_baseline: If True, save results as new baseline.
         config_overrides: Dictionary of configuration overrides.
@@ -92,12 +94,12 @@ def test_sac_halfcheetah(establish_baseline=False, config_overrides=None, num_se
         "system.max_grad_norm": 0.5,
         "system.decay_learning_rates": False,
         "arch.total_timesteps": 1e6,
-        "arch.num_evaluation": 10
+        "arch.num_evaluation": 10,
     }
-    
+
     if config_overrides:
         all_overrides.update(config_overrides)
-    
+
     return test_algorithm_performance(
         algorithm="ff_sac",
         environment="brax/halfcheetah",
@@ -105,5 +107,5 @@ def test_sac_halfcheetah(establish_baseline=False, config_overrides=None, num_se
         arch="anakin",
         establish_baseline=establish_baseline,
         config_overrides=all_overrides,
-        num_seeds=num_seeds
-    ) 
+        num_seeds=num_seeds,
+    )

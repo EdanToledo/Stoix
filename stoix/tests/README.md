@@ -61,6 +61,28 @@ To list all available tests:
 python -m stoix.tests.performance_tests.main --list
 ```
 
+#### Running Tests in Parallel with SLURM
+
+The testing framework supports parallel execution of tests using SLURM, which can significantly speed up test runs:
+
+```bash
+python -m stoix.tests.performance_tests.main --use-slurm
+```
+
+You can specify a custom SLURM configuration file:
+
+```bash
+python -m stoix.tests.performance_tests.main --use-slurm --slurm-config custom_slurm
+```
+
+The SLURM configuration file should be located in `stoix/configs/launcher/` and follow the same format as the main SLURM launcher configuration.
+
+This is particularly useful when running multiple tests or tests with multiple seeds:
+
+```bash
+python -m stoix.tests.performance_tests.main --use-slurm --num-seeds 5
+```
+
 #### Configuring Performance Tests
 
 You can specify configuration overrides from a JSON file:
@@ -123,7 +145,7 @@ from stoix.tests.performance_tests.framework.registry import register_test
 from stoix.tests.performance_tests.framework.utils import test_algorithm_performance
 
 @register_test(
-    algorithm="ff_ppo", 
+    algorithm="ff_ppo",
     environment="brax/ant",
     module_path="stoix.systems.ppo.ff_ppo",
     arch="anakin"
@@ -134,11 +156,11 @@ def test_ppo_ant(establish_baseline=False, config_overrides=None):
     all_overrides = {
         # Environment-specific configuration overrides
     }
-    
+
     # Apply user-provided overrides
     if config_overrides:
         all_overrides.update(config_overrides)
-    
+
     return test_algorithm_performance(
         algorithm="ff_ppo",
         environment="brax/ant",
@@ -172,4 +194,4 @@ To manually trigger a baseline update, use the appropriate workflow in the GitHu
 4. **Maintain Baselines**: Update baselines when algorithms are improved
 5. **Use Fixed Seeds**: Use fixed random seeds for reproducibility
 6. **Document Tests**: Include docstrings explaining what each test is verifying
-7. **Test Across Environments**: Ensure each algorithm is tested on environments that showcase its strengths 
+7. **Test Across Environments**: Ensure each algorithm is tested on environments that showcase its strengths
