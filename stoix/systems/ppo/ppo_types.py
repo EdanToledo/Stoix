@@ -14,6 +14,7 @@ class PPOTransition(NamedTuple):
     action: Action
     value: Value
     reward: chex.Array
+    bootstrap_value: Value
     log_prob: chex.Array
     obs: chex.Array
     info: Dict
