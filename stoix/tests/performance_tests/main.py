@@ -94,7 +94,7 @@ def main() -> None:
         help="Environment suite to test (e.g., 'brax' for all brax environments)",
     )
     parser.add_argument("--establish-baseline", action="store_true", help="Establish new baselines")
-    parser.add_argument("--max-steps", type=int, help="Maximum number of training steps")
+    
     parser.add_argument(
         "--config", type=str, help="Path to a JSON file with configuration overrides"
     )

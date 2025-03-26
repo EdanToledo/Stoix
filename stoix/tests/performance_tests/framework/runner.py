@@ -152,7 +152,7 @@ def run_tests(
             logger.warning("No tests found")
         return {}
 
-    logger.info(f"Running {len(tests_to_run)} tests with {num_seeds} seeds each")
+    
 
     # If using SLURM, use submitit to run tests in parallel
     if use_slurm:
@@ -160,6 +160,7 @@ def run_tests(
             tests_to_run, establish_baseline, config_overrides, num_seeds, slurm_config
         )
 
+    logger.info(f"Running {len(tests_to_run)} tests with {num_seeds} seeds each")
     # Run the tests sequentially
     results = {}
     for (algo, env, module_path, arch), test_func in tests_to_run.items():
