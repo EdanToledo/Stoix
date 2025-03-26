@@ -1,8 +1,8 @@
 # ---Environment Configs---
 env_name: navix
 scenario:
-  name: Navix-DoorKey-8x8-v0
-  task_name: navix-door_key-8x8-v0
+  name: Navix-FourRooms-v0
+  task_name: navix-fourrooms-v0
 
 kwargs: {}
 
@@ -12,4 +12,4 @@ eval_metric: episode_return
 
 # Optional wrapper to flatten the observation space.
 wrapper:
-  _target_: stoix.wrappers.transforms.FlattenObservationWrapper
+  _target_: stoix.wrappers.transforms.FlattenObservationWrapper 

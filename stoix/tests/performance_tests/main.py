@@ -24,6 +24,9 @@ Usage:
     # Run tests for a specific environment
     python -m tests.performance_tests.main --environment brax/ant
 
+    # Run tests for a specific environment suite
+    python -m tests.performance_tests.main --env-suite brax
+
     # Establish new baseline
     python -m tests.performance_tests.main --establish-baseline
 
@@ -81,6 +84,12 @@ def main():
         help="Environment to test (can specify multiple)",
     )
     parser.add_argument(
+        "--env-suite",
+        dest="env_suites",
+        action="append",
+        help="Environment suite to test (e.g., 'brax' for all brax environments)",
+    )
+    parser.add_argument(
         "--establish-baseline", action="store_true", help="Establish new baselines"
     )
     parser.add_argument(
@@ -128,8 +137,33 @@ def main():
             print("No tests have been registered.")
         else:
             print("Available tests:")
+            
+            # Organize tests by algorithm, env suite, and specific env
+            algos_dict = {}
             for algo, env, module_path, arch in sorted(tests):
-                print(f"  {algo} on {env} from {module_path} with arch {arch}")
+                # Split environment into suite and scenario
+                if '/' in env:
+                    env_suite, env_scenario = env.split('/', 1)
+                else:
+                    env_suite, env_scenario = 'other', env
+                
+                if algo not in algos_dict:
+                    algos_dict[algo] = {}
+                if env_suite not in algos_dict[algo]:
+                    algos_dict[algo][env_suite] = {}
+                if env_scenario not in algos_dict[algo][env_suite]:
+                    algos_dict[algo][env_suite][env_scenario] = []
+                algos_dict[algo][env_suite][env_scenario].append((module_path, arch))
+            
+            # Display tests in organized format
+            for algo in sorted(algos_dict.keys()):
+                print(f"\n📊 Algorithm: {algo}")
+                for env_suite in sorted(algos_dict[algo].keys()):
+                    print(f"  🌐 Suite: {env_suite}")
+                    for env_scenario in sorted(algos_dict[algo][env_suite].keys()):
+                        print(f"    🌍 Scenario: {env_scenario}")
+                        for module_path, arch in algos_dict[algo][env_suite][env_scenario]:
+                            print(f"      - {module_path} (arch: {arch})")
         return
 
     # Load config overrides from JSON file if specified
@@ -147,6 +181,7 @@ def main():
     results = run_tests(
         algorithms=args.algorithms,
         environments=args.environments,
+        env_suites=args.env_suites,
         establish_baseline=args.establish_baseline,
         config_overrides=config_overrides,
         num_seeds=args.num_seeds,

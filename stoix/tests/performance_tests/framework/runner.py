@@ -84,6 +84,7 @@ def list_available_tests() -> List[Tuple[str, str]]:
 def run_tests(
     algorithms: Optional[List[str]] = None,
     environments: Optional[List[str]] = None,
+    env_suites: Optional[List[str]] = None,
     establish_baseline: bool = False,
     config_overrides: Optional[Dict[str, Any]] = None,
     num_seeds: int = 1,
@@ -94,6 +95,7 @@ def run_tests(
     Args:
         algorithms: List of algorithms to test (if None, test all)
         environments: List of environments to test (if None, test all)
+        env_suites: List of environment suites to test (if None, test all)
         establish_baseline: Whether to establish new baselines
         config_overrides: Configuration overrides to apply to all tests
         num_seeds: Number of seeds to run for each test
@@ -114,13 +116,29 @@ def run_tests(
     for (algo, env, module_path, arch), test_func in registry.items():
         if algorithms and algo not in algorithms:
             continue
+        
+        # Filter by specific environment
         if environments and env not in environments:
-            continue
+            # Check if this environment matches an environment suite
+            if env_suites:
+                # Extract suite part (first part before '/') from environment
+                env_suite = env.split('/')[0] if '/' in env else env
+                if env_suite not in env_suites:
+                    continue
+            else:
+                continue
+        # Filter by environment suite if no specific environments provided
+        elif env_suites and not environments:
+            # Extract suite part (first part before '/') from environment
+            env_suite = env.split('/')[0] if '/' in env else env
+            if env_suite not in env_suites:
+                continue
+            
         tests_to_run[(algo, env, module_path, arch)] = test_func
     
     if not tests_to_run:
-        if algorithms or environments:
-            logger.warning(f"No tests found for specified algorithms({algorithms}) and environments({environments})")
+        if algorithms or environments or env_suites:
+            logger.warning(f"No tests found for specified algorithms({algorithms}), environments({environments}), or environment suites({env_suites})")
         else:
             logger.warning("No tests found")
         return {}
