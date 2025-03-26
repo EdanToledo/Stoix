@@ -15,8 +15,8 @@ def batch_truncated_generalized_advantage_estimation(
     r_t: Array,
     discount_t: Array,
     lambda_: Union[Array, Scalar],
-    values: Array,
-    bootstrap_values: Array,
+    v_tm1: Array,
+    v_t: Array,
     stop_target_gradients: bool = False,
     time_major: bool = False,
     standardize_advantages: bool = False,
@@ -41,11 +41,17 @@ def batch_truncated_generalized_advantage_estimation(
       discount_t: Discount tensor at times [1, k] with the same shape as r_t.
       lambda_: Mixing parameter; a scalar or tensor at times [1, k] with the same
         shape as r_t.
-      values: Values tensor at times [0, k-1] with shape [B, T] for batch-major or
+      v_tm1: Values tensor at times [0, k-1] with shape [B, T] for batch-major or
         [T, B] for time-major. These are the baseline values for the current states.
-      bootstrap_values: Values tensor at times [1, k] with the same shape as r_t.
-        These are the values for bootstrapping from next states, properly handling
-        episode boundaries.
+        Important: These are the values to be substract from the r_t + v_t targets.
+        Due to autoreset, these values must skip the last time step T, autoreset
+        makes the timestep go as [0, 1, 2, ..., T-1, 0, 1, 2, ..., T-1, 0, 1, ...].
+      v_t: Values tensor at times [1, k] with the same shape as r_t.
+        These are the values for bootstrapping from next states i.e. the v_t in 
+        r_t + v_t - v_tm1. To correctly handle truncation, these values need to include
+        the values of the final timestep T. These values do not include the first timestep 0.
+        Due to autoreset, these values must skip the first time step 0, so sequences look
+        like [1, 2, ..., T-1, T, 1, 2, ..., T-1, T, 1, ...].
       stop_target_gradients: bool indicating whether or not to apply stop gradient
         to targets.
       time_major: bool indicating whether the input tensors are in time-major format
@@ -61,9 +67,9 @@ def batch_truncated_generalized_advantage_estimation(
         - target_values: The target values for value function training, computed
           as values + advantages (i.e., values plus advantage estimates).
     """
-    chex.assert_rank([r_t, discount_t, values, bootstrap_values], 2)
-    chex.assert_type([r_t, discount_t, values, bootstrap_values], float)
-    chex.assert_equal_shape([r_t, bootstrap_values])
+    chex.assert_rank([r_t, discount_t, v_tm1, v_t], 2)
+    chex.assert_type([r_t, discount_t, v_tm1, v_t], float)
+    chex.assert_equal_shape([r_t, v_tm1, v_t])
     lambda_ = jnp.ones_like(discount_t) * lambda_  # If scalar, make into vector.
 
     # Default truncation_t to all zeros if not provided
@@ -77,13 +83,13 @@ def batch_truncated_generalized_advantage_estimation(
     if not time_major:
         r_t = jnp.transpose(r_t, (1, 0))
         discount_t = jnp.transpose(discount_t, (1, 0))
-        values = jnp.transpose(values, (1, 0))
-        bootstrap_values = jnp.transpose(bootstrap_values, (1, 0))
+        v_tm1 = jnp.transpose(v_tm1, (1, 0))
+        v_t = jnp.transpose(v_t, (1, 0))
         lambda_ = jnp.transpose(lambda_, (1, 0))
         truncation_t = jnp.transpose(truncation_t, (1, 0))
     
     # Use bootstrap_values directly for handling autoreset correctly
-    delta_t = r_t + discount_t * bootstrap_values - values
+    delta_t = r_t + discount_t * v_t - v_tm1
 
     # Iterate backwards to calculate advantages.
     def _body(acc: Array, xs: Tuple[Array, Array, Array, Array]) -> Tuple[Array, Array]:
@@ -99,7 +105,7 @@ def batch_truncated_generalized_advantage_estimation(
         reverse=True,
     )
 
-    target_values = values + advantage_t
+    target_values = v_tm1 + advantage_t
 
     if not time_major:
         advantage_t = jnp.transpose(advantage_t, (1, 0))
