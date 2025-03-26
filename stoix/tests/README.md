@@ -77,11 +77,15 @@ python -m stoix.tests.performance_tests.main --use-slurm --slurm-config custom_s
 
 The SLURM configuration file should be located in `stoix/configs/launcher/` and follow the same format as the main SLURM launcher configuration.
 
-This is particularly useful when running multiple tests or tests with multiple seeds:
+When running with multiple seeds, each seed will be submitted as a separate SLURM job for maximum parallelism:
 
 ```bash
 python -m stoix.tests.performance_tests.main --use-slurm --num-seeds 5
 ```
+
+This approach provides two levels of parallelism:
+1. Different algorithm/environment combinations run as separate jobs
+2. Different seeds for the same test run as separate jobs
 
 #### Configuring Performance Tests
 

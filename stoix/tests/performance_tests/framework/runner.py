@@ -12,7 +12,7 @@ import os
 import time
 import traceback
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union, cast
 from uuid import uuid4
 
 from stoix.tests.performance_tests.framework.registry import get_registry
@@ -490,7 +490,7 @@ def run_tests_slurm(
     """
     Run performance tests in parallel using SLURM.
 
-    This function submits each test as a separate SLURM job and waits for all jobs
+    This function submits each test+seed combination as a separate SLURM job and waits for all jobs
     to complete before returning the combined results.
 
     Args:
@@ -507,7 +507,9 @@ def run_tests_slurm(
     import submitit
     from omegaconf import DictConfig, OmegaConf
 
-    logger.info(f"Running {len(tests_to_run)} tests in parallel using SLURM")
+    logger.info(f"Running {len(tests_to_run)} tests with {num_seeds} seeds each in parallel using SLURM")
+    total_jobs = len(tests_to_run) * num_seeds if num_seeds > 1 else len(tests_to_run)
+    logger.info(f"Will submit a total of {total_jobs} SLURM jobs")
 
     # Load Slurm configuration
     slurm_cfg_path = os.path.join("stoix", "configs", "launcher", f"{slurm_config}.yaml")
@@ -539,87 +541,216 @@ def run_tests_slurm(
         slurm_account=slurm_cfg.slurm.account if hasattr(slurm_cfg.slurm, "account") else None,
     )
 
-    # Create a wrapper function for test execution that can be pickled
-    def run_test_job(
+    # Dictionary to store jobs by test name
+    all_jobs = {}
+    start_seed = 42  # Base seed value
+
+    # Create a wrapper function to run a single seed test
+    def run_single_seed_test(
         test_key: Tuple[str, str, str, str],
-        test_func: Callable[..., TestResult],
+        test_func: Callable[..., Any],
+        seed: int,
         establish_baseline: bool,
         config_overrides: Optional[Dict[str, Any]],
-        num_seeds: int,
-    ) -> Tuple[str, TestResult]:
+    ) -> Tuple[str, int, Dict[str, float]]:
+        """Run a test with a single seed and return the metrics."""
         algo, env, module_path, arch = test_key
         test_name = f"{algo}_{env.replace('/', '_')}_{arch}"
-
+        
         try:
             # Initialize config overrides if necessary
             if config_overrides is None:
                 config_overrides = {}
-
+                
             # Add standard logging configuration
             config_overrides.update({"logger.use_json": "True"})
-            config_overrides.update(
-                {"logger.base_exp_path": f"stoix/tests/performance_tests/data/experiment_runs"}
-            )
-            config_overrides.update(
-                {
-                    "logger.kwargs.json_path": f"{test_name}/{datetime.now().strftime('%Y%m%d%H%M%S') + str(uuid4())}"
-                }
-            )
+            config_overrides.update({"logger.base_exp_path": f"stoix/tests/performance_tests/data/experiment_runs"})
+            job_id = f"{test_name}_seed{seed}_{datetime.now().strftime('%Y%m%d%H%M%S')}{str(uuid4())[:6]}"
+            config_overrides.update({"logger.kwargs.json_path": job_id})
 
-            # Run the test
-            result = test_func(
-                establish_baseline=establish_baseline,
-                config_overrides=config_overrides,
-                num_seeds=num_seeds,
-            )
-
-            return test_name, result
-
+            # Import the test module's utility function to run a single seed
+            from stoix.tests.performance_tests.framework.utils import run_algorithm_with_config, create_hydra_config
+            
+            logger.info(f"Running test {test_name} with seed {seed}")
+            
+            # Prepare overrides
+            overrides = []
+            if config_overrides:
+                for key, value in config_overrides.items():
+                    overrides.append(f"{key}={value}")
+                    
+            # Add the environment to the overrides
+            overrides.append(f"env={env}")
+            
+            try:
+                # Create the config
+                config_name = f"default_{algo}"
+                cfg = create_hydra_config(
+                    config_path=f"../../../configs/default/{arch}",
+                    config_name=config_name,
+                    overrides=overrides,
+                )
+                
+                # Run the algorithm with the seed
+                metrics = run_algorithm_with_config(cfg, module_path, mock=False, seed=seed)
+                return test_name, seed, metrics
+                
+            except Exception as e:
+                logger.error(f"Error running {test_name} with seed {seed}: {str(e)}")
+                raise
+                
         except Exception as e:
-            # Create a failed test result
-            return test_name, TestResult(
-                algorithm=algo,
-                environment=env,
-                success=False,
-                message=f"SLURM Job Exception: {str(e)}",
-            )
+            # Return empty metrics on error
+            return test_name, seed, {"error": 1.0, "error_message": str(e)}
 
     # Submit all jobs
-    jobs = []
     with executor.batch():
         for test_key, test_func in tests_to_run.items():
             algo, env, module_path, arch = test_key
             test_name = f"{algo}_{env.replace('/', '_')}_{arch}"
-            logger.info(f"Submitting SLURM job for test: {test_name}")
+            
+            # Initialize job list for this test
+            all_jobs[test_name] = {
+                "algo": algo,
+                "env": env,
+                "jobs": []
+            }
+            
+            # If we have multiple seeds, run each as a separate job
+            if num_seeds > 1:
+                for seed_idx in range(num_seeds):
+                    current_seed = start_seed + seed_idx
+                    logger.info(f"Submitting SLURM job for test: {test_name} with seed {current_seed}")
+                    
+                    job = executor.submit(
+                        run_single_seed_test,
+                        test_key,
+                        test_func,
+                        current_seed,
+                        establish_baseline,
+                        config_overrides,
+                    )
+                    all_jobs[test_name]["jobs"].append(job)
+            else:
+                # Single seed case - just run with default seed
+                logger.info(f"Submitting SLURM job for test: {test_name}")
+                job = executor.submit(
+                    run_single_seed_test,
+                    test_key,
+                    test_func,
+                    start_seed,
+                    establish_baseline,
+                    config_overrides,
+                )
+                all_jobs[test_name]["jobs"].append(job)
 
-            job = executor.submit(
-                run_test_job, test_key, test_func, establish_baseline, config_overrides, num_seeds
-            )
-            jobs.append(job)
-
-    # Wait for all jobs to complete and collect results
-    results = {}
-
-    logger.info(f"Waiting for {len(jobs)} SLURM jobs to complete...")
-
+    # Wait for all jobs to complete
+    logger.info(f"Waiting for {total_jobs} SLURM jobs to complete...")
+    
     # Simple progress tracking
     completed = 0
-    total = len(jobs)
-    while completed < total:
-        new_completed = sum(1 for job in jobs if job.done())
+    while completed < total_jobs:
+        new_completed = sum(sum(1 for job in test_info["jobs"] if job.done()) 
+                           for test_info in all_jobs.values())
         if new_completed > completed:
             completed = new_completed
-            logger.info(f"Progress: {completed}/{total} tests completed ({completed/total:.1%})")
+            logger.info(f"Progress: {completed}/{total_jobs} jobs completed ({completed/total_jobs:.1%})")
         time.sleep(5)
-
-    # Collect results
-    for job in jobs:
+    
+    # Process results and create TestResult objects
+    results = {}
+    
+    for test_name, test_info in all_jobs.items():
+        # Create a TestResult object for this test
+        result = TestResult(
+            algorithm=test_info["algo"],
+            environment=test_info["env"],
+            success=True,  # Will be updated if any failures occur
+            num_seeds=num_seeds,
+        )
+        
         try:
-            test_name, result = job.result()
+            # Collect results from all seed jobs
+            for job in test_info["jobs"]:
+                try:
+                    job_test_name, seed, metrics = job.result()
+                    
+                    # Add the seed metrics to the result
+                    result.add_seed_run(seed, metrics)
+                    
+                    # Check for errors in the metrics
+                    if "error" in metrics:
+                        result.success = False
+                        result.message = f"Error in seed {seed}: {metrics.get('error_message', 'Unknown error')}"
+                        logger.error(f"Error in {test_name} seed {seed}: {result.message}")
+                        
+                except Exception as e:
+                    # Record failure for this seed
+                    result.success = False
+                    result.message = f"Job failed: {str(e)}"
+                    logger.error(f"Failed to get result for job in test {test_name}: {str(e)}")
+            
+            # Process baseline if needed
+            if use_baseline := not establish_baseline:
+                # Import baseline functions
+                from stoix.tests.performance_tests.framework.utils import (
+                    load_baseline, 
+                    compare_metrics,
+                    save_baseline
+                )
+                
+                baseline_data = load_baseline(test_info["algo"], test_info["env"])
+                
+                # Extract baseline information
+                if baseline_data:
+                    # Extract baseline metrics
+                    if "metrics" in baseline_data:
+                        result.baseline_metrics = baseline_data["metrics"]
+                        
+                        # Store baseline statistics if available
+                        if "statistics" in baseline_data:
+                            result.baseline_statistics = baseline_data["statistics"]
+                            
+                        # Store baseline seed data if available
+                        if "seeds" in baseline_data:
+                            result.baseline_seeds = baseline_data["seeds"]
+                            
+                        # Compare to baseline
+                        result.comparison = compare_metrics(result.metrics, result.baseline_metrics)
+                
+            # Establish new baseline if requested
+            if establish_baseline:
+                from stoix.tests.performance_tests.framework.utils import save_baseline
+                
+                if save_baseline(
+                    test_info["algo"], 
+                    test_info["env"], 
+                    result.metrics, 
+                    result.metric_stats, 
+                    result.seed_metrics
+                ):
+                    result.established_baseline = True
+                    result.message = f"Established new baseline for {test_info['algo']} on {test_info['env']}"
+                    logger.info(result.message)
+                else:
+                    result.success = False
+                    result.message = f"Failed to establish baseline for {test_info['algo']} on {test_info['env']}"
+                    logger.error(result.message)
+            
+            # Add to results
             results[test_name] = result
             logger.info(f"Test {test_name} completed: {result.summary}")
+            
         except Exception as e:
-            logger.error(f"Error retrieving job result: {str(e)}")
-
-    logger.info(f"All {len(jobs)} SLURM jobs completed")
+            # Create a failed result
+            results[test_name] = TestResult(
+                algorithm=test_info["algo"],
+                environment=test_info["env"],
+                success=False,
+                message=f"Error processing results: {str(e)}",
+            )
+            logger.error(f"Error processing results for {test_name}: {str(e)}")
+            logger.error(traceback.format_exc())
+    
+    logger.info(f"All {total_jobs} SLURM jobs completed and processed")
     return results
