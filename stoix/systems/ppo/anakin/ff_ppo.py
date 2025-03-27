@@ -1,6 +1,6 @@
 import copy
 import time
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import chex
 import flax
@@ -37,6 +37,13 @@ from stoix.utils.jax_utils import (
 from stoix.utils.logger import LogEvent, StoixLogger
 from stoix.utils.loss import clipped_value_loss, ppo_clip_loss
 from stoix.utils.multistep import batch_truncated_generalized_advantage_estimation
+from stoix.utils.running_statistics import (
+    RunningStatisticsState,
+    create_with_running_statistics,
+    initialize_statistics,
+    normalize,
+    update_statistics,
+)
 from stoix.utils.total_timestep_checker import check_total_timesteps
 from stoix.utils.training import make_learning_rate
 from stoix.wrappers.episode_metrics import get_final_step_metrics
@@ -80,10 +87,15 @@ def get_learner_fn(
             """Step the environment."""
             params, opt_states, key, env_state, last_timestep = learner_state
 
+            if config.system.normalize_observations:
+                observation = normalize(last_timestep.observation, learner_state.running_statistics)
+            else:
+                observation = last_timestep.observation
+
             # SELECT ACTION
             key, policy_key = jax.random.split(key)
-            actor_policy = actor_apply_fn(params.actor_params, last_timestep.observation)
-            value = critic_apply_fn(params.critic_params, last_timestep.observation)
+            actor_policy = actor_apply_fn(params.actor_params, observation)
+            value = critic_apply_fn(params.critic_params, observation)
             action = actor_policy.sample(seed=policy_key)
             log_prob = actor_policy.log_prob(action)
 
@@ -105,7 +117,13 @@ def get_learner_fn(
                 last_timestep.observation,
                 info,
             )
-            learner_state = OnPolicyLearnerState(params, opt_states, key, env_state, timestep)
+            learner_state = learner_state._replace(
+                params=params,
+                opt_states=opt_states,
+                key=key,
+                env_state=env_state,
+                timestep=timestep,
+            )
             return learner_state, transition
 
         # STEP ENVIRONMENT FOR ROLLOUT LENGTH
@@ -115,7 +133,23 @@ def get_learner_fn(
 
         # CALCULATE ADVANTAGE
         params, opt_states, key, env_state, last_timestep = learner_state
-        last_val = critic_apply_fn(params.critic_params, last_timestep.observation)
+
+        if config.system.normalize_observations:
+            # Normalise observation
+            observation = normalize(last_timestep.observation, learner_state.running_statistics)
+
+            # Update running statistics
+            running_statistics = update_statistics(
+                learner_state.running_statistics,
+                traj_batch.obs,
+                pmap_axis_name=["device", "batch"],
+            )
+            learner_state = learner_state._replace(running_statistics=running_statistics)
+        else:
+            # No normalisation
+            observation = last_timestep.observation
+
+        last_val = critic_apply_fn(params.critic_params, observation)
 
         r_t = traj_batch.reward
         v_t = jnp.concatenate([traj_batch.value, last_val[None, ...]], axis=0)
@@ -138,17 +172,24 @@ def get_learner_fn(
                 """Update the network for a single minibatch."""
 
                 # UNPACK TRAIN STATE AND BATCH INFO
-                params, opt_states = train_state
+                params, opt_states, running_statistics = train_state
                 traj_batch, advantages, targets = batch_info
 
                 def _actor_loss_fn(
                     actor_params: FrozenDict,
                     traj_batch: PPOTransition,
                     gae: chex.Array,
+                    running_statistics: Optional[RunningStatisticsState],
                 ) -> Tuple:
                     """Calculate the actor loss."""
                     # RERUN NETWORK
-                    actor_policy = actor_apply_fn(actor_params, traj_batch.obs)
+
+                    if config.system.normalize_observations:
+                        observations = normalize(traj_batch.obs, running_statistics)
+                    else:
+                        observations = traj_batch.obs
+
+                    actor_policy = actor_apply_fn(actor_params, observations)
                     log_prob = actor_policy.log_prob(traj_batch.action)
 
                     # CALCULATE ACTOR LOSS
@@ -168,10 +209,16 @@ def get_learner_fn(
                     critic_params: FrozenDict,
                     traj_batch: PPOTransition,
                     targets: chex.Array,
+                    running_statistics: Optional[RunningStatisticsState],
                 ) -> Tuple:
                     """Calculate the critic loss."""
                     # RERUN NETWORK
-                    value = critic_apply_fn(critic_params, traj_batch.obs)
+                    if config.system.normalize_observations:
+                        observations = normalize(traj_batch.obs, running_statistics)
+                    else:
+                        observations = traj_batch.obs
+
+                    value = critic_apply_fn(critic_params, observations)
 
                     # CALCULATE VALUE LOSS
                     value_loss = clipped_value_loss(
@@ -187,13 +234,13 @@ def get_learner_fn(
                 # CALCULATE ACTOR LOSS
                 actor_grad_fn = jax.grad(_actor_loss_fn, has_aux=True)
                 actor_grads, actor_loss_info = actor_grad_fn(
-                    params.actor_params, traj_batch, advantages
+                    params.actor_params, traj_batch, advantages, running_statistics
                 )
 
                 # CALCULATE CRITIC LOSS
                 critic_grad_fn = jax.grad(_critic_loss_fn, has_aux=True)
                 critic_grads, critic_loss_info = critic_grad_fn(
-                    params.critic_params, traj_batch, targets
+                    params.critic_params, traj_batch, targets, running_statistics
                 )
 
                 # Compute the parallel mean (pmean) over the batch.
@@ -237,9 +284,17 @@ def get_learner_fn(
                     **actor_loss_info,
                     **critic_loss_info,
                 }
-                return (new_params, new_opt_state), loss_info
+                return (new_params, new_opt_state, running_statistics), loss_info
 
-            params, opt_states, traj_batch, advantages, targets, key = update_state
+            (
+                params,
+                opt_states,
+                traj_batch,
+                advantages,
+                targets,
+                key,
+                running_statistics,
+            ) = update_state
             key, shuffle_key = jax.random.split(key)
 
             # SHUFFLE MINIBATCHES
@@ -256,22 +311,41 @@ def get_learner_fn(
             )
 
             # UPDATE MINIBATCHES
-            (params, opt_states), loss_info = jax.lax.scan(
-                _update_minibatch, (params, opt_states), minibatches
+            (params, opt_states, running_statistics), loss_info = jax.lax.scan(
+                _update_minibatch, (params, opt_states, running_statistics), minibatches
             )
 
-            update_state = (params, opt_states, traj_batch, advantages, targets, key)
+            update_state = (
+                params,
+                opt_states,
+                traj_batch,
+                advantages,
+                targets,
+                key,
+                running_statistics,
+            )
             return update_state, loss_info
 
-        update_state = (params, opt_states, traj_batch, advantages, targets, key)
+        running_statistics = (
+            None if not config.system.normalize_observations else learner_state.running_statistics
+        )
+        update_state = (
+            params,
+            opt_states,
+            traj_batch,
+            advantages,
+            targets,
+            key,
+            running_statistics,
+        )
 
         # UPDATE EPOCHS
         update_state, loss_info = jax.lax.scan(
             _update_epoch, update_state, None, config.system.epochs
         )
 
-        params, opt_states, traj_batch, advantages, targets, key = update_state
-        learner_state = OnPolicyLearnerState(params, opt_states, key, env_state, last_timestep)
+        params, opt_states, traj_batch, advantages, targets, key, _ = update_state
+        learner_state = learner_state._replace(params=params, opt_states=opt_states, key=key)
         metric = traj_batch.info
         return learner_state, (metric, loss_info)
 
@@ -416,7 +490,21 @@ def learner_setup(
 
     # Initialise learner state.
     params, opt_states = replicate_learner
-    init_learner_state = OnPolicyLearnerState(params, opt_states, step_keys, env_states, timesteps)
+    init_learner_state = OnPolicyLearnerState(
+        params=params,
+        opt_states=opt_states,
+        key=step_keys,
+        env_state=env_states,
+        timestep=timesteps,
+    )
+
+    if config.system.normalize_observations:
+        running_statistics = initialize_statistics(jax.tree.map(lambda x: x.squeeze(0), init_x))
+        running_statistics = jax.tree.map(broadcast, running_statistics)
+        running_statistics = flax.jax_utils.replicate(running_statistics, devices=jax.devices())
+        init_learner_state = create_with_running_statistics(
+            state=init_learner_state, running_statistics=running_statistics
+        )
 
     return learn, actor_network, init_learner_state
 
@@ -520,7 +608,13 @@ def run_experiment(_config: DictConfig) -> float:
         eval_keys = eval_keys.reshape(n_devices, -1)
 
         # Evaluate.
-        evaluator_output = evaluator(trained_params, eval_keys)
+        if config.system.normalize_observations:
+            running_statistics = unreplicate_batch_dim(
+                learner_output.learner_state.running_statistics
+            )
+            evaluator_output = evaluator(trained_params, eval_keys, running_statistics)
+        else:
+            evaluator_output = evaluator(trained_params, eval_keys)
         jax.block_until_ready(evaluator_output)
 
         # Log the results of the evaluation.
@@ -554,7 +648,12 @@ def run_experiment(_config: DictConfig) -> float:
         eval_keys = jnp.stack(eval_keys)
         eval_keys = eval_keys.reshape(n_devices, -1)
 
-        evaluator_output = absolute_metric_evaluator(best_params, eval_keys)
+        # Get the running statistics for the absolute metric evaluation
+        if config.system.normalize_observations:
+            running_statistics = unreplicate_batch_dim(learner_state.running_statistics)
+            evaluator_output = absolute_metric_evaluator(best_params, eval_keys, running_statistics)
+        else:
+            evaluator_output = absolute_metric_evaluator(best_params, eval_keys)
         jax.block_until_ready(evaluator_output)
 
         elapsed_time = time.time() - start_time
