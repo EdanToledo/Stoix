@@ -10,6 +10,7 @@ import navix
 import pgx
 import popjym
 import xminigrid
+import dataclasses
 from brax.envs import _envs as brax_environments
 from brax.envs import create as brax_make
 from gymnax import registered_envs as gymnax_environments
@@ -91,8 +92,13 @@ def make_gymnax_env(env_name: str, config: DictConfig) -> Tuple[Environment, Env
     """
     # Config generator and select the wrapper.
     # Create envs.
-    env, env_params = gymnax.make(env_name, **config.env.kwargs)
-    eval_env, eval_env_params = gymnax.make(env_name, **config.env.kwargs)
+    env, env_params = gymnax.make(env_name)
+    eval_env, eval_env_params = gymnax.make(env_name)
+
+    # Modify environment parameters
+    if config.env.kwargs:
+        env_params = dataclasses.replace(env_params, **config.env.kwargs)
+        eval_env_params = dataclasses.replace(eval_env_params, **config.env.kwargs)
 
     env = GymnaxWrapper(env, env_params)
     eval_env = GymnaxWrapper(eval_env, eval_env_params)
