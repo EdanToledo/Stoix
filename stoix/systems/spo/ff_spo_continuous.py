@@ -335,9 +335,9 @@ def make_recurrent_fn(
         # Check to see if the environment truncated
         truncated_step = next_timestep.last() & (next_timestep.discount != 0.0)
         # We set the discount to 0.0 if the environment truncated
-        # The reason for this is to have an indication of if a particle terminated one way or another.
-        # However, to still utilise the value for bootstrapping, we manually discount the value
-        # by the correct discount in the recurrent_fn_output.
+        # The reason for this is to have an indication of if a particle terminated one way or
+        # another. However, to still utilise the value for bootstrapping, we manually discount
+        # the value by the correct discount in the recurrent_fn_output.
         rec_fn_discount = next_timestep.discount * (1 - truncated_step.astype(jnp.float32))
         # For the bootstrap value, we use the real discount and multiply it by the gamma here.
         bootstrap_value = next_timestep.discount * config.system.search_gamma * value
@@ -541,10 +541,12 @@ class SPO:
         rollout_metrics = {}
         num_steps = scan_metrics["ess"].shape[0]
         for d in range(1, num_steps + 1):
-            rollout_metrics[f"ess_fraction_depth:{d}"] = scan_metrics["ess"][d-1] / self.config.system.num_particles
-            rollout_metrics[f"entropy_depth:{d}"] = scan_metrics["entropy"][d-1]
-            rollout_metrics[f"mean_td_weights_depth:{d}"] = scan_metrics["mean_td_weights"][d-1]
-            rollout_metrics[f"particles_alive_depth:{d}"] = scan_metrics["particles_alive"][d-1]
+            rollout_metrics[f"ess_fraction_depth:{d}"] = (
+                scan_metrics["ess"][d - 1] / self.config.system.num_particles
+            )
+            rollout_metrics[f"entropy_depth:{d}"] = scan_metrics["entropy"][d - 1]
+            rollout_metrics[f"mean_td_weights_depth:{d}"] = scan_metrics["mean_td_weights"][d - 1]
+            rollout_metrics[f"particles_alive_depth:{d}"] = scan_metrics["particles_alive"][d - 1]
         return particles, rollout_metrics  # type: ignore
 
     def one_step_rollout(
@@ -654,11 +656,11 @@ class SPO:
 
         # Decide whether to resample based on the configured mode.
         resampling_mode = self.config.system.resampling.mode
-        
+
         # Calculate metrics to return
         step_metrics = {
-            "ess": ess, 
-            "entropy": entropy, 
+            "ess": ess,
+            "entropy": entropy,
             "mean_td_weights": updated_td_weights.mean(axis=-1),
             "particles_alive": particles_alive.mean(axis=-1),
         }
@@ -674,7 +676,7 @@ class SPO:
                 lambda _: updated_particles,
                 None,
             )
-            
+
             return (updated_particles, next_sampled_actions), step_metrics
 
         elif resampling_mode == "ess":
@@ -767,14 +769,14 @@ class SPO:
         # Compute the TD error: reward + next value - current value
         # We do not multiply by discount as we do it in the recurrent_fn.
         td_error = recurrent_output.reward + recurrent_output.value - particles.value
-        
+
         # Apply a terminal mask to ignore updates for terminal states
         terminal_mask = 1 - particles.terminal.astype(jnp.int32)
 
         # Update TD weights by accumulating the TD error, considering the terminal mask
         # we do not want to add td errors after autoresetting or particles die.
         next_td_weights = td_error * terminal_mask + particles.resample_td_weights
-        
+
         # Validate the shape of the updated TD weights
         chex.assert_shape(
             next_td_weights,
@@ -875,8 +877,9 @@ class SPO:
         # Preserve the Generalized Advantage Estimation (GAE) before resampling.
         # For the temperature loss, to correctly target the KL, we need use the advantages
         # before resampling has occurred. This means that the GAE/Advantage used is only calculated
-        # up to the resampling period however, this is still good enough for the adaptive temperature loss
-        # as it is still a suitable approximation of the advantage of sampled actions from the policy.
+        # up to the resampling period however, this is still good enough for the adaptive
+        # temperature loss as it is still a suitable approximation of the advantage of sampled
+        # actions from the policy.
         return particles_resampled._replace(gae=particles.gae)
 
     def update_particles(
@@ -981,19 +984,19 @@ class SPO:
         Returns:
             chex.Array: Effective Sample Size per batch element.
         """
-        
+
         # Compute the scaled logits from the TD weights.
         logits = self.get_resample_logits(td_weights, log_temperature, temperature)
 
         # Normalize the logits to obtain probabilities.
         weights = jax.nn.softmax(logits, axis=-1)
-        
+
         # ESS is the inverse of the sum of squared normalized weights.
         ess = 1.0 / jnp.sum(weights**2, axis=-1)
-        
+
         # Compute the entropy of the weights.
         entropy = -jnp.sum(weights * jnp.log(weights + jnp.finfo(weights.dtype).tiny), axis=-1)
-        
+
         return ess, entropy
 
 
@@ -1145,7 +1148,7 @@ def get_learner_fn(
 
         def _env_step(
             learner_state: OffPolicyLearnerState, _: Any
-        ) -> Tuple[OffPolicyLearnerState, SPOTransition]:
+        ) -> Tuple[OffPolicyLearnerState, Tuple[SPOTransition, Dict[str, chex.Array]]]:
             """Execute a single environment step during policy rollout."""
             params, opt_states, buffer_state, key, env_state, last_timestep = learner_state
 
@@ -1666,7 +1669,7 @@ def learner_setup(
         search_apply_fn,
     )
     update_fns = (actor_optim.update, critic_optim.update, dual_optim.update)
-    
+
     dummy_info = {
         "episode_return": 0.0,
         "episode_length": 0,

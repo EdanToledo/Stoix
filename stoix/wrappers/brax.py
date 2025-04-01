@@ -95,7 +95,7 @@ class BraxJumanjiWrapper(BraxWrapper):
         # Lastly, if the previous step was truncated or terminated, make the discount zero
         # This is to ensure that the discount is zero for the last step of the episode
         # and that stepping past the last step of the episode does not affect the discount
-        discount = jnp.where(jnp.logical_or(prev_truncated,prev_terminated), 0.0, discount)
+        discount = jnp.where(jnp.logical_or(prev_truncated, prev_terminated), 0.0, discount)
 
         # If terminated or truncated step type is last, otherwise mid
         step_type = jnp.where(jnp.logical_or(terminated, truncated), StepType.LAST, StepType.MID)
