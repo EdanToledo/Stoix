@@ -9,6 +9,9 @@ on:
       - main
   workflow_dispatch:
 
+env:
+  UV_SYSTEM_PYTHON: 1
+
 jobs:
   test-algorithms:
     name: "Python ${{ matrix.python-version }} on ${{ matrix.os }}"
@@ -36,4 +39,4 @@ jobs:
         run: chmod +x bash_scripts/run-algorithms.sh
 
       - name: Run Bash Script
-        run: uv run ./bash_scripts/run-algorithms.sh
+        run: ./bash_scripts/run-algorithms.sh
