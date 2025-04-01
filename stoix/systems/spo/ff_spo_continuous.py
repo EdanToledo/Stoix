@@ -334,16 +334,22 @@ def make_recurrent_fn(
         )
         # Check to see if the environment truncated
         truncated_step = next_timestep.last() & (next_timestep.discount != 0.0)
-
+        # We set the discount to 0.0 if the environment truncated
+        # The reason for this is to have an indication of if a particle terminated one way or another.
+        # However, to still utilise the value for bootstrapping, we manually discount the value
+        # by the correct discount in the recurrent_fn_output.
+        rec_fn_discount = next_timestep.discount * (1 - truncated_step.astype(jnp.float32))
+        # For the bootstrap value, we use the real discount and multiply it by the gamma here.
+        bootstrap_value = next_timestep.discount * config.system.search_gamma * value
         # Get the log probabilities of the next sampled actions
         next_log_probs = pi.log_prob(next_sampled_actions)
 
         # Create the recurrent_fn_output
         recurrent_fn_output = SPORecurrentFnOutput(
             reward=next_timestep.reward,
-            discount=next_timestep.discount * (1 - truncated_step.astype(jnp.float32)),
+            discount=rec_fn_discount,
             prior_logits=next_log_probs,
-            value=next_timestep.discount * config.system.search_gamma * value,
+            value=bootstrap_value,
             next_sampled_action=next_sampled_actions,
         )
         # Check shapes for sanity
@@ -538,7 +544,7 @@ class SPO:
             rollout_metrics[f"ess_fraction_depth:{d}"] = scan_metrics["ess"][d-1] / self.config.system.num_particles
             rollout_metrics[f"entropy_depth:{d}"] = scan_metrics["entropy"][d-1]
             rollout_metrics[f"mean_td_weights_depth:{d}"] = scan_metrics["mean_td_weights"][d-1]
-            rollout_metrics[f"terminal_mask_depth:{d}"] = scan_metrics["terminal_mask"][d-1]
+            rollout_metrics[f"particles_alive_depth:{d}"] = scan_metrics["particles_alive"][d-1]
         return particles, rollout_metrics  # type: ignore
 
     def one_step_rollout(
@@ -606,16 +612,16 @@ class SPO:
             particles=particles,
             recurrent_output=recurrent_output,
         )
-        # TODO: remove this
-        terminal_mask = 1 - particles.terminal.astype(jnp.int32)
+        # Get the terminal mask for the particles for logging
+        particles_alive = 1 - particles.terminal.astype(jnp.int32)
 
         # --- Compute ESS before resampling ---
         if self.config.system.temperature.adaptive:
-            ess, entropy = self.calculate_ess_entropy(
+            ess, entropy = self.calculate_ess_and_entropy(
                 updated_td_weights, log_temperature=params.dual_params.log_temperature
             )
         else:
-            ess, entropy = self.calculate_ess_entropy(
+            ess, entropy = self.calculate_ess_and_entropy(
                 updated_td_weights, temperature=self.config.system.temperature.fixed_temperature
             )
 
@@ -654,7 +660,7 @@ class SPO:
             "ess": ess, 
             "entropy": entropy, 
             "mean_td_weights": updated_td_weights.mean(axis=-1),
-            "terminal_mask": terminal_mask.mean(axis=-1),
+            "particles_alive": particles_alive.mean(axis=-1),
         }
 
         if resampling_mode == "period":
@@ -954,7 +960,7 @@ class SPO:
 
         return updated_gae_estimate
 
-    def calculate_ess_entropy(
+    def calculate_ess_and_entropy(
         self,
         td_weights: chex.Array,
         log_temperature: chex.Array | None = None,
@@ -984,8 +990,7 @@ class SPO:
         ess = 1.0 / jnp.sum(weights**2, axis=-1)
         
         # Compute the entropy of the weights.
-        # TODO: add safe entropy calculation
-        entropy = -jnp.sum(weights * jnp.log(weights), axis=-1)
+        entropy = -jnp.sum(weights * jnp.log(weights + jnp.finfo(weights.dtype).tiny), axis=-1)
         
         return ess, entropy
 
@@ -1040,10 +1045,7 @@ def get_warmup_fn(
             done = (timestep.discount == 0.0).reshape(-1)
             truncated_step = (timestep.last() & (timestep.discount != 0.0)).reshape(-1)
 
-            info = {
-                **timestep.extras["episode_metrics"],
-                "rollout_metrics": search_output.rollout_metrics,
-            }
+            info = timestep.extras["episode_metrics"]
 
             transition = SPOTransition(
                 done,
@@ -1160,10 +1162,7 @@ def get_learner_fn(
             # LOG EPISODE METRICS
             done = (timestep.discount == 0.0).reshape(-1)
             truncated_step = (timestep.last() & (timestep.discount != 0.0)).reshape(-1)
-            info = {
-                **timestep.extras["episode_metrics"],
-                "rollout_metrics": search_output.rollout_metrics,
-            }
+            info = timestep.extras["episode_metrics"]
 
             transition = SPOTransition(
                 done,
@@ -1180,10 +1179,10 @@ def get_learner_fn(
             learner_state = OffPolicyLearnerState(
                 params, opt_states, buffer_state, key, env_state, timestep
             )
-            return learner_state, transition
+            return learner_state, (transition, search_output.rollout_metrics)
 
         # STEP ENVIRONMENT FOR ROLLOUT LENGTH
-        learner_state, traj_batch = jax.lax.scan(
+        learner_state, (traj_batch, search_metrics) = jax.lax.scan(
             _env_step, learner_state, None, config.system.rollout_length
         )
         params, opt_states, buffer_state, key, env_state, last_timestep = learner_state
@@ -1494,6 +1493,7 @@ def get_learner_fn(
             params, opt_states, buffer_state, key, env_state, last_timestep
         )
         metric = traj_batch.info
+        loss_info.update(search_metrics)
         return learner_state, (metric, loss_info)
 
     def learner_fn(
@@ -1665,18 +1665,10 @@ def learner_setup(
     )
     update_fns = (actor_optim.update, critic_optim.update, dual_optim.update)
     
-    # Initialize dummy rollout metrics based on the structure returned by SPO.rollout
-    rollout_metrics = {}
-    for d in range(1, config.system.search_depth + 1):
-        rollout_metrics[f"ess_fraction_depth:{d}"] = 0.0
-        rollout_metrics[f"entropy_depth:{d}"] = 0.0
-        rollout_metrics[f"mean_td_weights_depth:{d}"] = 0.0
-        rollout_metrics[f"terminal_mask_depth:{d}"] = 0.0
     dummy_info = {
         "episode_return": 0.0,
         "episode_length": 0,
         "is_terminal_step": False,
-        "rollout_metrics": rollout_metrics,
     }
 
     # Create replay buffer
