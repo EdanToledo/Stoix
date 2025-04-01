@@ -32,9 +32,6 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      # - name: Set python venv
-      #   run: export UV_PROJECT_ENVIRONMENT="/usr/local/"
-
       - name: Install the project
         run: uv sync --all-extras --dev
 
