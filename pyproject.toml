@@ -1,3 +1,6 @@
+[tool.uv]
+package = true
+
 [tool.setuptools.packages.find]
 include = ['stoix*']
 
@@ -13,7 +16,7 @@ popjym = { git = "https://github.com/FLAIROx/popjym.git" }
 xminigrid = { git = "https://github.com/corl-team/xland-minigrid.git", rev = "main" }
 
 [project]
-name = "Stoix"
+name = "stoix"
 readme = "README.md"
 description = "Single-Agent Reinforcement Learning with JAX"
 authors = [

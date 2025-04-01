@@ -32,11 +32,17 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Set python venv
+        run: export UV_PROJECT_ENVIRONMENT="/usr/local/"
+
       - name: Install the project
         run: uv sync --all-extras --dev
+      
+      - name: Run example script
+        run: uv run python stoix/systems/ppo/anakin/ff_ppo.py arch.total_timesteps=300 arch.total_num_envs=8 arch.num_evaluation=1 system.rollout_length=8
 
-      - name: Make Bash Script Executable
-        run: chmod +x bash_scripts/run-algorithms.sh
+      # - name: Make Bash Script Executable
+      #   run: chmod +x bash_scripts/run-algorithms.sh
 
-      - name: Run Bash Script
-        run: ./bash_scripts/run-algorithms.sh
+      # - name: Run Bash Script
+      #   run: ./bash_scripts/run-algorithms.sh

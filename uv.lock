@@ -4172,7 +4172,7 @@ wheels = [
 [[package]]
 name = "stoix"
 version = "0.0.1"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "brax" },
     { name = "chex" },
