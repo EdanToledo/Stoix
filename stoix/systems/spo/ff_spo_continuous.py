@@ -521,7 +521,7 @@ class SPO:
         initial_sampled_actions = initial_particles.root_actions
         carry = (initial_particles, initial_sampled_actions)
         # Scan over depth and record ESS (effective sample size) at each step.
-        final_carry, (ess_metrics, entropy_metrics, mean_td_weights, terminal_masks) = jax.lax.scan(
+        final_carry, scan_metrics = jax.lax.scan(
             functools.partial(
                 self.one_step_rollout,
                 params=params,
@@ -531,26 +531,14 @@ class SPO:
         )
         (particles, _) = final_carry
 
-        rollout_metrics = {
-            f"ess_fraction_depth:{d}": ess_metrics[d-1] / self.config.system.num_particles
-            for d in range(1, ess_metrics.shape[0] + 1)
-        }
-        
-        rollout_metrics.update({
-            f"entropy_depth:{d}": entropy_metrics[d-1]
-            for d in range(1, entropy_metrics.shape[0] + 1)
-        })
-        
-        rollout_metrics.update({
-            f"mean_raw_td_weights_depth:{d}": mean_td_weights[d-1]
-            for d in range(1, mean_td_weights.shape[0] + 1)
-        })
-       
-        rollout_metrics.update({
-            f"terminal_mask_depth:{d}": terminal_masks[d-1].mean(-1)
-            for d in range(1, terminal_masks.shape[0] + 1)
-        })
-
+        # Process the accumulated metrics from the scan
+        rollout_metrics = {}
+        num_steps = scan_metrics["ess"].shape[0]
+        for d in range(1, num_steps + 1):
+            rollout_metrics[f"ess_fraction_depth:{d}"] = scan_metrics["ess"][d-1] / self.config.system.num_particles
+            rollout_metrics[f"entropy_depth:{d}"] = scan_metrics["entropy"][d-1]
+            rollout_metrics[f"mean_td_weights_depth:{d}"] = scan_metrics["mean_td_weights"][d-1]
+            rollout_metrics[f"terminal_mask_depth:{d}"] = scan_metrics["terminal_mask"][d-1]
         return particles, rollout_metrics  # type: ignore
 
     def one_step_rollout(
@@ -558,7 +546,7 @@ class SPO:
         particles_and_actions: Tuple[Particles, Action],
         depth_count_and_key: Tuple[chex.Array, chex.PRNGKey],
         params: SPOParams,
-    ) -> Tuple[Tuple[Particles, Action], float]:
+    ) -> Tuple[Tuple[Particles, Action], Dict[str, chex.Array]]:
         """
         Execute a single step of the SMC rollout process.
 
@@ -660,6 +648,15 @@ class SPO:
 
         # Decide whether to resample based on the configured mode.
         resampling_mode = self.config.system.resampling.mode
+        
+        # Calculate metrics to return
+        step_metrics = {
+            "ess": ess, 
+            "entropy": entropy, 
+            "mean_td_weights": updated_td_weights.mean(axis=-1),
+            "terminal_mask": terminal_mask.mean(axis=-1),
+        }
+
         if resampling_mode == "period":
             # Check if (current_depth+1) satisfies the period condition.
             should_resample = ((current_depth + 1) % self.config.system.resampling.period) == 0
@@ -671,8 +668,8 @@ class SPO:
                 lambda _: updated_particles,
                 None,
             )
-            # TODO: fix returning metrics more generically and cleaner
-            return (updated_particles, next_sampled_actions), (ess, entropy, updated_td_weights.mean(axis = -1), terminal_mask)
+            
+            return (updated_particles, next_sampled_actions), step_metrics
 
         elif resampling_mode == "ess":
             # Resample if the ESS fraction is below the provided threshold.
@@ -694,8 +691,7 @@ class SPO:
             updated_particles = jax.tree_util.tree_map(
                 select_fn, resampled_particles, updated_particles
             )
-            # TODO: fix returning metrics more generically and cleaner
-            return (updated_particles, next_sampled_actions), (ess, entropy, updated_td_weights.mean(axis = -1))
+            return (updated_particles, next_sampled_actions), step_metrics
 
         else:
             raise ValueError(f"Invalid resampling mode: {resampling_mode}")
@@ -1669,21 +1665,13 @@ def learner_setup(
     )
     update_fns = (actor_optim.update, critic_optim.update, dual_optim.update)
     
-    rollout_metrics = {
-        f"ess_fraction_depth:{d}": 0.0 for d in range(1, config.system.search_depth + 1)
-    }
-    rollout_metrics.update({
-        f"entropy_depth:{d}": 0.0 for d in range(1, config.system.search_depth + 1)
-    })
-    
-    rollout_metrics.update({
-        f"mean_raw_td_weights_depth:{d}": 0.0 for d in range(1, config.system.search_depth + 1)
-    })
-    
-    rollout_metrics.update({
-        f"terminal_mask_depth:{d}": 0.0 for d in range(1, config.system.search_depth + 1)
-    })
-
+    # Initialize dummy rollout metrics based on the structure returned by SPO.rollout
+    rollout_metrics = {}
+    for d in range(1, config.system.search_depth + 1):
+        rollout_metrics[f"ess_fraction_depth:{d}"] = 0.0
+        rollout_metrics[f"entropy_depth:{d}"] = 0.0
+        rollout_metrics[f"mean_td_weights_depth:{d}"] = 0.0
+        rollout_metrics[f"terminal_mask_depth:{d}"] = 0.0
     dummy_info = {
         "episode_return": 0.0,
         "episode_length": 0,
