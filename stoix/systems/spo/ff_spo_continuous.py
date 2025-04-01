@@ -874,7 +874,9 @@ class SPO:
         )
         # Preserve the Generalized Advantage Estimation (GAE) before resampling.
         # For the temperature loss, to correctly target the KL, we need use the advantages
-        # before resampling has occurred.
+        # before resampling has occurred. This means that the GAE/Advantage used is only calculated
+        # up to the resampling period however, this is still good enough for the adaptive temperature loss
+        # as it is still a suitable approximation of the advantage of sampled actions from the policy.
         return particles_resampled._replace(gae=particles.gae)
 
     def update_particles(
@@ -937,7 +939,7 @@ class SPO:
         """
         Calculate the Generalized Advantage Estimation (GAE) for each particle.
         This is an iterative calculation going forward in time, not backwards
-        as usually done.
+        as usually done. This is calculated so we can optimise the temperature loss.
 
         Args:
             current_gae (chex.Array): Current GAE estimates.
