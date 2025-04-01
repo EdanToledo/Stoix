@@ -394,7 +394,7 @@ def get_learner_fn(
             # SAMPLE SEQUENCES
             sequences_sample = buffer_sample_fn(buffer_state, sample_key)
             sequences: RNNTransition = sequences_sample.experience  # [B, T, ...]
-            sequences_probabilities = sequences_sample.priorities
+            sequences_probabilities = sequences_sample.probabilities
             sequences_indices = sequences_sample.indices
 
             # Convert B x T -> T x B
