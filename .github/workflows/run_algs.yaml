@@ -36,4 +36,4 @@ jobs:
         run: chmod +x bash_scripts/run-algorithms.sh
 
       - name: Run Bash Script
-        run: ./bash_scripts/run-algorithms.sh
+        run: uv run ./bash_scripts/run-algorithms.sh
