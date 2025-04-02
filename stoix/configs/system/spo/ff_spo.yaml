@@ -20,7 +20,7 @@ vf_coef: 1.0 # Critic weight in the loss function.
 max_grad_norm: 0.5 # Maximum norm of the gradients for a weight update.
 decay_learning_rates: False # Whether learning rates should be linearly decayed during training.
 
-epsilon: 0.01 # KL constraint on the non-parametric auxiliary policy, the one associated with the dual variable called temperature.
+epsilon: 0.5 # KL constraint on the non-parametric auxiliary policy, the one associated with the dual variable called temperature.
 epsilon_policy : 1e-3 #  KL constraint on the categorical policy, the one associated with the dual variable called alpha.
 init_log_temperature: 3. # initial value for the temperature in log-space, note a softplus (rather than an exp) will be used to transform this.
 init_log_alpha: 3. # initial value for the alpha value in log-space, note a softplus (rather than an exp) will be used to transform this.
