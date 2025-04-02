@@ -1204,7 +1204,10 @@ def get_learner_fn(
                 sampled_actions = jnp.swapaxes(sampled_actions, 0, 1)
                 chex.assert_shape(
                     sampled_actions,
-                    (config.system.num_particles, batch_size,),
+                    (
+                        config.system.num_particles,
+                        batch_size,
+                    ),
                 )
 
                 # Prepare normalized SMC weights.
