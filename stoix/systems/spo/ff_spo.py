@@ -1204,7 +1204,7 @@ def get_learner_fn(
                 sampled_actions = jnp.swapaxes(sampled_actions, 0, 1)
                 chex.assert_shape(
                     sampled_actions,
-                    (config.system.num_particles, batch_size, config.system.action_dim),
+                    (config.system.num_particles, batch_size,),
                 )
 
                 # Prepare normalized SMC weights.
@@ -1587,8 +1587,8 @@ def learner_setup(
     dummy_transition = SPOTransition(
         done=jnp.array(False),
         truncated=jnp.array(False),
-        action=jnp.zeros(action_dim, dtype=jnp.float32),
-        sampled_actions=jnp.zeros((config.system.num_particles, action_dim), dtype=jnp.float32),
+        action=jnp.zeros((), dtype=jnp.int32),
+        sampled_actions=jnp.zeros((config.system.num_particles,), dtype=jnp.int32),
         sampled_actions_weights=jnp.ones((config.system.num_particles,)),
         reward=jnp.array(0.0),
         search_value=jnp.array(0.0),
