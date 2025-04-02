@@ -1,4 +1,4 @@
-from typing import Callable, Dict, NamedTuple, Tuple, TypeAlias
+from typing import Callable, Dict, NamedTuple, Tuple, TypeAlias, Union
 
 import chex
 import optax
@@ -12,7 +12,7 @@ from stoix.base_types import (
     Truncated,
     Value,
 )
-from stoix.systems.mpo.mpo_types import DualParams
+from stoix.systems.mpo.mpo_types import CategoricalDualParams, DualParams
 
 _SPO_FLOAT_EPSILON = 1e-8
 
@@ -20,7 +20,7 @@ _SPO_FLOAT_EPSILON = 1e-8
 class SPOParams(NamedTuple):
     actor_params: OnlineAndTarget
     critic_params: OnlineAndTarget
-    dual_params: DualParams
+    dual_params: Union[CategoricalDualParams, DualParams]
 
 
 class SPOOptStates(NamedTuple):
