@@ -1,0 +1,41 @@
+# --- Defaults FF-SPO ---
+
+system_name: ff_spo # Name of the system.
+
+# --- RL hyperparameters ---
+actor_lr: 3e-4 # Learning rate for actor network
+critic_lr: 3e-4 # Learning rate for critic network
+dual_lr: 1e-3  # the learning rate of the alpha optimizer
+tau: 0.005  # smoothing coefficient for target networks
+rollout_length: 32 # Number of environment steps per vectorised environment.
+epochs: 128 # Number of epochs per training data batch.
+warmup_steps: 0  # Number of steps to collect before training.
+total_buffer_size: 65536 # Total effective size of the replay buffer across all devices and vectorised update steps. This means each device has a buffer of size buffer_size//num_devices which is further divided by the update_batch_size. This value must be divisible by num_devices*update_batch_size.
+total_batch_size: 32 # Total effective number of samples to train on. This means each device has a batch size of batch_size/num_devices which is further divided by the update_batch_size. This value must be divisible by num_devices*update_batch_size.
+sample_sequence_length: 32 # Number of steps to consider for each element of the batch.
+period : 1 # Period of the sampled sequences.
+gamma: 0.99 # Discounting factor.
+gae_lambda: 0.95 # Lambda value for Generalized Advantage Estimation (GAE) computation.
+vf_coef: 1.0 # Critic weight in the loss function.
+max_grad_norm: 0.5 # Maximum norm of the gradients for a weight update.
+decay_learning_rates: False # Whether learning rates should be linearly decayed during training.
+
+epsilon: 0.5 # KL constraint on the non-parametric auxiliary policy, the one associated with the dual variable called temperature.
+epsilon_policy : 1e-3 #  KL constraint on the categorical policy, the one associated with the dual variable called alpha.
+init_log_temperature: 3. # initial value for the temperature in log-space, note a softplus (rather than an exp) will be used to transform this.
+init_log_alpha: 3. # initial value for the alpha value in log-space, note a softplus (rather than an exp) will be used to transform this.
+
+# --- Search Hyperparameters ---
+num_particles: 16 # Number of particles in SPO's Sequential Monte Carlo (SMC) Search.
+search_depth: 4 # The depth of the SMC search.
+root_exploration_dirichlet_alpha : 1.0 # Dirichlet noise parameter for the root node sampled actions.
+root_exploration_dirichlet_fraction : 0.0 # Fraction of the noise to interpolate with the prior policy.
+resampling:
+  mode: period # Resampling method: 'period' or 'ess' (effective sample size)
+  period: 4 # If using period mode this is the frequency of resampling
+  ess_threshold: 0.5 # If using ess mode this is the threshold for resampling
+temperature:
+  adaptive: True # Whether to use adaptive temperature for search
+  fixed_temperature: 0.5 # Fixed temperature value if adaptive is False
+search_gamma: 1.0 # Discount factor used for search (can differ from training gamma)
+search_gae_lambda: 1.0 # GAE lambda parameter used in search
