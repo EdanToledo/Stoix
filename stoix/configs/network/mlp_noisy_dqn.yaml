@@ -1,0 +1,10 @@
+# ---Noisy MLP DQN Networks---
+actor_network:
+  pre_torso:
+    _target_: stoix.networks.torso.NoisyMLPTorso
+    layer_sizes: [256, 256]
+    use_layer_norm: True
+    activation: silu
+    sigma_zero: ${system.sigma_zero}
+  action_head:
+    _target_: stoix.networks.heads.DiscreteQNetworkHead

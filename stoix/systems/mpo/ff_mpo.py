@@ -20,8 +20,8 @@ from rich.pretty import pprint
 
 from stoix.base_types import (
     ActorApply,
+    AnakinExperimentOutput,
     ContinuousQApply,
-    ExperimentOutput,
     LearnerFn,
     LogEnvState,
     OnlineAndTarget,
@@ -300,7 +300,7 @@ def get_learner_fn(
                         config.system.gae_lambda,
                         v_t,
                         time_major=False,
-                        truncation_flags=sequence.truncated[:, :-1],
+                        truncation_t=sequence.truncated[:, :-1],
                     )
                     td_error = online_q_t[:, :-1] - gae_value_target
                     q_loss = rlax.l2_loss(td_error).mean()
@@ -406,7 +406,7 @@ def get_learner_fn(
         metric = traj_batch.info
         return learner_state, (metric, loss_info)
 
-    def learner_fn(learner_state: MPOLearnerState) -> ExperimentOutput[MPOLearnerState]:
+    def learner_fn(learner_state: MPOLearnerState) -> AnakinExperimentOutput[MPOLearnerState]:
         """Learner function.
 
         This function represents the learner, it updates the network parameters
@@ -419,7 +419,7 @@ def get_learner_fn(
         learner_state, (episode_info, loss_info) = jax.lax.scan(
             batched_update_step, learner_state, None, config.arch.num_updates_per_eval
         )
-        return ExperimentOutput(
+        return AnakinExperimentOutput(
             learner_state=learner_state,
             episode_metrics=episode_info,
             train_metrics=loss_info,
@@ -620,7 +620,7 @@ def run_experiment(_config: DictConfig) -> float:
     config.num_devices = n_devices
     config = check_total_timesteps(config)
     assert (
-        config.arch.num_updates > config.arch.num_evaluation
+        config.arch.num_updates >= config.arch.num_evaluation
     ), "Number of updates per evaluation must be less than total number of updates."
 
     # Create the environments for train and eval.
@@ -690,7 +690,13 @@ def run_experiment(_config: DictConfig) -> float:
         logger.log({"timestep": t}, t, eval_step, LogEvent.MISC)
         if ep_completed:  # only log episode metrics if an episode was completed in the rollout.
             logger.log(episode_metrics, t, eval_step, LogEvent.ACT)
-        logger.log(learner_output.train_metrics, t, eval_step, LogEvent.TRAIN)
+        train_metrics = learner_output.train_metrics
+        # Calculate the number of optimiser steps per second. Since gradients are aggregated
+        # across the device and batch axis, we don't consider updates per device/batch as part of
+        # the SPS for the learner.
+        opt_steps_per_eval = config.arch.num_updates_per_eval * (config.system.epochs)
+        train_metrics["steps_per_second"] = opt_steps_per_eval / elapsed_time
+        logger.log(train_metrics, t, eval_step, LogEvent.TRAIN)
 
         # Prepare for evaluation.
         start_time = time.time()
@@ -752,7 +758,11 @@ def run_experiment(_config: DictConfig) -> float:
     return eval_performance
 
 
-@hydra.main(config_path="../../configs", config_name="default_ff_mpo.yaml", version_base="1.2")
+@hydra.main(
+    config_path="../../configs/default/anakin",
+    config_name="default_ff_mpo.yaml",
+    version_base="1.2",
+)
 def hydra_entry_point(cfg: DictConfig) -> float:
     """Experiment entry point."""
     # Allow dynamic attributes.

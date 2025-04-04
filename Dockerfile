@@ -1,5 +1,5 @@
 # FROM ubuntu:22.04 as base
-FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04
+FROM nvidia/cuda:12.4.0-runtime-ubuntu22.04
 
 # Ensure no installs try to launch interactive screen
 ARG DEBIAN_FRONTEND=noninteractive
@@ -34,6 +34,6 @@ RUN pip install --quiet --upgrade pip setuptools wheel &&  \
 # Need to use specific cuda versions for jax
 ARG USE_CUDA=true
 RUN if [ "$USE_CUDA" = true ] ; \
-    then pip install "jax[cuda11_pip]<=0.4.13" -f "https://storage.googleapis.com/jax-releases/jax_cuda_releases.html" ; \
+    then pip install "jax[cuda12]>=0.4.25" -f "https://storage.googleapis.com/jax-releases/jax_cuda_releases.html" ; \
     fi
 EXPOSE 6006

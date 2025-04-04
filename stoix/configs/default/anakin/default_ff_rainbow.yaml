@@ -1,0 +1,11 @@
+defaults:
+  - logger: base_logger
+  - arch: anakin
+  - system: q_learning/ff_rainbow
+  - network: mlp_noisy_dueling_c51
+  - env: gymnax/cartpole
+  - _self_
+
+hydra:
+  searchpath:
+    - file://stoix/configs

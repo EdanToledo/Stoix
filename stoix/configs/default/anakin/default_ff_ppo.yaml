@@ -1,0 +1,11 @@
+defaults:
+  - logger: base_logger
+  - arch: anakin
+  - system: ppo/ff_ppo
+  - network: mlp
+  - env: gymnax/cartpole
+  - _self_
+
+hydra:
+  searchpath:
+    - file://stoix/configs

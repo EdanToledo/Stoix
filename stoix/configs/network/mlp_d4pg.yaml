@@ -20,3 +20,6 @@ q_network:
     activation: silu
   critic_head:
     _target_: stoix.networks.heads.DistributionalContinuousQNetwork
+    vmin: ${system.vmin}
+    vmax: ${system.vmax}
+    num_atoms: ${system.num_atoms}

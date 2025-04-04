@@ -1,0 +1,11 @@
+defaults:
+  - logger: base_logger
+  - arch: anakin
+  - system: q_learning/ff_dqn_reg
+  - network: mlp_dqn
+  - env: gymnax/cartpole
+  - _self_
+
+hydra:
+  searchpath:
+    - file://stoix/configs

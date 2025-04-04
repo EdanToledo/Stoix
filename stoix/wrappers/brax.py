@@ -36,8 +36,7 @@ class BraxJumanjiWrapper(BraxWrapper):
         """
         super().__init__(env)
         self._env = env
-
-        self._legal_action_mask = jnp.ones((self.action_spec().shape[0],), dtype=jnp.float32)
+        self._action_dim = self.action_spec().shape[0]
 
     def reset(self, key: chex.PRNGKey) -> Tuple[State, TimeStep]:
 
@@ -51,13 +50,15 @@ class BraxJumanjiWrapper(BraxWrapper):
             key=key,
             metrics=state.metrics,
             info=state.info,
-            step_count=jnp.array(0, dtype=jnp.int32),
+            step_count=jnp.array(0, dtype=int),
         )
+        agent_view = new_state.obs.astype(float)
+        legal_action_mask = jnp.ones((self._action_dim,), dtype=float)
 
         timestep = restart(
             observation=Observation(
-                new_state.obs,
-                self._legal_action_mask,
+                agent_view,
+                legal_action_mask,
                 new_state.step_count,
             ),
             extras={},
@@ -99,11 +100,19 @@ class BraxJumanjiWrapper(BraxWrapper):
         # If terminated or truncated step type is last, otherwise mid
         step_type = jnp.where(terminated | truncated, StepType.LAST, StepType.MID)
 
+        agent_view = state.obs.astype(float)
+        legal_action_mask = jnp.ones((self._action_dim,), dtype=float)
+        obs = Observation(
+            agent_view,
+            legal_action_mask,
+            state.step_count,
+        )
+
         next_timestep = TimeStep(
             step_type=step_type,
-            reward=state.reward,
-            discount=discount,
-            observation=Observation(state.obs, self._legal_action_mask, state.step_count),
+            reward=state.reward.astype(float),
+            discount=discount.astype(float),
+            observation=obs,
             extras={},
         )
 
@@ -112,7 +121,7 @@ class BraxJumanjiWrapper(BraxWrapper):
     def action_spec(self) -> specs.Spec:
         action_space = specs.BoundedArray(
             shape=(self.action_size,),
-            dtype=jnp.float32,
+            dtype=float,
             minimum=-1.0,
             maximum=1.0,
             name="action",
@@ -120,13 +129,12 @@ class BraxJumanjiWrapper(BraxWrapper):
         return action_space
 
     def observation_spec(self) -> specs.Spec:
-
         return specs.Spec(
             Observation,
             "ObservationSpec",
-            agent_view=specs.Array(shape=(self.observation_size,), dtype=jnp.float32),
-            action_mask=specs.Array(shape=(self.action_size,), dtype=jnp.float32),
-            step_count=specs.Array(shape=(), dtype=jnp.int32),
+            agent_view=specs.Array(shape=(self.observation_size,), dtype=float),
+            action_mask=specs.Array(shape=(self.action_size,), dtype=float),
+            step_count=specs.Array(shape=(), dtype=int),
         )
 
     def reward_spec(self) -> specs.Array:

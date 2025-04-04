@@ -1,0 +1,19 @@
+# --- Defaults FF-DQN ---
+
+system_name: ff_dqn # Name of the system.
+
+# --- RL hyperparameters ---
+rollout_length: 2 # Number of environment steps per vectorised environment.
+epochs: 16 # Number of sgd steps per rollout.
+warmup_steps: 16  # Number of steps to collect before training.
+total_buffer_size: 1_000_000 # Total effective size of the replay buffer across all devices and vectorised update steps. This means each device has a buffer of size buffer_size//num_devices which is further divided by the update_batch_size. This value must be divisible by num_devices*update_batch_size.
+total_batch_size: 512 # Total effective number of samples to train on. This means each device has a batch size of batch_size/num_devices which is further divided by the update_batch_size. This value must be divisible by num_devices*update_batch_size.
+q_lr: 5e-4  # the learning rate of the Q network network optimizer
+tau: 0.005  # smoothing coefficient for target networks
+gamma: 0.99  # discount factor
+max_grad_norm: 0.5 # Maximum norm of the gradients for a weight update.
+decay_learning_rates: False # Whether learning rates should be linearly decayed during training.
+training_epsilon: 0.1  # epsilon for the epsilon-greedy policy during training
+evaluation_epsilon: 0.00  # epsilon for the epsilon-greedy policy during evaluation
+max_abs_reward : 1000.0  # maximum absolute reward value
+huber_loss_parameter: 0.0  # parameter for the huber loss. If 0, it uses MSE loss.

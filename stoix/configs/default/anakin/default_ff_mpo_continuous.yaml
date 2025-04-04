@@ -1,0 +1,11 @@
+defaults:
+  - logger: base_logger
+  - arch: anakin
+  - system: mpo/ff_mpo_continuous
+  - network: mlp_mpo_continuous
+  - env: brax/ant
+  - _self_
+
+hydra:
+  searchpath:
+    - file://stoix/configs

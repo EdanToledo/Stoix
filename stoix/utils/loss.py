@@ -99,9 +99,8 @@ def categorical_double_q_learning(
     # Compute loss (i.e. temporal difference error).
     logit_qa_tm1 = q_logits_tm1[batch_indices, a_tm1]
     td_error = tfd.Categorical(probs=target).cross_entropy(tfd.Categorical(logits=logit_qa_tm1))
-    q_loss = jnp.mean(td_error)
 
-    return q_loss
+    return td_error
 
 
 def q_learning(

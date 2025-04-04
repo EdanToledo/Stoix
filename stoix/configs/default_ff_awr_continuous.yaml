@@ -1,7 +1,0 @@
-defaults:
-  - logger: base_logger
-  - arch: anakin
-  - system: ff_awr
-  - network: mlp_continuous
-  - env: brax/ant
-  - _self_

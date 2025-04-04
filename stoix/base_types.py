@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, Callable, Dict, Generic, Tuple, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Dict, Generic, Optional, Tuple, TypeVar
 
 import chex
 from distrax import DistributionLike
@@ -36,7 +36,7 @@ class Observation(NamedTuple):
 
     agent_view: chex.Array  # (num_obs_features,)
     action_mask: chex.Array  # (num_actions,)
-    step_count: chex.Array  # (,)
+    step_count: Optional[chex.Array] = None  # (,)
 
 
 class ObservationGlobalState(NamedTuple):
@@ -106,8 +106,18 @@ class ActorCriticHiddenStates(NamedTuple):
     critic_hidden_state: HiddenState
 
 
-class LearnerState(NamedTuple):
-    """State of the learner."""
+class CoreLearnerState(NamedTuple):
+    """Base state of the learner. Can be used for both on-policy and off-policy learners.
+    Mainly used for sebulba systems since we dont store env state."""
+
+    params: Parameters
+    opt_states: OptStates
+    key: chex.PRNGKey
+    timestep: TimeStep
+
+
+class OnPolicyLearnerState(NamedTuple):
+    """State of the learner. Used for on-policy learners."""
 
     params: Parameters
     opt_states: OptStates
@@ -131,11 +141,23 @@ class RNNLearnerState(NamedTuple):
 
 class OffPolicyLearnerState(NamedTuple):
     params: Parameters
-    opt_states: ActorCriticOptStates
+    opt_states: OptStates
     buffer_state: BufferState
     key: chex.PRNGKey
     env_state: LogEnvState
     timestep: TimeStep
+
+
+class RNNOffPolicyLearnerState(NamedTuple):
+    params: Parameters
+    opt_states: OptStates
+    buffer_state: BufferState
+    key: chex.PRNGKey
+    env_state: LogEnvState
+    timestep: TimeStep
+    dones: Done
+    truncated: Truncated
+    hstates: HiddenStates
 
 
 class OnlineAndTarget(NamedTuple):
@@ -146,9 +168,19 @@ class OnlineAndTarget(NamedTuple):
 StoixState = TypeVar(
     "StoixState",
 )
+StoixTransition = TypeVar(
+    "StoixTransition",
+)
 
 
-class ExperimentOutput(NamedTuple, Generic[StoixState]):
+class SebulbaExperimentOutput(NamedTuple, Generic[StoixState]):
+    """Experiment output."""
+
+    learner_state: StoixState
+    train_metrics: Dict[str, chex.Array]
+
+
+class AnakinExperimentOutput(NamedTuple, Generic[StoixState]):
     """Experiment output."""
 
     learner_state: StoixState
@@ -156,11 +188,21 @@ class ExperimentOutput(NamedTuple, Generic[StoixState]):
     train_metrics: Dict[str, chex.Array]
 
 
-RNNObservation: TypeAlias = Tuple[Observation, Done]
-LearnerFn = Callable[[StoixState], ExperimentOutput[StoixState]]
-EvalFn = Callable[[FrozenDict, chex.PRNGKey], ExperimentOutput[StoixState]]
+class EvaluationOutput(NamedTuple, Generic[StoixState]):
+    """Evaluation output."""
 
-ActorApply = Callable[[FrozenDict, Observation], DistributionLike]
+    learner_state: StoixState
+    episode_metrics: Dict[str, chex.Array]
+
+
+RNNObservation: TypeAlias = Tuple[Observation, Done]
+LearnerFn = Callable[[StoixState], AnakinExperimentOutput[StoixState]]
+SebulbaLearnerFn = Callable[[StoixState, StoixTransition], SebulbaExperimentOutput[StoixState]]
+EvalFn = Callable[[FrozenDict, chex.PRNGKey], EvaluationOutput[StoixState]]
+SebulbaEvalFn = Callable[[FrozenDict, chex.PRNGKey], Dict[str, chex.Array]]
+
+ActorApply = Callable[..., DistributionLike]
+
 ActFn = Callable[[FrozenDict, Observation, chex.PRNGKey], chex.Array]
 CriticApply = Callable[[FrozenDict, Observation], Value]
 DistributionCriticApply = Callable[[FrozenDict, Observation], DistributionLike]

@@ -39,14 +39,9 @@ class SampledExItTransition(NamedTuple):
     info: Dict
 
 
-class WorldModelParams(NamedTuple):
-    representation_params: FrozenDict
-    dynamics_params: FrozenDict
-
-
 class MZParams(NamedTuple):
     prediction_params: ActorCriticParams
-    world_model_params: WorldModelParams
+    world_model_params: FrozenDict
 
 
 class ZLearnerState(NamedTuple):

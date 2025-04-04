@@ -19,7 +19,7 @@ from rich.pretty import pprint
 
 from stoix.base_types import (
     ActorApply,
-    ExperimentOutput,
+    AnakinExperimentOutput,
     LearnerFn,
     LogEnvState,
     OffPolicyLearnerState,
@@ -40,7 +40,7 @@ from stoix.wrappers.episode_metrics import get_final_step_metrics
 
 def get_warmup_fn(
     env: Environment,
-    q_params: FrozenDict,
+    q_params: OnlineAndTarget,
     q_apply_fn: ActorApply,
     buffer_add_fn: Callable,
     config: DictConfig,
@@ -234,7 +234,9 @@ def get_learner_fn(
         metric = traj_batch.info
         return learner_state, (metric, loss_info)
 
-    def learner_fn(learner_state: OffPolicyLearnerState) -> ExperimentOutput[OffPolicyLearnerState]:
+    def learner_fn(
+        learner_state: OffPolicyLearnerState,
+    ) -> AnakinExperimentOutput[OffPolicyLearnerState]:
         """Learner function.
 
         This function represents the learner, it updates the network parameters
@@ -248,7 +250,7 @@ def get_learner_fn(
         learner_state, (episode_info, loss_info) = jax.lax.scan(
             batched_update_step, learner_state, None, config.arch.num_updates_per_eval
         )
-        return ExperimentOutput(
+        return AnakinExperimentOutput(
             learner_state=learner_state,
             episode_metrics=episode_info,
             train_metrics=loss_info,
@@ -359,9 +361,12 @@ def learner_setup(
     env_states, timesteps = jax.vmap(env.reset, in_axes=(0))(
         jnp.stack(env_keys),
     )
-    reshape_states = lambda x: x.reshape(
-        (n_devices, config.arch.update_batch_size, config.arch.num_envs) + x.shape[1:]
-    )
+
+    def reshape_states(x: chex.Array) -> chex.Array:
+        return x.reshape(
+            (n_devices, config.arch.update_batch_size, config.arch.num_envs) + x.shape[1:]
+        )
+
     # (devices, update batch size, num_envs, ...)
     env_states = jax.tree_util.tree_map(reshape_states, env_states)
     timesteps = jax.tree_util.tree_map(reshape_states, timesteps)
@@ -381,14 +386,19 @@ def learner_setup(
     key, step_key, warmup_key = jax.random.split(key, num=3)
     step_keys = jax.random.split(step_key, n_devices * config.arch.update_batch_size)
     warmup_keys = jax.random.split(warmup_key, n_devices * config.arch.update_batch_size)
-    reshape_keys = lambda x: x.reshape((n_devices, config.arch.update_batch_size) + x.shape[1:])
+
+    def reshape_keys(x: chex.Array) -> chex.Array:
+        return x.reshape((n_devices, config.arch.update_batch_size) + x.shape[1:])
+
     step_keys = reshape_keys(jnp.stack(step_keys))
     warmup_keys = reshape_keys(jnp.stack(warmup_keys))
 
     replicate_learner = (params, opt_states, buffer_states)
 
     # Duplicate learner for update_batch_size.
-    broadcast = lambda x: jnp.broadcast_to(x, (config.arch.update_batch_size,) + x.shape)
+    def broadcast(x: chex.Array) -> chex.Array:
+        return jnp.broadcast_to(x, (config.arch.update_batch_size,) + x.shape)
+
     replicate_learner = jax.tree_util.tree_map(broadcast, replicate_learner)
 
     # Duplicate learner across devices.
@@ -416,7 +426,7 @@ def run_experiment(_config: DictConfig) -> float:
     config.num_devices = n_devices
     config = check_total_timesteps(config)
     assert (
-        config.arch.num_updates > config.arch.num_evaluation
+        config.arch.num_updates >= config.arch.num_evaluation
     ), "Number of updates per evaluation must be less than total number of updates."
 
     # Create the environments for train and eval.
@@ -482,7 +492,13 @@ def run_experiment(_config: DictConfig) -> float:
         logger.log({"timestep": t}, t, eval_step, LogEvent.MISC)
         if ep_completed:  # only log episode metrics if an episode was completed in the rollout.
             logger.log(episode_metrics, t, eval_step, LogEvent.ACT)
-        logger.log(learner_output.train_metrics, t, eval_step, LogEvent.TRAIN)
+        train_metrics = learner_output.train_metrics
+        # Calculate the number of optimiser steps per second. Since gradients are aggregated
+        # across the device and batch axis, we don't consider updates per device/batch as part of
+        # the SPS for the learner.
+        opt_steps_per_eval = config.arch.num_updates_per_eval * (config.system.epochs)
+        train_metrics["steps_per_second"] = opt_steps_per_eval / elapsed_time
+        logger.log(train_metrics, t, eval_step, LogEvent.TRAIN)
 
         # Prepare for evaluation.
         start_time = time.time()
@@ -544,7 +560,11 @@ def run_experiment(_config: DictConfig) -> float:
     return eval_performance
 
 
-@hydra.main(config_path="../../configs", config_name="default_ff_dqn.yaml", version_base="1.2")
+@hydra.main(
+    config_path="../../configs/default/anakin",
+    config_name="default_ff_dqn.yaml",
+    version_base="1.2",
+)
 def hydra_entry_point(cfg: DictConfig) -> float:
     """Experiment entry point."""
     # Allow dynamic attributes.

@@ -5,17 +5,19 @@ import zipfile
 from datetime import datetime
 from enum import Enum
 from typing import Dict, List, Union
+from uuid import uuid4
 
 import jax
 import neptune
 import numpy as np
+import tensorboard_logger
+import wandb
 from colorama import Fore, Style
 from jax.typing import ArrayLike
 from marl_eval.json_tools import JsonLogger as MarlEvalJsonLogger
 from neptune.utils import stringify_unsupported
 from omegaconf import DictConfig
 from pandas.io.json._normalize import _simple_json_normalize as flatten_dict
-from tensorboard_logger import configure, log_value
 
 
 class LogEvent(Enum):
@@ -30,7 +32,7 @@ class StoixLogger:
     """The main logger for Stoix systems.
 
     Thin wrapper around the MultiLogger that is able to describe arrays of metrics
-    and calculate environment specific metrics if required (e.g winrate).
+    and calculate environment specific metrics if required (e.g solve_rate).
     """
 
     def __init__(self, config: DictConfig) -> None:
@@ -49,8 +51,8 @@ class StoixLogger:
         # Ideally we want to avoid special metrics like this as much as possible.
         # Might be better to calculate this outside as we want to keep the number of these
         # if statements to a minimum.
-        if "won_episode" in metrics:
-            metrics = self.calc_winrate(metrics, event)
+        if "solve_episode" in metrics:
+            metrics = self.calc_solve_rate(metrics, event)
 
         if event == LogEvent.TRAIN:
             # We only want to log mean losses, max/min/std don't matter.
@@ -60,10 +62,14 @@ class StoixLogger:
             # {metric1_name: {mean: metric, max: metric, ...}, metric2_name: ...}
             metrics = jax.tree_util.tree_map(describe, metrics)
 
+        metrics = jax.tree.map(
+            lambda x: x.item() if isinstance(x, (jax.Array, np.ndarray)) else x, metrics
+        )
+
         self.logger.log_dict(metrics, t, t_eval, event)
 
-    def calc_winrate(self, episode_metrics: Dict, event: LogEvent) -> Dict:
-        """Log the win rate of the environment's episodes."""
+    def calc_solve_rate(self, episode_metrics: Dict, event: LogEvent) -> Dict:
+        """Log the solve rate of the environment's episodes."""
         # Get the number of episodes used to evaluate.
         if event == LogEvent.ABSOLUTE:
             # To measure the absolute metric, we evaluate the best policy
@@ -74,12 +80,12 @@ class StoixLogger:
         else:
             n_episodes = self.cfg.arch.num_eval_episodes
 
-        # Calculate the win rate.
-        n_won_episodes: int = np.sum(episode_metrics["won_episode"])
-        win_rate = (n_won_episodes / n_episodes) * 100
+        # Calculate the solve rate.
+        n_solve_episodes: int = np.sum(episode_metrics["solve_episode"])
+        solve_rate = (n_solve_episodes / n_episodes) * 100
 
-        episode_metrics["win_rate"] = win_rate
-        episode_metrics.pop("won_episode")
+        episode_metrics["solve_rate"] = solve_rate
+        episode_metrics.pop("solve_episode")
 
         return episode_metrics
 
@@ -104,7 +110,13 @@ class BaseLogger(abc.ABC):
         data = flatten_dict(data, sep="/")
 
         for key, value in data.items():
-            self.log_stat(key, value, step, eval_step, event)
+            self.log_stat(
+                key,
+                value,
+                step,
+                eval_step,
+                event,
+            )
 
     def stop(self) -> None:
         """Stop the logger."""
@@ -134,13 +146,13 @@ class NeptuneLogger(BaseLogger):
     """Logger for neptune.ai."""
 
     def __init__(self, cfg: DictConfig, unique_token: str) -> None:
-        tags = list(cfg.logger.kwargs.neptune_tag)
-        project = cfg.logger.kwargs.neptune_project
+        tags = list(cfg.logger.kwargs.tags)
+        project = cfg.logger.kwargs.project
 
         self.logger = neptune.init_run(project=project, tags=tags)
 
         self.logger["config"] = stringify_unsupported(cfg)
-        self.detailed_logging = cfg.logger.kwargs.detailed_neptune_logging
+        self.detailed_logging = cfg.logger.kwargs.detailed_logging
 
         # Store json path for uploading json data to Neptune.
         json_exp_path = get_logger_path(cfg, "json")
@@ -176,6 +188,52 @@ class NeptuneLogger(BaseLogger):
         self.logger[f"metrics/metrics_{self.unique_token}"].upload(zip_file_path)
 
 
+class WandBLogger(BaseLogger):
+    """Logger for wandb.ai."""
+
+    def __init__(self, cfg: DictConfig, unique_token: str) -> None:
+        tags = list(cfg.logger.kwargs.tags)
+        project = cfg.logger.kwargs.project
+
+        wandb.init(project=project, tags=tags, config=stringify_unsupported(cfg))
+
+        self.detailed_logging = cfg.logger.kwargs.detailed_logging
+
+        # Store json path for uploading json data to Neptune.
+        json_exp_path = get_logger_path(cfg, "json")
+        self.json_file_path = os.path.join(
+            cfg.logger.base_exp_path, f"{json_exp_path}/{unique_token}/metrics.json"
+        )
+        self.unique_token = unique_token
+        self.upload_json_data = cfg.logger.kwargs.upload_json_data
+
+    def log_stat(self, key: str, value: float, step: int, eval_step: int, event: LogEvent) -> None:
+        # Main metric if it's the mean of a list of metrics (ends with '/mean')
+        # or it's a single metric doesn't contain a '/'.
+        is_main_metric = "/" not in key or key.endswith("/mean")
+        # If we're not detailed logging (logging everything) then make sure it's a main metric.
+        if not self.detailed_logging and not is_main_metric:
+            return
+
+        data_to_log = {f"{event.value}/{key}": value}
+        wandb.log(data_to_log, step=step)
+
+    def stop(self) -> None:
+        if self.upload_json_data:
+            self._zip_and_upload_json()
+        wandb.finish()  # type: ignore
+
+    def _zip_and_upload_json(self) -> None:
+        # Create the zip file path by replacing '.json' with '.zip'
+        zip_file_path = self.json_file_path.rsplit(".json", 1)[0] + ".zip"
+
+        # Create a zip file containing the specified JSON file
+        with zipfile.ZipFile(zip_file_path, "w", zipfile.ZIP_DEFLATED) as zipf:
+            zipf.write(self.json_file_path)
+
+        wandb.save(zip_file_path)
+
+
 class TensorboardLogger(BaseLogger):
     """Logger for tensorboard"""
 
@@ -183,8 +241,8 @@ class TensorboardLogger(BaseLogger):
         tb_exp_path = get_logger_path(cfg, "tensorboard")
         tb_logs_path = os.path.join(cfg.logger.base_exp_path, f"{tb_exp_path}/{unique_token}")
 
-        configure(tb_logs_path)
-        self.log = log_value
+        self.logger = tensorboard_logger.Logger(tb_logs_path)
+        self.log = self.logger.log_value
 
     def log_stat(self, key: str, value: float, step: int, eval_step: int, event: LogEvent) -> None:
         t = step if event != LogEvent.EVAL else eval_step
@@ -195,7 +253,7 @@ class JsonLogger(BaseLogger):
     """Json logger for marl-eval."""
 
     # These are the only metrics that marl-eval needs to plot.
-    _METRICS_TO_LOG = ["episode_return/mean", "win_rate", "steps_per_second"]
+    _METRICS_TO_LOG = ["episode_return/mean", "solve_rate", "steps_per_second"]
 
     def __init__(self, cfg: DictConfig, unique_token: str) -> None:
         json_exp_path = get_logger_path(cfg, "json")
@@ -287,10 +345,10 @@ def _make_multi_logger(cfg: DictConfig) -> BaseLogger:
     """Creates a MultiLogger given a config"""
 
     loggers: List[BaseLogger] = []
-    unique_token = datetime.now().strftime("%Y%m%d%H%M%S")
+    unique_token = datetime.now().strftime("%Y%m%d%H%M%S") + str(uuid4())
 
     if (
-        cfg.logger.use_neptune
+        (cfg.logger.use_neptune or cfg.logger.use_wandb)
         and cfg.logger.use_json
         and cfg.logger.kwargs.upload_json_data
         and cfg.logger.kwargs.json_path
@@ -305,6 +363,8 @@ def _make_multi_logger(cfg: DictConfig) -> BaseLogger:
 
     if cfg.logger.use_neptune:
         loggers.append(NeptuneLogger(cfg, unique_token))
+    if cfg.logger.use_wandb:
+        loggers.append(WandBLogger(cfg, unique_token))
     if cfg.logger.use_tb:
         loggers.append(TensorboardLogger(cfg, unique_token))
     if cfg.logger.use_json:
@@ -323,8 +383,10 @@ def get_logger_path(config: DictConfig, logger_type: str) -> str:
 def describe(x: ArrayLike) -> Union[Dict[str, ArrayLike], ArrayLike]:
     """Generate summary statistics for an array of metrics (mean, std, min, max)."""
 
-    if not isinstance(x, jax.Array):
+    if not isinstance(x, (jax.Array, np.ndarray)):
         return x
+    elif x.size <= 1:
+        return np.squeeze(x)
 
     # np instead of jnp because we don't jit here
     return {"mean": np.mean(x), "std": np.std(x), "min": np.min(x), "max": np.max(x)}

@@ -3,6 +3,8 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+cuda-*
+
 # C extensions
 *.so
 
@@ -174,3 +176,4 @@ results/
 outputs/
 multirun/
 .neptune
+.wandb

@@ -7,3 +7,6 @@ actor_network:
     activation: silu
   action_head:
     _target_: stoix.networks.heads.DistributionalDiscreteQNetwork
+    vmin: ${system.vmin}
+    vmax: ${system.vmax}
+    num_atoms: ${system.num_atoms}

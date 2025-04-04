@@ -1,9 +1,13 @@
-from typing import Dict, Optional, Tuple, Union
+import math
+import time
+from typing import Any, Dict, Optional, Tuple, Union
 
 import chex
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
+import numpy as np
+from colorama import Fore, Style
 from flax.core.frozen_dict import FrozenDict
 from jumanji.env import Environment
 from omegaconf import DictConfig
@@ -13,21 +17,30 @@ from stoix.base_types import (
     ActorApply,
     EvalFn,
     EvalState,
-    ExperimentOutput,
+    EvaluationOutput,
     RecActFn,
     RecActorApply,
     RNNEvalState,
     RNNObservation,
+    SebulbaEvalFn,
 )
+from stoix.utils.env_factory import EnvFactory
 from stoix.utils.jax_utils import unreplicate_batch_dim
 
 
-def get_distribution_act_fn(config: DictConfig, actor_apply: ActorApply) -> ActFn:
+def get_distribution_act_fn(
+    config: DictConfig,
+    actor_apply: ActorApply,
+    rngs: Optional[Dict[str, chex.PRNGKey]] = None,
+) -> ActFn:
     """Get the act_fn for a network that returns a distribution."""
 
     def act_fn(params: FrozenDict, observation: chex.Array, key: chex.PRNGKey) -> chex.Array:
         """Get the action from the distribution."""
-        pi = actor_apply(params, observation)
+        if rngs is None:
+            pi = actor_apply(params, observation)
+        else:
+            pi = actor_apply(params, observation, rngs=rngs)
         if config.arch.evaluation_greedy:
             action = pi.mode()
         else:
@@ -58,7 +71,7 @@ def get_ff_evaluator_fn(
     env: Environment,
     act_fn: ActFn,
     config: DictConfig,
-    log_win_rate: bool = False,
+    log_solve_rate: bool = False,
     eval_multiplier: int = 1,
 ) -> EvalFn:
     """Get the evaluator function for feedforward networks.
@@ -113,13 +126,15 @@ def get_ff_evaluator_fn(
             "episode_return": final_state.episode_return,
             "episode_length": final_state.step_count,
         }
-        # Log won episode if win rate is required.
-        if log_win_rate:
-            eval_metrics["won_episode"] = jnp.all(final_state.timestep.reward >= 1.0).astype(int)
+        # Log solve episode if solve rate is required.
+        if log_solve_rate:
+            eval_metrics["solve_episode"] = jnp.all(
+                final_state.episode_return >= config.env.solved_return_threshold
+            ).astype(int)
 
         return eval_metrics
 
-    def evaluator_fn(trained_params: FrozenDict, key: chex.PRNGKey) -> ExperimentOutput[EvalState]:
+    def evaluator_fn(trained_params: FrozenDict, key: chex.PRNGKey) -> EvaluationOutput[EvalState]:
         """Evaluator function."""
 
         # Initialise environment states and timesteps.
@@ -150,10 +165,9 @@ def get_ff_evaluator_fn(
             axis_name="eval_batch",
         )(trained_params, eval_state)
 
-        return ExperimentOutput(
+        return EvaluationOutput(
             learner_state=eval_state,
             episode_metrics=eval_metrics,
-            train_metrics={},
         )
 
     return evaluator_fn
@@ -164,7 +178,7 @@ def get_rnn_evaluator_fn(
     rec_act_fn: RecActFn,
     config: DictConfig,
     scanned_rnn: nn.Module,
-    log_win_rate: bool = False,
+    log_solve_rate: bool = False,
     eval_multiplier: int = 1,
 ) -> EvalFn:
     """Get the evaluator function for recurrent networks."""
@@ -225,14 +239,16 @@ def get_rnn_evaluator_fn(
             "episode_return": final_state.episode_return,
             "episode_length": final_state.step_count,
         }
-        # Log won episode if win rate is required.
-        if log_win_rate:
-            eval_metrics["won_episode"] = jnp.all(final_state.timestep.reward >= 1.0).astype(int)
+        # Log solve episode if solve rate is required.
+        if log_solve_rate:
+            eval_metrics["solve_episode"] = jnp.all(
+                final_state.episode_return >= config.env.solved_return_threshold
+            ).astype(int)
         return eval_metrics
 
     def evaluator_fn(
         trained_params: FrozenDict, key: chex.PRNGKey
-    ) -> ExperimentOutput[RNNEvalState]:
+    ) -> EvaluationOutput[RNNEvalState]:
         """Evaluator function."""
 
         # Initialise environment states and timesteps.
@@ -273,10 +289,9 @@ def get_rnn_evaluator_fn(
             axis_name="eval_batch",
         )(trained_params, eval_state)
 
-        return ExperimentOutput(
+        return EvaluationOutput(
             learner_state=eval_state,
             episode_metrics=eval_metrics,
-            train_metrics={},
         )
 
     return evaluator_fn
@@ -294,8 +309,11 @@ def evaluator_setup(
     """Initialise evaluator_fn."""
     # Get available TPU cores.
     n_devices = len(jax.devices())
-    # Check if win rate is required for evaluation.
-    log_win_rate = False
+    # Check if solve rate is required for evaluation.
+    if hasattr(config.env, "solved_return_threshold"):
+        log_solve_rate = True
+    else:
+        log_solve_rate = False
     # Vmap it over number of agents and create evaluator_fn.
     if use_recurrent_net:
         assert scanned_rnn is not None
@@ -304,23 +322,25 @@ def evaluator_setup(
             eval_act_fn,  # type: ignore
             config,
             scanned_rnn,
-            log_win_rate,
+            log_solve_rate,
         )
         absolute_metric_evaluator = get_rnn_evaluator_fn(
             eval_env,
             eval_act_fn,  # type: ignore
             config,
             scanned_rnn,
-            log_win_rate,
+            log_solve_rate,
             10,
         )
     else:
-        evaluator = get_ff_evaluator_fn(eval_env, eval_act_fn, config, log_win_rate)  # type: ignore
+        evaluator = get_ff_evaluator_fn(
+            eval_env, eval_act_fn, config, log_solve_rate  # type: ignore
+        )
         absolute_metric_evaluator = get_ff_evaluator_fn(
             eval_env,
             eval_act_fn,  # type: ignore
             config,
-            log_win_rate,
+            log_solve_rate,
             10,
         )
 
@@ -333,3 +353,95 @@ def evaluator_setup(
     eval_keys = jnp.stack(eval_keys).reshape(n_devices, -1)
 
     return evaluator, absolute_metric_evaluator, (trained_params, eval_keys)
+
+
+def get_sebulba_eval_fn(
+    env_factory: EnvFactory,
+    act_fn: ActFn,
+    config: DictConfig,
+    np_rng: np.random.Generator,
+    device: jax.Device,
+    eval_multiplier: float = 1.0,
+) -> Tuple[SebulbaEvalFn, Any]:
+
+    eval_episodes = config.arch.num_eval_episodes * eval_multiplier
+
+    # We calculate here the number of parallel envs we can run in parallel.
+    # If the total number of episodes is less than the number of parallel envs
+    # we will run all episodes in parallel.
+    # Otherwise we will run `num_envs` parallel envs and loop enough times
+    # so that we do at least `eval_episodes` number of episodes.
+    n_parallel_envs = int(min(eval_episodes, config.arch.total_num_envs))
+    episode_loops = math.ceil(eval_episodes / n_parallel_envs)
+    envs = env_factory(n_parallel_envs)
+    cpu = jax.devices("cpu")[0]
+    act_fn = jax.jit(act_fn, device=device)
+
+    # Warnings if num eval episodes is not divisible by num parallel envs.
+    if eval_episodes % n_parallel_envs != 0:
+        msg = (
+            f"Please note that the number of evaluation episodes ({eval_episodes}) is not "
+            f"evenly divisible by `num_envs`. As a result, some additional evaluations will "
+            f"be conducted. The adjusted number of evaluation episodes is now "
+            f"{episode_loops * n_parallel_envs}."
+        )
+        print(f"{Fore.YELLOW}{Style.BRIGHT}{msg}{Style.RESET_ALL}")
+
+    def eval_fn(params: FrozenDict, key: chex.PRNGKey) -> Dict:
+        def _run_episodes(key: chex.PRNGKey) -> Tuple[chex.PRNGKey, Dict]:
+            """Simulates `num_envs` episodes."""
+            with jax.default_device(device):
+                # Reset the environment.
+                seeds = np_rng.integers(np.iinfo(np.int32).max, size=n_parallel_envs).tolist()
+                timestep = envs.reset(seed=seeds)
+
+                all_metrics = [timestep.extras["metrics"]]
+                all_dones = [timestep.last()]
+                finished_eps = timestep.last()
+
+                # Loop until all episodes are done.
+                while not finished_eps.all():
+                    key, act_key = jax.random.split(key)
+                    action = act_fn(params, timestep.observation, act_key)
+                    action_cpu = np.asarray(jax.device_put(action, cpu))
+                    timestep = envs.step(action_cpu)
+                    all_metrics.append(timestep.extras["metrics"])
+                    all_dones.append(timestep.last())
+                    finished_eps = np.logical_or(finished_eps, timestep.last())
+
+                metrics = jax.tree.map(lambda *x: np.stack(x), *all_metrics)
+                dones = np.stack(all_dones)
+
+                # find the first instance of done to get the metrics at that timestep, we don't
+                # care about subsequent steps because we only the results from the first episode
+                done_idx = np.argmax(dones, axis=0)
+                metrics = jax.tree_map(lambda m: m[done_idx, np.arange(n_parallel_envs)], metrics)
+                del metrics["is_terminal_step"]  # unneeded for logging
+
+                return key, metrics
+
+        # This loop is important because we don't want too many parallel envs.
+        # So in evaluation we have num_envs parallel envs and loop enough times
+        # so that we do at least `eval_episodes` number of episodes.
+        metrics = []
+        for _ in range(episode_loops):
+            key, metric = _run_episodes(key)
+            metrics.append(metric)
+
+        metrics: Dict = jax.tree_map(
+            lambda *x: np.array(x).reshape(-1), *metrics
+        )  # flatten metrics
+        return metrics
+
+    def timed_eval_fn(params: FrozenDict, key: chex.PRNGKey) -> Any:
+        """Wrapper around eval function to time it and add in steps per second metric."""
+        start_time = time.perf_counter()
+        metrics = eval_fn(params, key)
+        end_time = time.perf_counter()
+
+        total_timesteps = jnp.sum(metrics["episode_length"])
+        metrics["steps_per_second"] = total_timesteps / (end_time - start_time)
+        metrics["evaluator_run_time"] = end_time - start_time
+        return metrics
+
+    return timed_eval_fn, envs
