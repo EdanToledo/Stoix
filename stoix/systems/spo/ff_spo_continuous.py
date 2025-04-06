@@ -547,6 +547,8 @@ class SPO:
             rollout_metrics[f"entropy_depth:{d}"] = scan_metrics["entropy"][d - 1]
             rollout_metrics[f"mean_td_weights_depth:{d}"] = scan_metrics["mean_td_weights"][d - 1]
             rollout_metrics[f"particles_alive_depth:{d}"] = scan_metrics["particles_alive"][d - 1]
+            rollout_metrics[f"resample_depth:{d}"] = scan_metrics["resample"][d - 1]
+            
         return particles, rollout_metrics  # type: ignore
 
     def one_step_rollout(
@@ -668,6 +670,8 @@ class SPO:
         if resampling_mode == "period":
             # Check if (current_depth+1) satisfies the period condition.
             should_resample = ((current_depth + 1) % self.config.system.resampling.period) == 0
+            
+            step_metrics["resample"] = should_resample
 
             # Conditionally resample particles if the resampling period is met
             updated_particles = jax.lax.cond(
@@ -685,6 +689,8 @@ class SPO:
             condition = ess < (
                 self.config.system.resampling.ess_threshold * self.config.system.num_particles
             )
+            
+            step_metrics["resample"] = condition
 
             # Compute resampled particles for all batch elements.
             resampled_particles = self.resample(updated_particles, key_resampling, resample_logits)
