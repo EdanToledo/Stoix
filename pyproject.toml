@@ -124,7 +124,6 @@ dependencies = [
     "colorama>=0.4.6",
     "craftax>=1.4.5",
     "distrax",
-    "envpool>=0.8.4 ; sys_platform == 'linux'",
     "flashbax",
     "flax>=0.10.5",
     "gymnasium>=1.1.1",
@@ -154,6 +153,9 @@ dependencies = [
 ]
 
 [dependency-groups]
+envpool = [
+    "envpool>=0.8.4 ; sys_platform == 'linux'",
+]
 dev = [
     "black==24.8.0",
     "coverage>=7.8.0",

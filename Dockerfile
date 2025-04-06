@@ -6,13 +6,15 @@ ARG DEBIAN_FRONTEND=noninteractive
 
 COPY --from=ghcr.io/astral-sh/uv:0.4.28 /uv /uvx /bin/
 
+# Update packages and install python3.10 and other dependencies
 RUN apt-get update -y && \
     apt-get install -y software-properties-common git && \
-    add-apt-repository -y ppa:deadsnakes/ppa
-
-RUN curl -sS https://bootstrap.pypa.io/get-pip.py | python3
-
-ENV PATH="/app/.venv/bin:$PATH"
+    add-apt-repository -y ppa:deadsnakes/ppa && \
+    apt-get install -y python3.10 python3.10-dev python3-pip python3.10-venv && \
+    update-alternatives --install /usr/bin/python python /usr/bin/python3.10 10 && \
+    python -m venv stoix && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 # Location of stoix folder
 ARG folder=/home/app/stoix
