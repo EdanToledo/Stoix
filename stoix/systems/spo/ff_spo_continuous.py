@@ -506,7 +506,7 @@ class SPO:
 
             return output
 
-        output = jax.vmap(jax.lax.cond, in_axes=(0, None, None, 0))(
+        output: SPOOutput = jax.vmap(jax.lax.cond, in_axes=(0, None, None, 0))(
             last_resample,
             readout_uniform,
             readout_weighted,
