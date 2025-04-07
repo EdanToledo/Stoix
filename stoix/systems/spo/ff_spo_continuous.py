@@ -21,7 +21,6 @@ from jumanji.types import TimeStep
 from omegaconf import DictConfig, OmegaConf
 from rich.pretty import pprint
 from tensorflow_probability.substrates.jax.distributions import Distribution
-from functools import partial
 
 from stoix.base_types import (
     Action,
@@ -439,9 +438,8 @@ class SPO:
 
         # Determine the number of parallel environments (batch size)
         batch_size = root.particle_values.shape[0]
-        batch_indices = jnp.arange(batch_size)
         rng_key, rollout_key = jax.random.split(rng_key, num=2)
-        
+
         rng_keys = jax.random.split(rng_key, batch_size)
 
         # Execute the SMC rollout to generate particle trajectories
@@ -450,11 +448,11 @@ class SPO:
             root,
             rollout_key,
         )
-        
+
         def readout_uniform(data) -> Particles:
             """Select action uniformly at random from particle set, ignoring weights."""
             particles, root, rng_key = data
-            
+
             action_index = jax.random.randint(
                 rng_key,
                 shape=(),
@@ -466,8 +464,8 @@ class SPO:
                 jnp.ones(shape=(self.config.system.num_particles))
                 / self.config.system.num_particles
             )
-            action   = particles.root_actions[action_index]
-            
+            action = particles.root_actions[action_index]
+
             output = SPOOutput(
                 action=action,
                 sampled_action_weights=action_weights,
@@ -477,11 +475,11 @@ class SPO:
                 rollout_metrics=rollout_metrics,
             )
             return output
-        
+
         def readout_weighted(data) -> Particles:
             """Select action from particle set using temperature-scaled weights."""
             particles, root, rng_key = data
-            
+
             if self.config.system.temperature.adaptive:
                 normalised_action_logits = self.get_resample_logits(
                     particles.resample_td_weights,
@@ -492,11 +490,11 @@ class SPO:
                     particles.resample_td_weights,
                     temperature=self.config.system.temperature.fixed_temperature,
                 )
-                
+
             action_index = jax.random.categorical(rng_key, logits=normalised_action_logits)
             action_weights = jax.nn.softmax(normalised_action_logits, axis=-1)
             action = particles.root_actions[action_index]
-            
+
             output = SPOOutput(
                 action=action,
                 sampled_action_weights=action_weights,
@@ -505,16 +503,16 @@ class SPO:
                 sampled_advantages=particles.gae,
                 rollout_metrics=rollout_metrics,
             )
-            
+
             return output
-        
+
         output = jax.vmap(jax.lax.cond, in_axes=(0, None, None, 0))(
             last_resample,
             readout_uniform,
             readout_weighted,
             (particles, root, rng_keys),
         )
-        
+
         return output
 
     def rollout(
@@ -575,9 +573,9 @@ class SPO:
             rollout_metrics[f"mean_td_weights_depth:{d}"] = scan_metrics["mean_td_weights"][d - 1]
             rollout_metrics[f"particles_alive_depth:{d}"] = scan_metrics["particles_alive"][d - 1]
             rollout_metrics[f"resample_depth:{d}"] = scan_metrics["resample"][d - 1]
-            
+
         last_resample = scan_metrics["resample"][-1]
-            
+
         return particles, rollout_metrics, last_resample  # type: ignore
 
     def one_step_rollout(
@@ -699,10 +697,10 @@ class SPO:
         if resampling_mode == "period":
             # Check if (current_depth+1) satisfies the period condition.
             should_resample = ((current_depth + 1) % self.config.system.resampling.period) == 0
-            
+
             batch_size = updated_particles.root_actions.shape[0]
             step_metrics["resample"] = should_resample.repeat(batch_size)
-            
+
             # Conditionally resample particles if the resampling period is met
             updated_particles = jax.lax.cond(
                 should_resample,
@@ -719,7 +717,7 @@ class SPO:
             condition = ess < (
                 self.config.system.resampling.ess_threshold * self.config.system.num_particles
             )
-            
+
             step_metrics["resample"] = condition
 
             # Compute resampled particles for all batch elements.
