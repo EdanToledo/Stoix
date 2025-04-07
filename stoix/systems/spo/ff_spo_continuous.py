@@ -449,7 +449,7 @@ class SPO:
             rollout_key,
         )
 
-        def readout_uniform(data) -> Particles:
+        def readout_uniform(data: Tuple[Particles, SPORootFnOutput, chex.Array]) -> SPOOutput:
             """Select action uniformly at random from particle set, ignoring weights."""
             particles, root, rng_key = data
 
@@ -476,7 +476,7 @@ class SPO:
             )
             return output
 
-        def readout_weighted(data) -> Particles:
+        def readout_weighted(data: Tuple[Particles, SPORootFnOutput, chex.Array]) -> SPOOutput:
             """Select action from particle set using temperature-scaled weights."""
             particles, root, rng_key = data
 
@@ -520,7 +520,7 @@ class SPO:
         params: SPOParams,
         root: SPORootFnOutput,
         rng_key: chex.PRNGKey,
-    ) -> Tuple[Particles, Dict[str, chex.Array]]:
+    ) -> Tuple[Particles, Dict[str, chex.Array], chex.Array]:
         """
         Execute a Sequential Monte Carlo (SMC) rollout to explore action trajectories.
 
