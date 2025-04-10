@@ -432,33 +432,6 @@ class SPO:
             rollout_key,
         )
 
-        def readout_uniform(data: Tuple[Particles, SPORootFnOutput, chex.Array]) -> SPOOutput:
-            """Select action uniformly at random from particle set, ignoring weights."""
-            particles, root, rng_key = data
-
-            action_index = jax.random.randint(
-                rng_key,
-                shape=(),
-                minval=0,
-                maxval=self.config.system.num_particles,
-                dtype=jnp.int32,
-            )
-            action_weights = (
-                jnp.ones(shape=(self.config.system.num_particles))
-                / self.config.system.num_particles
-            )
-            action = particles.root_actions[action_index]
-
-            output = SPOOutput(
-                action=action,
-                sampled_action_weights=action_weights,
-                sampled_actions=particles.root_actions,
-                value=jnp.mean(root.particle_values, axis=-1),
-                sampled_advantages=particles.gae,
-                rollout_metrics=rollout_metrics,
-            )
-            return output
-
         def readout_weighted(data: Tuple[Particles, SPORootFnOutput, chex.Array]) -> SPOOutput:
             """Select action from particle set using temperature-scaled weights."""
             particles, root, rng_key = data
@@ -489,10 +462,7 @@ class SPO:
 
             return output
 
-        output: SPOOutput = jax.vmap(jax.lax.cond, in_axes=(0, None, None, 0))(
-            last_resample,
-            readout_uniform,
-            readout_weighted,
+        output: SPOOutput = jax.vmap(readout_weighted, in_axes=(0))(
             (particles, root, rng_keys),
         )
 
