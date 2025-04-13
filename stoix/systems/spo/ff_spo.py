@@ -526,6 +526,7 @@ class SPO:
             rollout_metrics[f"mean_td_weights_depth:{d}"] = scan_metrics["mean_td_weights"][d - 1]
             rollout_metrics[f"particles_alive_depth:{d}"] = scan_metrics["particles_alive"][d - 1]
             rollout_metrics[f"resample_depth:{d}"] = scan_metrics["resample"][d - 1]
+
         last_resample = scan_metrics["resample"][-1]
 
         return particles, rollout_metrics, last_resample  # type: ignore
