@@ -23,7 +23,7 @@ decay_learning_rates: False # Whether learning rates should be linearly decayed 
 epsilon: 0.2 # KL constraint on the non-parametric auxiliary policy, the one associated with the dual variable called temperature.
 epsilon_mean : 0.05 # KL constraint on the mean of the Gaussian policy, the one associated with the dual variable called alpha_mean.
 epsilon_stddev: 0.0005 # KL constraint on the stddev of the Gaussian policy, the one associated with the dual variable called alpha_mean.
-init_log_temperature: 1. # initial value for the temperature in log-space, note a softplus (rather than an exp) will be used to transform this.
+init_log_temperature: 10. # initial value for the temperature in log-space, note a softplus (rather than an exp) will be used to transform this.
 init_log_alpha_mean: 10. # initial value for the alpha_mean in log-space, note a softplus (rather than an exp) will be used to transform this.
 init_log_alpha_stddev: 500. # initial value for the alpha_stddev in log-space, note a softplus (rather than an exp) will be used to transform this.
 per_dim_constraining: True # whether to enforce the KL constraint on each dimension independently; this is the default. Otherwise the overall KL is constrained, which allows some dimensions to change more at the expense of others staying put.
