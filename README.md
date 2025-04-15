@@ -265,5 +265,3 @@ We would like to thank the authors and developers of [Mava][mava] as this was es
 [navix]: https://github.com/epignatelli/navix
 [envpool]: https://github.com/sail-sg/envpool/
 [gymnasium]: https://github.com/Farama-Foundation/Gymnasium
-
-Disclaimer: This is not an official InstaDeep product nor is any of the work putforward associated with InstaDeep in any official capacity.
