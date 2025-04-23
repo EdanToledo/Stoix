@@ -124,7 +124,7 @@ dependencies = [
     "colorama>=0.4.6",
     "craftax>=1.4.5",
     "distrax",
-    "envpool>=0.8.4,
+    "envpool>=0.8.4",
     "flashbax",
     "flax>=0.10.5",
     "gymnasium>=1.1.1",
