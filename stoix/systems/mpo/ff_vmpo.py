@@ -207,7 +207,7 @@ def get_learner_fn(
                     config.system.gae_lambda,
                     online_v_t,
                     time_major=False,
-                    truncation_flags=sequence_batch.truncated[:, :-1],
+                    truncation_t=sequence_batch.truncated[:, :-1],
                 )
 
             # CALCULATE ACTOR AND DUAL LOSS

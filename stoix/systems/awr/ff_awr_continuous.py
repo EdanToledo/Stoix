@@ -184,7 +184,7 @@ def get_learner_fn(
                 config.system.gae_lambda,
                 v_t,
                 time_major=False,
-                truncation_flags=sequence.truncated[:, :-1],
+                truncation_t=sequence.truncated[:, :-1],
             )
 
             # CALCULATE CRITIC LOSS
@@ -259,7 +259,7 @@ def get_learner_fn(
                 v_t,
                 time_major=False,
                 standardize_advantages=config.system.standardize_advantages,
-                truncation_flags=sequence.truncated[:, :-1],
+                truncation_t=sequence.truncated[:, :-1],
             )
             weights = jnp.exp(advantages / config.system.beta)
             weights = jnp.minimum(weights, config.system.weight_clip)
