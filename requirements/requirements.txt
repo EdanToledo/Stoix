@@ -7,7 +7,7 @@ envpool; sys_platform == "linux"
 flashbax @ git+https://github.com/instadeepai/flashbax
 flax
 gymnasium
-gymnax>=0.0.6
+gymnax @ git+https://github.com/RobertTLange/gymnax.git
 huggingface_hub
 hydra-core==1.3.2
 id-marl-eval @ git+https://github.com/EdanToledo/marl-eval
