@@ -5,9 +5,7 @@ scenario:
   name: Breakout-MinAtar
   task_name: breakout
 
-kwargs:
-  use_minimal_action_set: True
-  max_steps_in_episode: 1000
+kwargs: {}
 
 # Defines the metric that will be used to evaluate the performance of the agent.
 # This metric is returned at the end of an experiment and can be used for hyperparameter tuning.
