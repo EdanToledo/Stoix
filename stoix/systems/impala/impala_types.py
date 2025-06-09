@@ -4,6 +4,7 @@ from chex import Array
 
 from stoix.base_types import Action, Done, LogProb, Reward, Truncated
 
+
 class ImpalaTransition(NamedTuple):
     done: Done
     truncated: Truncated

@@ -7,6 +7,7 @@ from numpy.typing import NDArray
 
 from stoix.base_types import Observation
 
+
 class EnvPoolToJumanji:
     """Converts from the Gymnasium envpool API to Jumanji's API."""
 
@@ -37,7 +38,7 @@ class EnvPoolToJumanji:
         # Set the flag to use the gym autoreset API
         # since envpool does auto resetting slightly differently
         self._use_gym_autoreset_api = True
-        
+
         self.max_episode_steps = self.env.spec.config.max_episode_steps
 
     def reset(

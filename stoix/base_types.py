@@ -106,7 +106,7 @@ class ActorCriticHiddenStates(NamedTuple):
 
     policy_hidden_state: HiddenState
     critic_hidden_state: HiddenState
-    
+
 
 class CoreLearnerState(NamedTuple):
     """Base state of the learner. Can be used for both on-policy and off-policy learners.

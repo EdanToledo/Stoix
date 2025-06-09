@@ -40,19 +40,19 @@ class StoixLogger:
         self.logger: BaseLogger = _make_multi_logger(config)
         self.cfg = config
         self._lock = threading.Lock()
-        
+
     def log(self, metrics: Dict, t: int, t_eval: int, event: LogEvent) -> None:
         """Log a dictionary of metrics at a given timestep.
 
-            Args:
-                metrics (Dict): dictionary of metrics to log.
-                t (int): the current timestep.
-                t_eval (int): the number of previous evaluations.
-                event (LogEvent): the event that the metrics are associated with.
-            """
+        Args:
+            metrics (Dict): dictionary of metrics to log.
+            t (int): the current timestep.
+            t_eval (int): the number of previous evaluations.
+            event (LogEvent): the event that the metrics are associated with.
+        """
         with self._lock:
             self._log(metrics, t, t_eval, event)
-    
+
     def stop(self) -> None:
         """Stop the logger."""
         with self._lock:

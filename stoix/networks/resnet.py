@@ -131,7 +131,7 @@ class VisualResNetTorso(nn.Module):
         ), f"Expected inputs to have shape [B, H, W, C] but got shape {observation.shape}."
 
         output = observation
-        
+
         # Optional input normalization (like in IMPALA example: x / 255.0)
         if self.normalize_inputs:
             output = output / 255.0

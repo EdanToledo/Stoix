@@ -76,6 +76,7 @@ def check_total_timesteps_anakin(config: DictConfig) -> DictConfig:
 
     return config
 
+
 # TODO(Edan): Make this better
 def check_total_timesteps_sebulba(config: DictConfig) -> DictConfig:
     """Check if total_timesteps is set, if not, set it based on the other parameters"""
@@ -95,10 +96,16 @@ def check_total_timesteps_sebulba(config: DictConfig) -> DictConfig:
     # We then divide this by the number of actors per device to get the number of envs per actor
     num_envs_per_actor = int(num_envs_per_actor_device // config.arch.actor.actor_per_device)
     config.arch.actor.num_envs_per_actor = num_envs_per_actor
-    config.arch.learner_parallel_env_consumption = config.arch.actor.num_envs_per_actor * config.arch.actor.actor_per_device * config.num_actor_devices
-    config.arch.local_batch_size = int(config.system.rollout_length * config.arch.learner_parallel_env_consumption)
+    config.arch.learner_parallel_env_consumption = (
+        config.arch.actor.num_envs_per_actor
+        * config.arch.actor.actor_per_device
+        * config.num_actor_devices
+    )
+    config.arch.local_batch_size = int(
+        config.system.rollout_length * config.arch.learner_parallel_env_consumption
+    )
     config.arch.global_batch_size = config.arch.local_batch_size * config.arch.world_size
-    
+
     # We base the total number of timesteps based on the number of steps the learner consumes
     if config.arch.total_timesteps is None:
         config.arch.total_timesteps = (
@@ -125,7 +132,9 @@ def check_total_timesteps_sebulba(config: DictConfig) -> DictConfig:
     num_evaluation = config.arch.num_evaluation if config.arch.num_evaluation > 0 else 1
     config.arch.num_updates_per_eval = int(config.arch.num_updates // num_evaluation)
     # Get the number of steps consumed by the learner per evaluation
-    total_actual_timesteps = config.arch.local_batch_size * config.arch.num_updates_per_eval * num_evaluation
+    total_actual_timesteps = (
+        config.arch.local_batch_size * config.arch.num_updates_per_eval * num_evaluation
+    )
     print(
         f"{Fore.RED}{Style.BRIGHT}Warning: Due to the interaction of various factors such as "
         f"rollout length, number of evaluations, etc... the actual number of timesteps that "
