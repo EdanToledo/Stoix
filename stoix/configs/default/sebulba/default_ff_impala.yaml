@@ -3,7 +3,7 @@ defaults:
   - arch: sebulba
   - system: impala/ff_impala
   - network: visual_resnet
-  - env: envpool/pong
+  - env: envpool/breakout
   - _self_
 
 hydra:

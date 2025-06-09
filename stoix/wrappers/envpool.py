@@ -7,9 +7,6 @@ from numpy.typing import NDArray
 
 from stoix.base_types import Observation
 
-NEXT_OBS_KEY_IN_EXTRAS = "next_obs"
-
-
 class EnvPoolToJumanji:
     """Converts from the Gymnasium envpool API to Jumanji's API."""
 
@@ -19,7 +16,6 @@ class EnvPoolToJumanji:
         self.num_envs = obs.shape[0]
         self.obs_shape = obs.shape[1:]
         self.num_actions = self.env.action_space.n
-        self._default_action_mask = np.ones((self.num_envs, self.num_actions), dtype=np.float32)
 
         # Create the metrics
         self.running_count_episode_return = np.zeros(self.num_envs, dtype=float)
@@ -31,6 +27,9 @@ class EnvPoolToJumanji:
         info = self.env.step(np.zeros(self.num_envs, dtype=int))[-1]
         if "lives" in info and info["lives"].sum() > 0:
             self.has_lives = True
+            print(
+                "This environment has lives. The episode return and length will be counted only when all lives are exhausted."
+            )
         else:
             self.has_lives = False
         self.env.close()
@@ -38,6 +37,8 @@ class EnvPoolToJumanji:
         # Set the flag to use the gym autoreset API
         # since envpool does auto resetting slightly differently
         self._use_gym_autoreset_api = True
+        
+        self.max_episode_steps = self.env.spec.config.max_episode_steps
 
     def reset(
         self, *, seed: Optional[list[int]] = None, options: Optional[list[dict]] = None
@@ -62,7 +63,6 @@ class EnvPoolToJumanji:
         }
 
         info["metrics"] = metrics
-        info[NEXT_OBS_KEY_IN_EXTRAS] = obs.copy()
 
         timestep = self._create_timestep(obs, ep_done, terminated, rewards, info)
 
@@ -70,9 +70,9 @@ class EnvPoolToJumanji:
 
     def step(self, action: list) -> TimeStep:
         obs, rewards, terminated, truncated, info = self.env.step(action)
+        truncated = info["elapsed_step"] >= self.max_episode_steps
         ep_done = np.logical_or(terminated, truncated)
         not_done = 1 - ep_done
-        info[NEXT_OBS_KEY_IN_EXTRAS] = obs.copy()
         if self._use_gym_autoreset_api:
             env_ids_to_reset = np.where(ep_done)[0]
             if len(env_ids_to_reset) > 0:
@@ -138,37 +138,24 @@ class EnvPoolToJumanji:
 
         return timestep
 
-    def _format_observation(self, obs: NDArray, info: Dict) -> Observation:
-        action_mask = self._default_action_mask
-        return Observation(agent_view=obs, action_mask=action_mask)
-
     def _create_timestep(
         self, obs: NDArray, ep_done: NDArray, terminated: NDArray, rewards: NDArray, info: Dict
     ) -> TimeStep:
-        obs = self._format_observation(obs, info)
-        extras = {"metrics": info["metrics"]}
-        extras[NEXT_OBS_KEY_IN_EXTRAS] = self._format_observation(
-            info[NEXT_OBS_KEY_IN_EXTRAS], info
-        )
         step_type = np.where(ep_done, StepType.LAST, StepType.MID)
+        truncated = info["elapsed_step"] >= self.max_episode_steps
+        discount = 1.0 - terminated
+        discount = np.where(truncated, 1.0, discount)
 
         return TimeStep(
             step_type=step_type,
             reward=rewards,
-            discount=1.0 - terminated,
+            discount=discount,
             observation=obs,
-            extras=extras,
+            extras=info,
         )
 
     def observation_spec(self) -> Spec:
-        agent_view_spec = Array(shape=self.obs_shape, dtype=float)
-        return Spec(
-            Observation,
-            "ObservationSpec",
-            agent_view=agent_view_spec,
-            action_mask=Array(shape=(self.num_actions,), dtype=float),
-            step_count=Array(shape=(), dtype=int),
-        )
+        return Array(shape=self.obs_shape, dtype=float)
 
     def action_spec(self) -> Spec:
         return DiscreteArray(num_values=self.num_actions)

@@ -8,8 +8,6 @@ from numpy.typing import NDArray
 
 from stoix.base_types import Observation
 
-NEXT_OBS_KEY_IN_EXTRAS = "next_obs"
-
 
 class VecGymToJumanji:
     """Converts from a Vectorised Gymnasium environment to Jumanji's API."""
@@ -24,7 +22,6 @@ class VecGymToJumanji:
             self.num_actions = self.env.single_action_space.shape[0]
             self.discrete = False
         self.obs_shape = self.env.single_observation_space.shape
-        self._default_action_mask = np.ones((self.num_envs, self.num_actions), dtype=np.float32)
 
         # Create the metrics
         self.running_count_episode_return = np.zeros(self.num_envs, dtype=float)
@@ -53,16 +50,8 @@ class VecGymToJumanji:
             "episode_length": np.zeros(self.num_envs, dtype=int),
             "is_terminal_step": np.zeros(self.num_envs, dtype=bool),
         }
-        if "final_observation" in info:
-            real_next_obs = info["final_observation"]
-            real_next_obs = np.asarray(
-                [obs[i] if x is None else np.asarray(x) for i, x in enumerate(real_next_obs)]
-            )
-        else:
-            real_next_obs = obs
 
         info["metrics"] = metrics
-        info[NEXT_OBS_KEY_IN_EXTRAS] = real_next_obs
 
         timestep = self._create_timestep(obs, ep_done, terminated, rewards, info)
 
@@ -92,17 +81,6 @@ class VecGymToJumanji:
         }
         info["metrics"] = metrics
 
-        if "final_observation" in info:
-            real_next_obs = info["final_observation"]
-            real_next_obs = np.asarray(
-                [obs[i] if x is None else np.asarray(x) for i, x in enumerate(real_next_obs)]
-            )
-        else:
-            real_next_obs = obs
-
-        info["metrics"] = metrics
-        info[NEXT_OBS_KEY_IN_EXTRAS] = real_next_obs
-
         # Update the metrics
         self.running_count_episode_return = new_episode_return * not_done
         self.running_count_episode_length = new_episode_length * not_done
@@ -113,18 +91,10 @@ class VecGymToJumanji:
 
         return timestep
 
-    def _format_observation(self, obs: NDArray, info: Dict) -> Observation:
-        action_mask = self._default_action_mask
-        return Observation(agent_view=obs, action_mask=action_mask)
-
     def _create_timestep(
         self, obs: NDArray, ep_done: NDArray, terminated: NDArray, rewards: NDArray, info: Dict
     ) -> TimeStep:
-        obs = self._format_observation(obs, info)
         extras = {"metrics": info["metrics"]}
-        extras[NEXT_OBS_KEY_IN_EXTRAS] = self._format_observation(
-            info[NEXT_OBS_KEY_IN_EXTRAS], info
-        )
         step_type = np.where(ep_done, StepType.LAST, StepType.MID)
 
         return TimeStep(
@@ -136,14 +106,7 @@ class VecGymToJumanji:
         )
 
     def observation_spec(self) -> Spec:
-        agent_view_spec = Array(shape=self.obs_shape, dtype=float)
-        return Spec(
-            Observation,
-            "ObservationSpec",
-            agent_view=agent_view_spec,
-            action_mask=Array(shape=(self.num_actions,), dtype=float),
-            step_count=Array(shape=(), dtype=int),
-        )
+        return Array(shape=self.obs_shape, dtype=float)
 
     def action_spec(self) -> Spec:
         if self.discrete:

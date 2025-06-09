@@ -2,32 +2,33 @@
 architecture_name : sebulba
 # --- Training ---
 seed: 42  # RNG seed.
-total_num_envs: 128  # Total Number of vectorised environments across all actors. Needs to be divisible by the number of actor devices and actors per device.
-total_timesteps: 1e7 # Set the total environment steps.
+total_num_envs: 768  # Total Number of vectorised environments across all actors. Needs to be divisible by the number of actor devices and actors per device.
+total_timesteps: 5e7 # Set the total environment steps.
 # If unspecified, it's derived from num_updates; otherwise, num_updates adjusts based on this value.
 num_updates: ~ # Number of updates
 
 # Define the number of actors per device and which devices to use.
 actor:
   device_ids: [0] # Define which devices to use for the actors.
-  actor_per_device: 1 # number of different threads per actor device.
+  actor_per_device: 2 # number of different threads per actor device.
+  log_frequency: 10 # How often to log actor statistics.
 
 # Define which devices to use for the learner.
 learner:
-  device_ids: [1] # Define which devices to use for the learner.
+  device_ids: [1,2,3,4,5,6] # Define which devices to use for the learner.
+  log_frequency: 10 # How often to log learner statistics.
 
-evaluator_device_id: 2 # Define which device to use for the evaluator.
+# Whether the actors wait for the learner to finish their update before starting the next rollout.
+synchronous: False 
 
-# Size of the queue for the pipeline where actors push data and the learner pulls data.
-# Note: This needs to be large enough to handle burst traffic from multiple concurrent actors.
-# The logged "pipeline_qsize" shows average post-consumption size, but peak usage can be much higher.
-pipeline_queue_size: 100
+# Define which device to use for the evaluator.
+evaluator_device_id: 7
 
 # --- Evaluation ---
 evaluation_greedy: False # Evaluate the policy greedily. If True the policy will select
   # an action which corresponds to the greatest logit. If false, the policy will sample
   # from the logits.
 num_eval_episodes: 128 # Number of episodes to evaluate per evaluation.
-num_evaluation: 10 # Number of evenly spaced evaluations to perform during training.
-absolute_metric: True # Whether the absolute metric should be computed. For more details
+num_evaluation: 1 # Number of evenly spaced evaluations to perform during training.
+absolute_metric: False # Whether the absolute metric should be computed. For more details
   # on the absolute metric please see: https://arxiv.org/abs/2209.10485

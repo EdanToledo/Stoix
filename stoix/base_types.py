@@ -20,6 +20,8 @@ Done: TypeAlias = chex.Array
 Truncated: TypeAlias = chex.Array
 First: TypeAlias = chex.Array
 HiddenState: TypeAlias = chex.Array
+LogProb: TypeAlias = chex.Array
+Reward: TypeAlias = chex.Array
 # Can't know the exact type of State.
 State: TypeAlias = Any
 Parameters: TypeAlias = Any
@@ -104,7 +106,7 @@ class ActorCriticHiddenStates(NamedTuple):
 
     policy_hidden_state: HiddenState
     critic_hidden_state: HiddenState
-
+    
 
 class CoreLearnerState(NamedTuple):
     """Base state of the learner. Can be used for both on-policy and off-policy learners.
@@ -113,7 +115,7 @@ class CoreLearnerState(NamedTuple):
     params: Parameters
     opt_states: OptStates
     key: chex.PRNGKey
-    timestep: TimeStep
+    # timestep: TimeStep
 
 
 class OnPolicyLearnerState(NamedTuple):

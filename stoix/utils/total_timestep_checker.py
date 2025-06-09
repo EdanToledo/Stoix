@@ -76,7 +76,7 @@ def check_total_timesteps_anakin(config: DictConfig) -> DictConfig:
 
     return config
 
-
+# TODO(Edan): Make this better
 def check_total_timesteps_sebulba(config: DictConfig) -> DictConfig:
     """Check if total_timesteps is set, if not, set it based on the other parameters"""
 
@@ -95,7 +95,10 @@ def check_total_timesteps_sebulba(config: DictConfig) -> DictConfig:
     # We then divide this by the number of actors per device to get the number of envs per actor
     num_envs_per_actor = int(num_envs_per_actor_device // config.arch.actor.actor_per_device)
     config.arch.actor.num_envs_per_actor = num_envs_per_actor
-
+    config.arch.learner_parallel_env_consumption = config.arch.actor.num_envs_per_actor * config.arch.actor.actor_per_device * config.num_actor_devices
+    config.arch.local_batch_size = int(config.system.rollout_length * config.arch.learner_parallel_env_consumption)
+    config.arch.global_batch_size = config.arch.local_batch_size * config.arch.world_size
+    
     # We base the total number of timesteps based on the number of steps the learner consumes
     if config.arch.total_timesteps is None:
         config.arch.total_timesteps = (
@@ -110,11 +113,7 @@ def check_total_timesteps_sebulba(config: DictConfig) -> DictConfig:
             + f"{Style.RESET_ALL}"
         )
     else:
-        config.arch.num_updates = (
-            config.arch.total_timesteps
-            // config.system.rollout_length
-            // config.arch.actor.num_envs_per_actor
-        )
+        config.arch.num_updates = int(config.arch.total_timesteps // config.arch.global_batch_size)
         print(
             f"{Fore.YELLOW}{Style.BRIGHT}Changing the number of updates "
             + f"to {config.arch.num_updates}: If you want to train"
@@ -123,12 +122,10 @@ def check_total_timesteps_sebulba(config: DictConfig) -> DictConfig:
         )
 
     # Calculate the number of updates per evaluation
-    config.arch.num_updates_per_eval = int(config.arch.num_updates // config.arch.num_evaluation)
-    # Get the number of steps consumed by the learner per learner step
-    steps_per_learner_step = config.system.rollout_length * config.arch.actor.num_envs_per_actor
+    num_evaluation = config.arch.num_evaluation if config.arch.num_evaluation > 0 else 1
+    config.arch.num_updates_per_eval = int(config.arch.num_updates // num_evaluation)
     # Get the number of steps consumed by the learner per evaluation
-    steps_consumed_per_eval = steps_per_learner_step * config.arch.num_updates_per_eval
-    total_actual_timesteps = steps_consumed_per_eval * config.arch.num_evaluation
+    total_actual_timesteps = config.arch.local_batch_size * config.arch.num_updates_per_eval * num_evaluation
     print(
         f"{Fore.RED}{Style.BRIGHT}Warning: Due to the interaction of various factors such as "
         f"rollout length, number of evaluations, etc... the actual number of timesteps that "
@@ -139,17 +136,9 @@ def check_total_timesteps_sebulba(config: DictConfig) -> DictConfig:
     )
 
     assert (
-        config.arch.num_updates > config.arch.num_evaluation
+        config.arch.num_updates > num_evaluation
     ), "Number of updates per evaluation must be less than total number of updates."
 
-    # We then perform a simple check to ensure that the number of envs per actor is
-    # divisible by the number of learner devices. This is because we shard the envs
-    # per actor across the learner devices This check is mainly relevant for on-policy
-    # algorithms
-    assert config.arch.actor.num_envs_per_actor % config.num_learner_devices == 0, (
-        f"The number of envs per actor must be divisible by the number of learner devices. "
-        f"Got {config.arch.actor.num_envs_per_actor} envs per actor "
-        f"and {config.num_learner_devices} learner devices"
-    )
+    assert config.arch.learner_parallel_env_consumption % config.num_learner_devices == 0
 
     return config

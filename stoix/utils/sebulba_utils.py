@@ -1,39 +1,39 @@
 import copy
 import queue
 import threading
-import time
 import warnings
 from abc import ABC, abstractmethod
-from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 import chex
 import jax
 import jax.numpy as jnp
 from colorama import Fore, Style
-from flax.jax_utils import unreplicate
-from jumanji.types import TimeStep
+import numpy as np
 from omegaconf import DictConfig
 
 from stoix.base_types import Parameters, StoixTransition
 from stoix.utils.logger import StoixLogger
-
-DEFAULT_TIMEOUT = 180
-QUEUE_POLL_TIMEOUT = 1.0
-
-
-class OperationResult(Enum):
-    """Enum for pipeline operation results to avoid string-based error handling."""
-    SUCCESS = "success"
-    QUEUE_FULL = "queue_full"
-    SHUTDOWN = "shutdown"
-
+import flax
 
 class ThreadLifetime:
-    """Simple class for a mutable boolean that can be used to signal a thread to stop."""
+    """Manages thread lifecycle with stop signaling."""
 
-    def __init__(self) -> None:
+    def __init__(self, thread_name : str, thread_id: int) -> None:
         self._stop = False
+        self.thread_name = thread_name
+        self.thread_id = thread_id
+    
+    @property
+    def name(self) -> str:
+        return self.thread_name
+    
+    @property
+    def id(self) -> int:
+        return self.thread_id
+    
+    def __repr__(self) -> str:
+        return f"Thread(thread_name={self.thread_name}, thread_id={self.thread_id}, stop={self._stop})"
 
     def should_stop(self) -> bool:
         return self._stop
@@ -42,276 +42,156 @@ class ThreadLifetime:
         self._stop = True
 
 
-class QueueStats:
-    """Encapsulates queue monitoring statistics."""
+class OnPolicyPipeline:
+    """Handles rollout communication for on-policy distributed RL."""
     
-    def __init__(self) -> None:
-        self.peak_size = 0
-        self.full_count = 0
-    
-    def update_peak(self, current_size: int) -> None:
-        """Update peak size if current size is larger."""
-        self.peak_size = max(self.peak_size, current_size)
-    
-    def increment_full_count(self) -> None:
-        """Increment the full event counter."""
-        self.full_count += 1
-    
-    def reset(self, current_size: int = 0) -> None:
-        """Reset statistics for a new measurement period."""
-        self.peak_size = current_size
-        self.full_count = 0
-    
-    def to_dict(self, current_size: int) -> Dict[str, int]:
-        """Convert to dictionary format."""
-        return {
-            "queue_current_size": current_size,
-            "queue_peak_size": self.peak_size,
-            "queue_full_events_count": self.full_count,
-        }
-
-
-class OnPolicyPipeline(threading.Thread):
-    """
-    The Pipeline shards trajectories into learner_devices,
-    ensuring trajectories are consumed in the right order to avoid being off-policy
-    and limit the max number of samples in device memory at one time to avoid OOM issues.
-    """
-
-    def __init__(self, max_size: int, learner_devices: List[jax.Device], lifetime: ThreadLifetime):
-        """
-        Initialize the pipeline with a maximum size and the devices to shard trajectories across.
-
-        Args:
-            max_size: The maximum number of trajectories to keep in the pipeline.
-            learner_devices: The devices to shard trajectories across.
-            lifetime: Thread lifetime manager for coordinated shutdown.
-        """
-        super().__init__(name="Pipeline")
-        self.learner_devices = learner_devices
-        self.sharding_queue: queue.Queue = queue.Queue()
-        self._queue: queue.Queue = queue.Queue(maxsize=max_size)
-        self.lifetime = lifetime
-        self._max_size = max_size
-        self._stats = QueueStats()
+    def __init__(self, total_num_actors: int, queue_maxsize: int = 1):
+        self.num_actors = total_num_actors
         
-        # Pre-compile JAX operations for performance
-        self._split_axis = jax.jit(
-            lambda x, y: jnp.split(x, len(self.learner_devices), axis=y), 
-            static_argnums=(1,)
-        )
-        self._stack_trajectory = jax.jit(
-            lambda *trajectory: jax.tree_map(lambda *x: jnp.stack(x, axis=0), *trajectory)
-        )
-        self._concat_metrics_fn = jax.jit(
-            lambda *actor_metrics: jax.tree_map(lambda *x: jnp.concatenate(x, axis=0), *actor_metrics)
-        )
-
-    def _shard_data(self, payload: Any, axis: int) -> Any:
-        """Shard data across learner devices. Device operations cannot be JIT-compiled."""
-        split_payload = self._split_axis(payload, axis)
-        return jax.device_put_sharded(split_payload, devices=self.learner_devices)
-
-    def _process_sharding_request(self, item: Tuple) -> OperationResult:
-        """Process a single sharding request and put result in main queue."""
-        traj, timestep, actor_timings_dict, actor_episode_metrics, result_queue = item
-        
+        # Create dedicated queues for each actor's rollout data
+        self.rollout_queues: List[queue.Queue] = []
+        for _ in range(total_num_actors):
+            self.rollout_queues.append(queue.Queue(maxsize=queue_maxsize))
+    
+    def send_rollout(
+        self, 
+        actor_idx: int, 
+        rollout_data: Tuple[int, int, Any], 
+        timeout: Optional[float] = None
+    ) -> bool:
+        """Send rollout data from actor."""
         try:
-            # Perform sharding operations
-            sharded_traj = jax.tree.map(lambda x: self._shard_data(x, 1), traj)
-            sharded_timestep = jax.tree.map(lambda x: self._shard_data(x, 0), timestep)
-            
-            current_size = self._queue.qsize()
-            
-            # Attempt to put the result in the main queue
-            self._queue.put(
-                (sharded_traj, sharded_timestep, actor_timings_dict, actor_episode_metrics),
-                block=True,
-                timeout=DEFAULT_TIMEOUT,
-            )
-            
-            self._stats.update_peak(self._queue.qsize())
-            result_queue.put(OperationResult.SUCCESS)
-            return OperationResult.SUCCESS
-            
+            if timeout is not None:
+                self.rollout_queues[actor_idx].put(rollout_data, timeout=timeout)
+            else:
+                self.rollout_queues[actor_idx].put(rollout_data)
+            return True
         except queue.Full:
-            self._stats.increment_full_count()
-            self._stats.update_peak(current_size)
-            result_queue.put(OperationResult.QUEUE_FULL)
-            self._log_queue_full_warning(current_size)
-            return OperationResult.QUEUE_FULL
-            
-        except Exception as e:
-            result_queue.put(e)
-            return OperationResult.QUEUE_FULL  # Treat as failure
-
-    def _log_queue_full_warning(self, current_size: int) -> None:
-        """Log a warning when the queue becomes full."""
-        print(
-            f"{Fore.RED}{Style.BRIGHT}Pipeline is full and actor has timed out. "
-            f"Queue size: {current_size}/{self._max_size}, Peak: {self._stats.peak_size}, "
-            f"Full events: {self._stats.full_count}. A deadlock might be occurring{Style.RESET_ALL}"
-        )
-
-    def run(self) -> None:
-        """Handle sharding operations in a dedicated thread to avoid blocking actors."""
-        while not self.lifetime.should_stop():
+            return False
+    
+    def collect_rollouts(
+        self, 
+        timeout: Optional[float] = None
+    ) -> List[Tuple[int, int, Any]]:
+        """Collect rollout data from all actors."""
+        collected_data = []
+        
+        # Must collect from all actors to maintain synchronization
+        for actor_idx in range(self.num_actors):
             try:
-                item = self.sharding_queue.get(timeout=QUEUE_POLL_TIMEOUT)
-                if item is None:  # Sentinel for shutdown
-                    break
-                
-                self._process_sharding_request(item)
-                    
+                if timeout is not None:
+                    data = self.rollout_queues[actor_idx].get(timeout=timeout)
+                else:
+                    data = self.rollout_queues[actor_idx].get()
+                collected_data.append(data)
             except queue.Empty:
-                continue
+                raise RuntimeError(f"Failed to collect rollout from actor {actor_idx}")
+        
+        return collected_data
+    
+    def clear_all_queues(self) -> None:
+        """Clear all rollout queues."""
+        for rollout_queue in self.rollout_queues:
+            while not rollout_queue.empty():
+                try:
+                    rollout_queue.get_nowait()
+                except queue.Empty:
+                    break 
 
-    def put(
+
+
+class ParameterServer:
+    """Handles parameter distribution for distributed RL."""
+    
+    def __init__(
         self,
-        traj: Sequence[StoixTransition],
-        timestep: TimeStep,
-        actor_timings_dict: Dict[str, List[float]],
-        actor_episode_metrics: List[Dict[str, List[float]]],
-    ) -> None:
-        """Put a trajectory on the queue to be consumed by the learner."""
-        if not self.is_alive():
-            raise RuntimeError("Pipeline thread has died")
+        total_num_actors: int,
+        actor_devices: Sequence[jax.Device],
+        actors_per_device: int,
+        queue_maxsize: int = 1,
+    ):
+        self.num_actors = total_num_actors
+        self.actor_devices = actor_devices
+        self.actors_per_device = actors_per_device
         
-        # Pre-process data (each actor does this independently)
-        # [Transition(num_envs)] * rollout_len --> Transition[(rollout_len, num_envs,)
-        traj = self._stack_trajectory(*traj)
-        # List[Dict[str, List[float]]] --> Dict[str, List[float]]
-        actor_episode_metrics = self._concat_metrics_fn(*actor_episode_metrics)
-        
-        # Create result queue and send to sharding thread
-        result_queue = queue.Queue(maxsize=1)
-        self.sharding_queue.put((traj, timestep, actor_timings_dict, actor_episode_metrics, result_queue))
-        
-        # Wait for result and handle errors
-        result = self._wait_for_sharding_result(result_queue)
-        self._handle_sharding_result(result)
-
-    def _wait_for_sharding_result(self, result_queue: queue.Queue) -> Any:
-        """Wait for sharding operation to complete and return result."""
-        try:
-            return result_queue.get(timeout=DEFAULT_TIMEOUT)
-        except queue.Empty:
-            raise TimeoutError("Sharding operation timed out")
-
-    def _handle_sharding_result(self, result: Any) -> None:
-        """Handle the result from a sharding operation."""
-        if result == OperationResult.QUEUE_FULL:
-            raise queue.Full("Pipeline queue is full")
-        elif isinstance(result, Exception):
-            raise result
-        elif result != OperationResult.SUCCESS:
-            raise RuntimeError(f"Unexpected pipeline error: {result}")
-
-    def qsize(self) -> int:
-        """Return the number of trajectories in the pipeline."""
-        return self._queue.qsize()
-
-    def get_queue_stats(self) -> Dict[str, int]:
-        """Get comprehensive queue statistics."""
-        return self._stats.to_dict(self._queue.qsize())
-
-    def reset_stats(self) -> None:
-        """Reset queue statistics for a new measurement period."""
-        self._stats.reset(self._queue.qsize())
-
-    def get(
-        self, block: bool = True, timeout: Optional[float] = None
-    ) -> Tuple[StoixTransition, TimeStep, Dict[str, List[float]], Dict[str, jnp.ndarray]]:
-        """Get a trajectory from the pipeline."""
-        return self._queue.get(block, timeout)  # type: ignore
-
-    def _clear_queue(self, target_queue: queue.Queue) -> None:
-        """Clear all items from a queue."""
-        while True:
-            try:
-                target_queue.get_nowait()
-            except queue.Empty:
-                break
-
-    def clear(self) -> None:
-        """Clear the pipeline."""
-        self._clear_queue(self.sharding_queue)
-        self._clear_queue(self._queue)
-
-    def shutdown(self) -> None:
-        """Gracefully shutdown the pipeline."""
-        try:
-            self.sharding_queue.put(None)  # Send sentinel
-        except:
-            pass  # Queue might be closed or full
-        self.clear()
-
-
-class ParamsSource(threading.Thread):
-    """
-    A ParamSource allows network params to be passed from a
-    Learner component to Actor components.
-    """
-
-    def __init__(self, init_value: Parameters, device: jax.Device, lifetime: ThreadLifetime):
-        super().__init__(name=f"ParamsSource-{device.id}")
-        self.value: Parameters = jax.device_put(init_value, device)
-        self.device = device
-        self.new_value: queue.Queue = queue.Queue(maxsize=1)
-        self.lifetime = lifetime
-
-    def run(self) -> None:
-        """Update the ParamSource value when new parameters are available."""
-        while not self.lifetime.should_stop():
-            try:
-                new_params = self.new_value.get(block=True, timeout=QUEUE_POLL_TIMEOUT)
-                new_params = jax.block_until_ready(new_params)
-                self.value = jax.device_put(new_params, self.device)
-            except queue.Empty:
-                continue
-
-    def update(self, new_params: Parameters) -> None:
-        """
-        Update the ParamSource with new parameters.
-
-        Args:
-            new_params: The new parameters to update with.
-        """
-        # Keep only the latest update - remove old one if queue is full
-        if self.new_value.full():
-            try:
-                self.new_value.get_nowait()
-            except queue.Empty:
-                pass
-        
-        # Put new params (use put_nowait to avoid blocking)
-        try:
-            self.new_value.put_nowait(new_params)
-        except queue.Full:
-            # Defensive handling - should not happen since we cleared above
-            pass
-
-    def get(self) -> Parameters:
-        """Get the current parameters."""
-        return self.value
-
-
-class RecordTimeTo:
-    """Context manager for recording execution time to a list."""
+        # Create dedicated queues for each actor's parameters
+        self.param_queues: List[queue.Queue] = []
+        for _ in range(total_num_actors):
+            self.param_queues.append(queue.Queue(maxsize=queue_maxsize))
     
-    def __init__(self, to: List[float]):
-        self.to = to
-
-    def __enter__(self) -> None:
-        self.start = time.monotonic()
-
-    def __exit__(self, *args: Any) -> None:
-        end = time.monotonic()
-        self.to.append(end - self.start)
+    def distribute_params(self, params: Parameters, block: bool = True, timeout: Optional[float] = None, block_params_until_ready: bool = False) -> None:
+        """Distribute parameters to all actors with device placement."""
+        # Convert from replicated to single copy for distribution
+        try:
+            unreplicated_params = flax.jax_utils.unreplicate(params)
+        except Exception as e:
+            warnings.warn(f"Failed to unreplicate parameters: {e}")
+            return
+        
+        # Place parameters on each actor device and distribute to threads
+        actor_idx = 0
+        for device_idx, device in enumerate(self.actor_devices):
+            try:
+                # Ensure parameters are properly placed on target device
+                device_params = jax.device_put(unreplicated_params, device)
+                if block_params_until_ready:
+                    device_params = jax.block_until_ready(device_params)
+                
+                # Distribute to all actors on this device
+                for _ in range(self.actors_per_device):
+                    try:
+                        if block:
+                            if timeout is not None:
+                                self.param_queues[actor_idx].put(device_params, timeout=timeout)
+                            else:
+                                self.param_queues[actor_idx].put(device_params)
+                        else:
+                            self.param_queues[actor_idx].put_nowait(device_params)
+                    except (queue.Full, queue.Empty):
+                        warnings.warn(f"Failed to put parameters in queue {actor_idx}")
+                    actor_idx += 1
+            except Exception as e:
+                warnings.warn(f"Failed to place parameters on device {device}: {e}")
+                # Skip actors on this device
+                actor_idx += self.actors_per_device
+        
+    
+    def get_params(self, actor_idx: int, timeout: Optional[float] = None) -> Optional[Parameters]:
+        """Get parameters for an actor."""
+        try:
+            if timeout is not None:
+                params = self.param_queues[actor_idx].get(timeout=timeout)
+            else:
+                params = self.param_queues[actor_idx].get()
+            
+            if params is None:  # Shutdown signal
+                return None
+                
+            # Ensure parameters are ready for immediate use
+            return jax.block_until_ready(params)
+        except queue.Empty:
+            return None
+    
+    def shutdown_actors(self) -> None:
+        """Send shutdown signals to all actors."""
+        for param_queue in self.param_queues:
+            try:
+                param_queue.put_nowait(None)  # Shutdown sentinel
+            except queue.Full:
+                pass  # Actor will eventually check lifetime
+    
+    def clear_all_queues(self) -> None:
+        """Clear all parameter queues."""
+        for param_queue in self.param_queues:
+            while not param_queue.empty():
+                try:
+                    param_queue.get_nowait()
+                except queue.Empty:
+                    break
 
 
 class AsyncEvaluatorBase(threading.Thread, ABC):
-    """Abstract base class for asynchronous evaluators that run evaluation without blocking the learner."""
+    """Base class for asynchronous evaluators."""
     
     def __init__(
         self,
@@ -320,8 +200,7 @@ class AsyncEvaluatorBase(threading.Thread, ABC):
         config: DictConfig,
         checkpointer: Any,
         save_checkpoint: bool,
-        steps_consumed_per_eval: int,
-        lifetime: "ThreadLifetime",
+        lifetime: ThreadLifetime,
     ):
         super().__init__(name="AsyncEvaluator")
         self.evaluator = evaluator
@@ -329,37 +208,39 @@ class AsyncEvaluatorBase(threading.Thread, ABC):
         self.config = config
         self.checkpointer = checkpointer
         self.save_checkpoint = save_checkpoint
-        self.steps_consumed_per_eval = steps_consumed_per_eval
         self.lifetime = lifetime
+        
+        # Evaluation queue and tracking
         self.eval_queue: queue.Queue = queue.Queue()
         self.max_episode_return = jnp.float32(-1e7)
         self.best_params = None
         self.eval_step = 0
+        
+        # Progress tracking for completion signaling
         self.expected_evaluations = config.arch.num_evaluation
         self.completed_evaluations = 0
         self._evaluation_lock = threading.Lock()
         self._all_evaluations_done = threading.Event()
+        self._eval_metrics: List[Dict[str, Any]] = []
         
     @abstractmethod
     def run(self) -> None:
-        """Run the asynchronous evaluation loop. Must be implemented by subclasses."""
+        """Run the evaluation loop. Must be implemented by subclasses."""
         pass
         
     def submit_evaluation(
         self, 
-        episode_metrics: Any, 
-        train_metrics: Any, 
         learner_state: Any, 
-        timings_dict: Any,
         eval_key: chex.PRNGKey,
-        eval_step: int
+        eval_step: int,
+        global_step_count: int,
     ) -> None:
-        """Submit evaluation data to be processed asynchronously."""
+        """Submit evaluation data for async processing."""
         try:
-            self.eval_queue.put_nowait((episode_metrics, train_metrics, learner_state, timings_dict, eval_key))
+            self.eval_queue.put_nowait((learner_state, eval_key, eval_step, global_step_count))
             print(f"{Fore.YELLOW}{Style.BRIGHT}Submitted evaluation {eval_step+1}/{self.expected_evaluations}, Current Eval Queue Size: {self.eval_queue.qsize()}{Style.RESET_ALL}")
         except queue.Full:
-            # If queue is full, skip this evaluation to avoid blocking
+            # Skip evaluation to avoid blocking the learner
             warnings.warn("Evaluation queue is full, skipping evaluation", stacklevel=2)
             
     def get_best_params(self) -> Any:
@@ -367,36 +248,74 @@ class AsyncEvaluatorBase(threading.Thread, ABC):
         return self.best_params
         
     def wait_for_all_evaluations(self, timeout: float = 300.0) -> bool:
-        """Wait for all evaluations to complete. Returns True if completed, False if timed out."""
+        """Wait for all evaluations to complete."""
+        if self.expected_evaluations <= 0:
+            return True  # No evaluations expected
         return self._all_evaluations_done.wait(timeout)
         
     def shutdown(self) -> None:
-        """Gracefully shutdown the evaluator."""
+        """Shutdown the evaluator."""
         try:
-            self.eval_queue.put_nowait(None)  # Sentinel
+            self.eval_queue.put_nowait(None)  # Shutdown sentinel
         except queue.Full:
             pass
 
     def _update_evaluation_progress(self) -> None:
-        """Update evaluation progress and signal completion if all evaluations are done."""
+        """Update evaluation progress and signal completion."""
         self.eval_step += 1
         
-        # Check if all evaluations are completed
+        # Thread-safe progress tracking
         with self._evaluation_lock:
             self.completed_evaluations += 1
             if self.completed_evaluations >= self.expected_evaluations:
                 self._all_evaluations_done.set()
 
-    def _extract_actor_params(self, learner_state: Any) -> Any:
-        """Extract actor parameters from learner state. Override if needed for specific algorithms."""
-        return unreplicate(learner_state.params.actor_params)
-
-    def _calculate_timestep(self) -> int:
-        """Calculate the current timestep for logging."""
-        return int(self.steps_consumed_per_eval * (self.eval_step + 1))
-
     def _update_best_params(self, episode_return: Any, actor_params: Any) -> None:
-        """Update the best parameters if the current episode return is better."""
+        """Update best parameters if current episode return is better."""
         if self.config.arch.absolute_metric and self.max_episode_return <= episode_return:
             self.best_params = copy.deepcopy(actor_params)
             self.max_episode_return = episode_return
+
+    def get_eval_metrics(self) -> List[Dict[str, Any]]:
+        """Get evaluation metrics collected so far."""
+        return self._eval_metrics
+    
+    def add_eval_metrics(self, metrics: Dict[str, Any]) -> None:
+        """Add evaluation metrics to the list."""
+        with self._evaluation_lock:
+            self._eval_metrics.append(metrics)
+            if len(self._eval_metrics) > self.expected_evaluations:
+                self._eval_metrics.pop(0)
+                
+    def get_final_episode_return(self) -> float:
+        """Get the final episode return from the last evaluation."""
+        if self._eval_metrics:
+            return np.mean(self._eval_metrics[-1].get("episode_return", 0.0))
+        return 0.0
+
+
+def tree_stack_numpy(list_of_dicts: List[Dict[str, Any]]) -> Dict[str, np.ndarray]:
+    """Stack arrays in list of dicts into single dict with concatenated arrays."""
+    if not list_of_dicts:
+        return {}
+    
+    result = {}
+    keys = list_of_dicts[0].keys()
+    
+    # Process each key across all dictionaries
+    for key in keys:
+        arrays_to_concat = []
+        
+        for d in list_of_dicts:
+            value = d[key]
+            # Convert various types to numpy arrays for concatenation
+            if isinstance(value, np.ndarray):
+                arrays_to_concat.append(value)
+            elif isinstance(value, (list, tuple)):
+                arrays_to_concat.append(np.array(value))
+            else:
+                arrays_to_concat.append(np.array([value]))
+        
+        result[key] = np.concatenate(arrays_to_concat)
+    
+    return result

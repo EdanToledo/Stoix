@@ -374,7 +374,6 @@ def get_sebulba_eval_fn(
     n_parallel_envs = int(min(eval_episodes, config.arch.total_num_envs))
     episode_loops = math.ceil(eval_episodes / n_parallel_envs)
     envs = env_factory(n_parallel_envs)
-    cpu = jax.devices("cpu")[0]
     act_fn = jax.jit(act_fn, device=device)
 
     # Warnings if num eval episodes is not divisible by num parallel envs.
@@ -403,7 +402,7 @@ def get_sebulba_eval_fn(
                 while not finished_eps.all():
                     key, act_key = jax.random.split(key)
                     action = act_fn(params, timestep.observation, act_key)
-                    action_cpu = np.asarray(jax.device_put(action, cpu))
+                    action_cpu = np.asarray(action)
                     timestep = envs.step(action_cpu)
                     all_metrics.append(timestep.extras["metrics"])
                     all_dones.append(timestep.last())
