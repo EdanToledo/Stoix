@@ -44,7 +44,6 @@ from stoix.utils import make_env as environments
 from stoix.utils.checkpointing import Checkpointer
 from stoix.utils.env_factory import EnvFactory
 from stoix.utils.logger import LogEvent, StoixLogger
-from stoix.utils.optimisers import rmsprop_pytorch_style
 from stoix.utils.sebulba_utils import (
     AsyncEvaluatorBase,
     OnPolicyPipeline,
@@ -761,13 +760,11 @@ def learner_setup(
 
     # Setup optimizers with gradient clipping
     actor_optim = optax.chain(
-        optax.clip_by_global_norm(config.system.max_grad_norm),
-        rmsprop_pytorch_style(actor_lr, eps=0.01, decay=0.99),
+        optax.clip_by_global_norm(config.system.max_grad_norm), optax.rmsprop(actor_lr)
     )
 
     critic_optim = optax.chain(
-        optax.clip_by_global_norm(config.system.max_grad_norm),
-        rmsprop_pytorch_style(critic_lr, eps=0.01, decay=0.99),
+        optax.clip_by_global_norm(config.system.max_grad_norm), optax.rmsprop(critic_lr)
     )
 
     # Initialize network parameters
