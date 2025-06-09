@@ -11,7 +11,7 @@ gymnax @ git+https://github.com/RobertTLange/gymnax.git
 huggingface_hub
 hydra-core==1.3.2
 id-marl-eval @ git+https://github.com/EdanToledo/marl-eval
-jax>=0.4.25
+jax>=0.4.25,<0.6.0
 jaxlib
 jaxmarl
 jumanji==1.0.0
