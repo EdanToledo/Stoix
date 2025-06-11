@@ -2,7 +2,7 @@ import statistics
 import time
 from collections import defaultdict, deque
 from contextlib import contextmanager
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict
 
 
 class TimingTracker:
@@ -17,12 +17,12 @@ class TimingTracker:
             maxlen: Maximum number of timing samples to keep for averaging
         """
         self._maxlen = maxlen
-        self._deque_factory = lambda: deque(maxlen=maxlen)
+        self._deque_factory: Callable[[], deque] = lambda: deque(maxlen=maxlen)
         self.timings: Dict[str, deque] = defaultdict(self._deque_factory)
         self.active_timers: Dict[str, float] = {}
 
     @contextmanager
-    def time(self, name: str):
+    def time(self, name: str) -> Any:
         """Context manager for timing code blocks.
 
         Args:
@@ -85,7 +85,7 @@ class TimingTracker:
         timing_data = self.timings.get(name)
         if timing_data is None or len(timing_data) == 0:
             return 0.0
-        return statistics.mean(timing_data)
+        return float(statistics.mean(timing_data))
 
     def get_latest(self, name: str) -> float:
         """Get the latest timing for a metric.
@@ -99,7 +99,7 @@ class TimingTracker:
         timing_data = self.timings.get(name)
         if timing_data is None or len(timing_data) == 0:
             return 0.0
-        return timing_data[-1]
+        return float(timing_data[-1])
 
     def get_all_means(self) -> Dict[str, float]:
         """Get mean timings for all tracked metrics.
@@ -110,7 +110,7 @@ class TimingTracker:
         result = {}
         for name, timing_data in self.timings.items():
             if len(timing_data) > 0:
-                result[name] = statistics.mean(timing_data)
+                result[name] = float(statistics.mean(timing_data))
             else:
                 result[name] = 0.0
         return result

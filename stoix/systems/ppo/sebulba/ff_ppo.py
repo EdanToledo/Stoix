@@ -13,7 +13,6 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
-import rlax
 from colorama import Fore, Style
 from flax.core.frozen_dict import FrozenDict
 from flax.jax_utils import unreplicate
@@ -40,7 +39,6 @@ from stoix.evaluator import get_distribution_act_fn, get_sebulba_eval_fn
 from stoix.networks.base import FeedForwardActor as Actor
 from stoix.networks.base import FeedForwardCritic as Critic
 from stoix.networks.inputs import EmbeddingInput
-from stoix.networks.resnet import VisualResNetTorso
 from stoix.utils import make_env as environments
 from stoix.utils.checkpointing import Checkpointer
 from stoix.utils.env_factory import EnvFactory
@@ -108,7 +106,7 @@ class AsyncEvaluator(AsyncEvaluatorBase):
                 # Save checkpoint if enabled
                 if self.save_checkpoint:
                     self.checkpointer.save(
-                        timestep=self.steps_consumed_per_eval * (self.eval_step + 1),
+                        timestep=global_step_count,
                         unreplicated_learner_state=unreplicated_learner_state,
                         episode_return=episode_return,
                     )
@@ -126,14 +124,14 @@ def get_act_fn(
     apply_fns: Tuple[ActorApply, CriticApply]
 ) -> Callable[
     [ActorCriticParams, Observation, chex.PRNGKey],
-    Tuple[Action, Value, LogProb, chex.PRNGKey, Observation],
+    Tuple[Action, Value, LogProb, chex.PRNGKey],
 ]:
     """Create action function for actor threads."""
     actor_apply_fn, critic_apply_fn = apply_fns
 
     def actor_fn(
         params: ActorCriticParams, observation: Observation, rng_key: chex.PRNGKey
-    ) -> Tuple[Action, Value, LogProb, chex.PRNGKey, Observation]:
+    ) -> Tuple[Action, Value, LogProb, chex.PRNGKey]:
         rng_key, policy_key = jax.random.split(rng_key)
         pi = actor_apply_fn(params.actor_params, observation)
         value = critic_apply_fn(params.critic_params, observation)
@@ -163,11 +161,12 @@ def get_rollout_fn(
     act_fn = jax.jit(act_fn, device=actor_device)
 
     @jax.jit
-    def prepare_data(storage: List[PPOTransition]) -> PPOTransition:
+    def prepare_data(storage: List[PPOTransition]) -> List[PPOTransition]:
         """Prepare and shard trajectory data for learner devices."""
-        return jax.tree.map(
+        split_data: List[PPOTransition] = jax.tree.map(
             lambda *xs: jnp.split(jnp.stack(xs), len(learner_devices), axis=1), *storage
         )
+        return split_data
 
     # Cache frequently used config values
     num_envs_per_actor = config.arch.actor.num_envs_per_actor
@@ -191,7 +190,7 @@ def get_rollout_fn(
 
         # Setup performance tracking and storage
         timer = TimingTracker(maxlen=10)
-        traj_storage = []
+        traj_storage: List[PPOTransition] = []
         episode_metrics_storage = []
 
         with jax.default_device(actor_device):
@@ -205,9 +204,10 @@ def get_rollout_fn(
                 # Get latest parameters from parameter server
                 with timer.time("get_params_time"):
                     # Fetch parameters for the first rollout (num_rollouts=0) to get initial policy
-                    # Skip fetching on the second rollout (num_rollouts=1) to allow the first learner update to complete
-                    # Fetch new parameters (blocking) for all subsequent rollouts to get updated policies
-                    # This ensures actors continue collecting data while the learner processes the previous batch
+                    # Skip fetching on the second rollout (num_rollouts=1) to allow the first learner
+                    # update to complete. Fetch new parameters (blocking) for all subsequent rollouts
+                    # to get updated policies. This ensures actors continue collecting data while the
+                    # learner processes the previous batch.
                     if not num_rollouts == 1 or synchronous:
                         params = parameter_server.get_params(thread_lifetime.id)
                         actor_policy_version += 1
@@ -327,7 +327,8 @@ def get_rollout_fn(
 
                 if num_rollouts > num_updates:
                     print(
-                        f"{Fore.MAGENTA}{Style.BRIGHT}Actor {thread_lifetime.id} has completed {num_rollouts} rollouts. Stopping...{Style.RESET_ALL}"
+                        f"{Fore.MAGENTA}{Style.BRIGHT}Actor {thread_lifetime.id} has completed"
+                        f"{num_rollouts} rollouts. Stopping...{Style.RESET_ALL}"
                     )
                     break
 
@@ -339,8 +340,8 @@ def get_rollout_fn(
 def get_actor_thread(
     env_factory: EnvFactory,
     actor_device: jax.Device,
-    parameter_server: "ParameterServer",
-    rollout_pipeline: "OnPolicyPipeline",
+    parameter_server: ParameterServer,
+    rollout_pipeline: OnPolicyPipeline,
     apply_fns: Tuple[ActorApply, CriticApply],
     rng_key: chex.PRNGKey,
     config: DictConfig,
@@ -410,6 +411,7 @@ def get_learner_step_fn(
             values,
             time_major=True,
             standardize_advantages=config.system.standardize_advantages,
+            truncation_t=trunc_t,
         )
 
         chex.assert_shape(advantages, r_t.shape)
@@ -552,7 +554,7 @@ def get_learner_step_fn(
         return learner_state, loss_info
 
     def learner_step_fn(
-        learner_state: CoreLearnerState, traj_batch: PPOTransition
+        learner_state: CoreLearnerState, traj_batch: List[PPOTransition]
     ) -> SebulbaExperimentOutput[CoreLearnerState]:
         """Single learner step"""
 
@@ -573,7 +575,7 @@ def get_learner_rollout_fn(
     learner_step_fn: Callable,
     logger: StoixLogger,
     async_evaluator: AsyncEvaluator,
-) -> Callable[[CoreLearnerState], None]:
+) -> Callable[[CoreLearnerState, chex.PRNGKey], None]:
     """Create learner rollout function for network updates."""
 
     # Cache config values for performance
@@ -602,7 +604,7 @@ def get_learner_rollout_fn(
                 # Process collected data and update step count
                 sharded_storages = []
                 global_step_count = 0
-                for local_step_count, actor_policy_version, sharded_storage in rollout_data:
+                for local_step_count, _actor_policy_version, sharded_storage in rollout_data:
                     global_step_count += local_step_count
                     sharded_storages.append(sharded_storage)
 
@@ -684,7 +686,8 @@ def stop_all_actor_threads(
     for actor_lifetime in actor_thread_lifetimes:
         actor_lifetime.stop()
         print(
-            f"{Fore.MAGENTA}{Style.BRIGHT}Actor thread {actor_lifetime.name} has stopped.{Style.RESET_ALL}"
+            f"{Fore.MAGENTA}{Style.BRIGHT}Actor thread {actor_lifetime.name} "
+            f"has stopped.{Style.RESET_ALL}"
         )
 
     # Clean up communication queues

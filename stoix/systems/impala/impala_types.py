@@ -1,4 +1,4 @@
-from typing import Any, Dict, NamedTuple, Union
+from typing import NamedTuple
 
 from chex import Array
 

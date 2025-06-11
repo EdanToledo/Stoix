@@ -3,7 +3,7 @@ defaults:
   - arch: sebulba
   - system: ppo/ff_ppo
   - network: visual_resnet
-  - env: envpool/pong
+  - env: envpool/breakout
   - _self_
 
 hydra:

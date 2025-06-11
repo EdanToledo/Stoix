@@ -1,4 +1,14 @@
-from typing import TYPE_CHECKING, Any, Callable, Dict, Generic, Optional, Tuple, TypeVar
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    Generic,
+    List,
+    Optional,
+    Tuple,
+    TypeVar,
+)
 
 import chex
 from distrax import DistributionLike
@@ -199,7 +209,9 @@ class EvaluationOutput(NamedTuple, Generic[StoixState]):
 
 RNNObservation: TypeAlias = Tuple[Observation, Done]
 LearnerFn = Callable[[StoixState], AnakinExperimentOutput[StoixState]]
-SebulbaLearnerFn = Callable[[StoixState, StoixTransition], SebulbaExperimentOutput[StoixState]]
+SebulbaLearnerFn = Callable[
+    [StoixState, List[StoixTransition]], SebulbaExperimentOutput[StoixState]
+]
 EvalFn = Callable[[FrozenDict, chex.PRNGKey], EvaluationOutput[StoixState]]
 SebulbaEvalFn = Callable[[FrozenDict, chex.PRNGKey], Dict[str, chex.Array]]
 

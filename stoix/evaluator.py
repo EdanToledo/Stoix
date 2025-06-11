@@ -333,9 +333,7 @@ def evaluator_setup(
             10,
         )
     else:
-        evaluator = get_ff_evaluator_fn(
-            eval_env, eval_act_fn, config, log_solve_rate  # type: ignore
-        )
+        evaluator = get_ff_evaluator_fn(eval_env, eval_act_fn, config, log_solve_rate)  # type: ignore
         absolute_metric_evaluator = get_ff_evaluator_fn(
             eval_env,
             eval_act_fn,  # type: ignore

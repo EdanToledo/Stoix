@@ -6,8 +6,6 @@ from jumanji.specs import Array, DiscreteArray, Spec
 from jumanji.types import StepType, TimeStep
 from numpy.typing import NDArray
 
-from stoix.base_types import Observation
-
 
 class VecGymToJumanji:
     """Converts from a Vectorised Gymnasium environment to Jumanji's API."""

@@ -3,7 +3,7 @@ import queue
 import threading
 import warnings
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import chex
 import flax
@@ -13,7 +13,7 @@ import numpy as np
 from colorama import Fore, Style
 from omegaconf import DictConfig
 
-from stoix.base_types import Parameters, StoixTransition
+from stoix.base_types import Parameters
 from stoix.utils.logger import StoixLogger
 
 
@@ -127,12 +127,12 @@ class ParameterServer:
         try:
             unreplicated_params = flax.jax_utils.unreplicate(params)
         except Exception as e:
-            warnings.warn(f"Failed to unreplicate parameters: {e}")
+            warnings.warn(f"Failed to unreplicate parameters: {e}", stacklevel=2)
             return
 
         # Place parameters on each actor device and distribute to threads
         actor_idx = 0
-        for device_idx, device in enumerate(self.actor_devices):
+        for _device_idx, device in enumerate(self.actor_devices):
             try:
                 # Ensure parameters are properly placed on target device
                 device_params = jax.device_put(unreplicated_params, device)
@@ -150,10 +150,12 @@ class ParameterServer:
                         else:
                             self.param_queues[actor_idx].put_nowait(device_params)
                     except (queue.Full, queue.Empty):
-                        warnings.warn(f"Failed to put parameters in queue {actor_idx}")
+                        warnings.warn(
+                            f"Failed to put parameters in queue {actor_idx}", stacklevel=2
+                        )
                     actor_idx += 1
             except Exception as e:
-                warnings.warn(f"Failed to place parameters on device {device}: {e}")
+                warnings.warn(f"Failed to place parameters on device {device}: {e}", stacklevel=2)
                 # Skip actors on this device
                 actor_idx += self.actors_per_device
 
@@ -240,7 +242,9 @@ class AsyncEvaluatorBase(threading.Thread, ABC):
         try:
             self.eval_queue.put_nowait((learner_state, eval_key, eval_step, global_step_count))
             print(
-                f"{Fore.YELLOW}{Style.BRIGHT}Submitted evaluation {eval_step+1}/{self.expected_evaluations}, Current Eval Queue Size: {self.eval_queue.qsize()}{Style.RESET_ALL}"
+                f"{Fore.YELLOW}{Style.BRIGHT}Submitted evaluation "
+                f"{eval_step+1}/{self.expected_evaluations}, Current Eval Queue "
+                f"Size: {self.eval_queue.qsize()}{Style.RESET_ALL}"
             )
         except queue.Full:
             # Skip evaluation to avoid blocking the learner
@@ -293,8 +297,8 @@ class AsyncEvaluatorBase(threading.Thread, ABC):
     def get_final_episode_return(self) -> float:
         """Get the final episode return from the last evaluation."""
         if self._eval_metrics:
-            return np.mean(self._eval_metrics[-1].get("episode_return", 0.0))
-        return 0.0
+            return float(np.mean(self._eval_metrics[-1].get("episode_return", 0.0)).item())
+        return float(0.0)
 
 
 def tree_stack_numpy(list_of_dicts: List[Dict[str, Any]]) -> Dict[str, np.ndarray]:

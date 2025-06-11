@@ -5,8 +5,6 @@ from jumanji.specs import Array, DiscreteArray, Spec
 from jumanji.types import StepType, TimeStep
 from numpy.typing import NDArray
 
-from stoix.base_types import Observation
-
 
 class EnvPoolToJumanji:
     """Converts from the Gymnasium envpool API to Jumanji's API."""
@@ -29,7 +27,8 @@ class EnvPoolToJumanji:
         if "lives" in info and info["lives"].sum() > 0:
             self.has_lives = True
             print(
-                "This environment has lives. The episode return and length will be counted only when all lives are exhausted."
+                "This environment has lives. The episode return and "
+                "length will be counted only when all lives are exhausted."
             )
         else:
             self.has_lives = False
