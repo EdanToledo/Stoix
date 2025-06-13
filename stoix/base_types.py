@@ -125,7 +125,6 @@ class CoreLearnerState(NamedTuple):
     params: Parameters
     opt_states: OptStates
     key: chex.PRNGKey
-    # timestep: TimeStep
 
 
 class OnPolicyLearnerState(NamedTuple):
