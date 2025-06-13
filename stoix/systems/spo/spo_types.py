@@ -38,6 +38,7 @@ class SPOTransition(NamedTuple):
     reward: chex.Array
     search_value: Value
     obs: chex.Array
+    bootstrap_obs: chex.Array
     info: Dict
     sampled_advantages: chex.Array
 

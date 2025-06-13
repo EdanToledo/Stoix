@@ -94,7 +94,10 @@ def get_learner_fn(
             done = (timestep.discount == 0.0).reshape(-1)
             truncated = (timestep.last() & (timestep.discount != 0.0)).reshape(-1)
             info = timestep.extras["episode_metrics"]
-            bootstrap_value = critic_apply_fn(params.critic_params, timestep.extras['next_obs'])
+            # Save bootstrap value for the next step.
+            # Due to auto-resetting and truncation, we have to specifically save the bootstrap value
+            # for the next (potentially final) observation.
+            bootstrap_value = critic_apply_fn(params.critic_params, timestep.extras["next_obs"])
 
             transition = PPOTransition(
                 done,
@@ -117,7 +120,7 @@ def get_learner_fn(
 
         # CALCULATE ADVANTAGE
         params, opt_states, key, env_state, last_timestep = learner_state
-        
+
         v_tm1 = traj_batch.value
         r_t = traj_batch.reward
         v_t = traj_batch.bootstrap_value
@@ -127,8 +130,8 @@ def get_learner_fn(
             r_t,
             d_t,
             config.system.gae_lambda,
-            v_tm1,
-            v_t,
+            v_tm1=v_tm1,
+            v_t=v_t,
             time_major=True,
             standardize_advantages=config.system.standardize_advantages,
             truncation_t=traj_batch.truncated,

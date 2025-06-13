@@ -1053,8 +1053,10 @@ def get_warmup_fn(
             # LOG EPISODE METRICS
             done = (timestep.discount == 0.0).reshape(-1)
             truncated_step = (timestep.last() & (timestep.discount != 0.0)).reshape(-1)
-
             info = timestep.extras["episode_metrics"]
+            # Get the timestep's (potentially final) observation for bootstrapping.
+            # This is done to support truncated episodes.
+            bootstrap_obs = timestep.extras["next_obs"]
 
             transition = SPOTransition(
                 done,
@@ -1065,6 +1067,7 @@ def get_warmup_fn(
                 timestep.reward,
                 search_value,
                 last_timestep.observation,
+                bootstrap_obs,
                 info,
                 search_output.sampled_advantages,
             )
@@ -1172,6 +1175,9 @@ def get_learner_fn(
             done = (timestep.discount == 0.0).reshape(-1)
             truncated_step = (timestep.last() & (timestep.discount != 0.0)).reshape(-1)
             info = timestep.extras["episode_metrics"]
+            # Get the timestep's (potentially final) observation for bootstrapping.
+            # This is done to support truncated episodes.
+            bootstrap_obs = timestep.extras["next_obs"]
 
             transition = SPOTransition(
                 done,
@@ -1182,6 +1188,7 @@ def get_learner_fn(
                 timestep.reward,
                 search_value,
                 last_timestep.observation,
+                bootstrap_obs,
                 info,
                 search_output.sampled_advantages,
             )
@@ -1367,28 +1374,31 @@ def get_learner_fn(
                 """Calculation of the critic loss."""
 
                 # Predict current and target values using respective critic networks.
-                value = critic_apply_fn(online_critic_params, sequence.obs)[:, :-1]
-                target_value = critic_apply_fn(target_critic_params, sequence.obs)
+                pred_values = critic_apply_fn(online_critic_params, sequence.obs)
+
+                target_v_tm1 = critic_apply_fn(target_critic_params, sequence.obs)
+                target_v_t = critic_apply_fn(target_critic_params, sequence.bootstrap_obs)
 
                 # Compute targets using Generalized Advantage Estimation (GAE).
                 _, targets = batch_truncated_generalized_advantage_estimation(
-                    sequence.reward[:, :-1],
-                    (1 - sequence.done)[:, :-1] * config.system.gamma,
+                    sequence.reward,
+                    (1 - sequence.done) * config.system.gamma,
                     config.system.gae_lambda,
-                    target_value,
-                    truncation_t=sequence.truncated[:, :-1],
+                    v_tm1=target_v_tm1,
+                    v_t=target_v_t,
+                    truncation_t=sequence.truncated,
                 )
 
                 # Calculate L2 loss between predicted values and targets.
-                value_loss = rlax.l2_loss(value, targets).mean()
+                value_loss = rlax.l2_loss(pred_values, targets).mean()
 
                 # Scale the value loss by a coefficient.
                 critic_total_loss = config.system.vf_coef * value_loss
 
                 loss_info = {
                     "value_loss": value_loss,
-                    "value_pred_std": value.std(),
-                    "value_pred_mean": value.mean(),
+                    "value_pred_std": pred_values.std(),
+                    "value_pred_mean": pred_values.mean(),
                 }
 
                 return critic_total_loss, loss_info
@@ -1690,6 +1700,7 @@ def learner_setup(
         reward=jnp.array(0.0),
         search_value=jnp.array(0.0),
         obs=jax.tree_util.tree_map(lambda x: x.squeeze(0), init_x),
+        bootstrap_obs=jax.tree_util.tree_map(lambda x: x.squeeze(0), init_x),
         info=dummy_info,
         sampled_advantages=jnp.zeros((config.system.num_particles,)),
     )

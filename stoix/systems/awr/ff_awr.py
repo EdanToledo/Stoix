@@ -175,16 +175,15 @@ def get_learner_fn(
             sequence: SequenceStep = sequence_sample.experience
 
             # CALCULATE TARGETS USING LAST ITERATION CRITIC
-            v_t = critic_apply_fn(static_critic_params, sequence.obs)
+            values = critic_apply_fn(static_critic_params, sequence.obs)
             r_t = sequence.reward[:, :-1]
             d_t = (1 - sequence.done.astype(jnp.float32)[:, :-1]) * config.system.gamma
             _, target_vals = batch_truncated_generalized_advantage_estimation(
                 r_t,
                 d_t,
                 config.system.gae_lambda,
-                v_t,
+                values=values,
                 time_major=False,
-                truncation_t=sequence.truncated[:, :-1],
             )
 
             # CALCULATE CRITIC LOSS
@@ -249,17 +248,16 @@ def get_learner_fn(
             sequence: SequenceStep = sequence_sample.experience
 
             # CALCULATE WEIGHTS USING LATEST CRITIC
-            v_t = critic_apply_fn(params.critic_params, sequence.obs)
+            values = critic_apply_fn(params.critic_params, sequence.obs)
             r_t = sequence.reward[:, :-1]
             d_t = (1 - sequence.done.astype(jnp.float32)[:, :-1]) * config.system.gamma
             advantages, _ = batch_truncated_generalized_advantage_estimation(
                 r_t,
                 d_t,
                 config.system.gae_lambda,
-                v_t,
+                values=values,
                 time_major=False,
                 standardize_advantages=config.system.standardize_advantages,
-                truncation_t=sequence.truncated[:, :-1],
             )
             weights = jnp.exp(advantages / config.system.beta)
             weights = jnp.minimum(weights, config.system.weight_clip)

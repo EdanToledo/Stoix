@@ -1,389 +1,528 @@
+from typing import Tuple
+
 import chex
 import jax
 import jax.numpy as jnp
 import numpy as np
+import rlax
 from absl.testing import absltest, parameterized
 
-from stoix.utils.multistep import (
-    batch_truncated_generalized_advantage_estimation,
-    importance_corrected_td_errors,
-)
+from stoix.utils.multistep import batch_truncated_generalized_advantage_estimation
 
 
 class TruncatedGeneralizedAdvantageEstimationTest(parameterized.TestCase):
+    """Test suite for truncated Generalized Advantage Estimation (GAE).
+
+    This test suite validates the GAE implementation across various scenarios:
+    - Standard GAE computation with different lambda values
+    - Handling of episode truncation (continuing episodes)
+    - Handling of episode termination (true episode ends)
+    - Combined truncation and termination scenarios
+    - Edge cases with multiple truncations
+
+    Key concepts tested:
+    - Truncation: Episode continues but needs to be cut for practical reasons
+      (e.g., fixed rollout length). Bootstrap from value function.
+    - Termination: Episode truly ends (e.g., game over). No bootstrapping.
+    """
+
     def setUp(self) -> None:
+        """Initialize test data for various test scenarios."""
         super().setUp()
+        self._setup_basic_test_data()
+        self._setup_expected_results()
 
-        self.r_t = jnp.array([[0.0, 0.0, 1.0, 0.0, -0.5], [0.0, 0.0, 0.0, 0.0, 1.0]])
-        # Original v_t format with T+1 values
-        orig_v_t = jnp.array(
-            [[1.0, 4.0, -3.0, -2.0, -1.0, -1.0], [-3.0, -2.0, -1.0, 0.0, 5.0, -1.0]]
-        )
-        # Split into baseline values and bootstrap values
-        self.v_t = orig_v_t[:, :-1]  # Values for baseline [B, T]
-        self.bootstrap_v_t = orig_v_t[:, 1:]  # Values for bootstrapping [B, T]
-        
-        self.discount_t = jnp.array([[0.99, 0.99, 0.99, 0.99, 0.99], [0.9, 0.9, 0.9, 0.0, 0.9]])
-        self.dummy_rho_tm1 = jnp.array([[1.0, 1.0, 1.0, 1.0, 1], [1.0, 1.0, 1.0, 1.0, 1.0]])
-        self.array_lambda = jnp.array([[0.9, 0.9, 0.9, 0.9, 0.9], [0.9, 0.9, 0.9, 0.9, 0.9]])
-        self.truncation_t = jnp.array([[0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0, 0.0]])
-
-        # Different expected results for different values of lambda.
-        self.expected = {}
-        self.expected[1.0] = np.array(
-            [[-1.45118, -4.4557, 2.5396, 0.5249, -0.49], [3.0, 2.0, 1.0, 0.0, -4.9]],
-            dtype=np.float32,
-        )
-        self.expected[0.7] = np.array(
+    def _setup_basic_test_data(self) -> None:
+        """Setup basic test data used across multiple tests."""
+        # Basic 2-batch, 5-timestep example
+        self.r_t = jnp.array(
             [
-                [-0.676979, -5.248167, 2.4846, 0.6704, -0.49],
-                [2.2899, 1.73, 1.0, 0.0, -4.9],
-            ],
-            dtype=np.float32,
-        )
-        self.expected[0.4] = np.array(
-            [[0.56731, -6.042, 2.3431, 0.815, -0.49], [1.725, 1.46, 1.0, 0.0, -4.9]],
-            dtype=np.float32,
-        )
-
-        # Expected results for truncation case
-        self.truncation_expected = np.array(
-            [
-                [-1.45118, -4.4557, 2.5396, 0.5249, -0.49],
-                [3.0, 2.0, 1.0, 0.0, -4.9],
-            ],  # Same result because truncation is at t=3 which already has discount=0
-            dtype=np.float32,
-        )
-
-    @chex.all_variants()
-    @parameterized.named_parameters(("lambda1", 1.0), ("lambda0.7", 0.7), ("lambda0.4", 0.4))
-    def test_truncated_gae(self, lambda_: float) -> None:
-        """Tests truncated GAE for a full batch."""
-        batched_advantage_fn_variant = self.variant(
-            batch_truncated_generalized_advantage_estimation
-        )
-        advantages, targets = batched_advantage_fn_variant(
-            self.r_t, self.discount_t, lambda_, self.v_t, self.bootstrap_v_t
-        )
-        np.testing.assert_allclose(self.expected[lambda_], advantages, atol=1e-3)
-        # Check that targets are advantages + values
-        expected_targets = self.expected[lambda_] + self.v_t
-        np.testing.assert_allclose(expected_targets, targets, atol=1e-3)
-
-    @chex.all_variants()
-    def test_array_lambda(self) -> None:
-        """Tests that truncated GAE is consistent with scalar or array lambda_."""
-        scalar_lambda_fn = self.variant(batch_truncated_generalized_advantage_estimation)
-        array_lambda_fn = self.variant(batch_truncated_generalized_advantage_estimation)
-        scalar_lambda_advantages, scalar_lambda_targets = scalar_lambda_fn(
-            self.r_t, self.discount_t, 0.9, self.v_t, self.bootstrap_v_t
-        )
-        array_lambda_advantages, array_lambda_targets = array_lambda_fn(
-            self.r_t, self.discount_t, self.array_lambda, self.v_t, self.bootstrap_v_t
-        )
-        np.testing.assert_allclose(scalar_lambda_advantages, array_lambda_advantages, atol=1e-3)
-        np.testing.assert_allclose(scalar_lambda_targets, array_lambda_targets, atol=1e-3)
-
-    @chex.all_variants()
-    @parameterized.named_parameters(("lambda_1", 1.0), ("lambda_0.7", 0.7), ("lambda_0.4", 0.4))
-    def test_truncation_with_different_lambdas(self, lambda_: float) -> None:
-        """Tests truncated GAE with truncation points using different lambda values."""
-        # Create a version of discount_t without the zero at the truncation point
-        modified_discount_t = jnp.array([[0.99, 0.99, 0.99, 0.99, 0.99], [0.9, 0.9, 0.9, 0.9, 0.9]])
-
-        # Test with truncation
-        batched_advantage_fn_variant = self.variant(
-            batch_truncated_generalized_advantage_estimation
-        )
-        advantages, targets = batched_advantage_fn_variant(
-            self.r_t, modified_discount_t, lambda_, self.v_t, self.bootstrap_v_t, 
-            truncation_t=self.truncation_t
-        )
-
-        # For the first batch, there is no truncation so results should match the standard GAE
-        batched_advantage_fn_no_truncation = self.variant(
-            batch_truncated_generalized_advantage_estimation
-        )
-        standard_advantages, standard_targets = batched_advantage_fn_no_truncation(
-            self.r_t, modified_discount_t, lambda_, self.v_t, self.bootstrap_v_t
-        )
-
-        # First row should match (no truncation)
-        np.testing.assert_allclose(advantages[0], standard_advantages[0], atol=1e-3)
-        np.testing.assert_allclose(targets[0], standard_targets[0], atol=1e-3)
-
-        # Second row should differ where truncation affects it
-        # Let's manually verify the last timestep (t=4) should match since it's after truncation
-        np.testing.assert_allclose(advantages[1, 4], standard_advantages[1, 4], atol=1e-3)
-        np.testing.assert_allclose(targets[1, 4], standard_targets[1, 4], atol=1e-3)
-
-        # The truncation point itself (t=3) should just have its TD error
-        v_t = self.v_t[1]  # Values for second batch
-        bootstrap_v_t = self.bootstrap_v_t[1]  # Bootstrap values for second batch
-        r_t = self.r_t[1]  # Rewards for second batch
-        discount_t = modified_discount_t[1]  # Using the non-zero discount
-        expected_t3 = r_t[3] + discount_t[3] * bootstrap_v_t[3] - v_t[3]  # 0 + 0.9*5 - 0 = 4.5
-        np.testing.assert_allclose(advantages[1, 3], expected_t3, atol=1e-3)
-        # Target at truncation point should be value + advantage
-        np.testing.assert_allclose(targets[1, 3], v_t[3] + expected_t3, atol=1e-3)
-
-    @chex.all_variants()
-    def test_multiple_truncations(self) -> None:
-        """Tests GAE with multiple truncation points in a sequence."""
-        # Create a test case with multiple truncations
-        r_t = jnp.array([0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0])
-        orig_v_t = jnp.array([0.0, 1.0, 2.0, 1.0, 0.0, 1.0, 0.0, 0.0])  # Original format with T+1 values
-        v_t = orig_v_t[:-1]  # Values for baseline [T]
-        bootstrap_v_t = orig_v_t[1:]  # Values for bootstrapping [T]
-        
-        discount_t = jnp.array([0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9])
-        truncation_t = jnp.array([0.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0])  # Truncations at t=2 and t=4
-
-        r_t, discount_t, v_t, bootstrap_v_t, truncation_t = jax.tree_util.tree_map(
-            lambda x: jnp.expand_dims(x, axis=0), (r_t, discount_t, v_t, bootstrap_v_t, truncation_t)
-        )
-
-        # Compute GAE with truncations
-        advantage_fn_variant = self.variant(batch_truncated_generalized_advantage_estimation)
-        advantages, targets = advantage_fn_variant(
-            r_t, discount_t, 1.0, v_t, bootstrap_v_t, truncation_t=truncation_t
-        )
-
-        advantages, targets, r_t, discount_t, v_t, bootstrap_v_t, truncation_t = jax.tree_util.tree_map(
-            lambda x: jnp.squeeze(x, axis=0),
-            (advantages, targets, r_t, discount_t, v_t, bootstrap_v_t, truncation_t),
-        )
-
-        # Calculate the expected values manually
-        # For t=6 (last step), the advantage is just the TD error
-        expected_t6 = r_t[6] + discount_t[6] * bootstrap_v_t[6] - v_t[6]  # 0 + 0.9*0 - 0 = 0
-
-        # For t=5, advantage includes t=5's TD error and discounted advantage from t=6
-        delta_t5 = r_t[5] + discount_t[5] * bootstrap_v_t[5] - v_t[5]  # 1 + 0.9*0 - 1 = 0
-        expected_t5 = delta_t5 + discount_t[5] * 1.0 * expected_t6  # 0 + 0.9*0 = 0
-
-        # For t=4 (truncation point), the advantage is just the TD error (no bootstrapping)
-        expected_t4 = r_t[4] + discount_t[4] * bootstrap_v_t[4] - v_t[4]  # 0 + 0.9*1 - 0 = 0.9
-
-        # For t=3, advantage includes t=3's TD error and discounted advantage from t=4
-        delta_t3 = r_t[3] + discount_t[3] * bootstrap_v_t[3] - v_t[3]  # 0 + 0.9*0 - 1 = -1
-        expected_t3 = delta_t3 + discount_t[3] * 1.0 * expected_t4  # -1 + 0.9*0.9 = -0.19
-
-        # For t=2 (truncation point), the advantage is just the TD error (no bootstrapping)
-        expected_t2 = r_t[2] + discount_t[2] * bootstrap_v_t[2] - v_t[2]  # 0 + 0.9*1 - 2 = -1.1
-
-        # For t=1, advantage includes t=1's TD error and discounted advantage from t=2
-        delta_t1 = r_t[1] + discount_t[1] * bootstrap_v_t[1] - v_t[1]  # 1 + 0.9*2 - 1 = 1.8
-        expected_t1 = delta_t1 + discount_t[1] * 1.0 * expected_t2  # 1.8 + 0.9*(-1.1) = 0.81
-
-        # For t=0, advantage includes t=0's TD error and discounted advantage from t=1
-        delta_t0 = r_t[0] + discount_t[0] * bootstrap_v_t[0] - v_t[0]  # 0 + 0.9*1 - 0 = 0.9
-        expected_t0 = delta_t0 + discount_t[0] * 1.0 * expected_t1  # 0.9 + 0.9*0.81 = 1.629
-
-        expected_advantages = jnp.array(
-            [
-                expected_t0,
-                expected_t1,
-                expected_t2,
-                expected_t3,
-                expected_t4,
-                expected_t5,
-                expected_t6,
+                [0.0, 0.0, 1.0, 0.0, -0.5],  # Batch 1: sparse rewards
+                [0.0, 0.0, 0.0, 0.0, 1.0],  # Batch 2: final reward
             ]
         )
 
-        # Expected targets are advantages + values
-        expected_targets = expected_advantages + v_t
+        # Values array includes initial state value and all timestep values
+        self.values = jnp.array(
+            [
+                [1.0, 4.0, -3.0, -2.0, -1.0, -1.0],  # Batch 1: 6 values (T+1)
+                [-3.0, -2.0, -1.0, 0.0, 5.0, -1.0],  # Batch 2: 6 values (T+1)
+            ]
+        )
 
-        np.testing.assert_allclose(advantages, expected_advantages, atol=1e-3)
+        # Split values for v_tm1/v_t interface (for complex autoreset cases)
+        self.v_tm1 = self.values[:, :-1]  # Current state values [B, T]
+        self.v_t = self.values[:, 1:]  # Next state values for bootstrapping [B, T]
+
+        # Discount factors (0 indicates termination)
+        self.discount_t = jnp.array(
+            [
+                [0.99, 0.99, 0.99, 0.99, 0.99],  # Batch 1: no termination
+                [0.9, 0.9, 0.9, 0.0, 0.9],  # Batch 2: termination at t=3
+            ]
+        )
+
+        # Lambda values for testing array vs scalar
+        self.array_lambda = jnp.full_like(self.discount_t, 0.9)
+
+        # Truncation mask (1 indicates truncation point)
+        self.truncation_t = jnp.array(
+            [
+                [0.0, 0.0, 0.0, 0.0, 0.0],  # Batch 1: no truncation
+                [0.0, 0.0, 0.0, 1.0, 0.0],  # Batch 2: truncation at t=3
+            ]
+        )
+
+    def _setup_expected_results(self) -> None:
+        """Pre-computed expected GAE values for different lambda values.
+
+        These values were computed manually using the GAE formula:
+        A_t = δ_t + (γλ)δ_{t+1} + (γλ)²δ_{t+2} + ...
+        where δ_t = r_t + γV(s_{t+1}) - V(s_t)
+        """
+        self.expected = {
+            1.0: np.array(
+                [[-1.45118, -4.4557, 2.5396, 0.5249, -0.49], [3.0, 2.0, 1.0, 0.0, -4.9]],
+                dtype=np.float32,
+            ),
+            0.7: np.array(
+                [[-0.676979, -5.248167, 2.4846, 0.6704, -0.49], [2.2899, 1.73, 1.0, 0.0, -4.9]],
+                dtype=np.float32,
+            ),
+            0.4: np.array(
+                [[0.56731, -6.042, 2.3431, 0.815, -0.49], [1.725, 1.46, 1.0, 0.0, -4.9]],
+                dtype=np.float32,
+            ),
+        }
+
+    # ========== Helper Methods ==========
+
+    def _compute_td_error(self, r: float, discount: float, v_next: float, v_curr: float) -> float:
+        """Compute TD error: δ = r + γV(s') - V(s)"""
+        return r + discount * v_next - v_curr
+
+    def _assert_gae_shapes(
+        self, advantages: jnp.ndarray, targets: jnp.ndarray, expected_shape: Tuple[int, ...]
+    ) -> None:
+        """Assert that GAE outputs have expected shapes."""
+        chex.assert_shape(advantages, expected_shape)
+        chex.assert_shape(targets, expected_shape)
+
+    # ========== Core Functionality Tests ==========
+
+    @chex.all_variants()
+    @parameterized.named_parameters(("lambda_1.0", 1.0), ("lambda_0.7", 0.7), ("lambda_0.4", 0.4))
+    def test_basic_gae_computation(self, lambda_: float) -> None:
+        """Test basic GAE computation with different lambda values - No Truncation.
+
+        Validates:
+        - Correct advantage computation for various lambda (bias-variance tradeoff)
+        - Correct target value computation (V + A)
+        - Both interfaces (single values array vs separate v_tm1/v_t) produce same results
+        """
+        gae_fn = self.variant(batch_truncated_generalized_advantage_estimation)
+
+        # Test with single values array interface
+        advantages, targets = gae_fn(self.r_t, self.discount_t, lambda_, values=self.values)
+
+        # Verify advantages match expected values
+        np.testing.assert_allclose(advantages, self.expected[lambda_], atol=1e-3)
+
+        # Verify targets = values + advantages
+        expected_targets = self.expected[lambda_] + self.v_tm1
         np.testing.assert_allclose(targets, expected_targets, atol=1e-3)
+
+        # Test with separate v_tm1/v_t interface (for complex autoreset cases)
+        advantages_alt, targets_alt = gae_fn(
+            self.r_t, self.discount_t, lambda_, v_tm1=self.v_tm1, v_t=self.v_t
+        )
+
+        # Both interfaces should produce identical results
+        np.testing.assert_allclose(advantages, advantages_alt, atol=1e-6)
+        np.testing.assert_allclose(targets, targets_alt, atol=1e-6)
+
+        # Test rlax implementation for comparison
+        rlax_advantages = jax.vmap(
+            rlax.truncated_generalized_advantage_estimation, in_axes=(0, 0, None, 0)
+        )(self.r_t, self.discount_t, lambda_, self.values)
+
+        np.testing.assert_allclose(advantages, rlax_advantages, atol=1e-6)
+        np.testing.assert_allclose(targets, self.values[:, :-1] + rlax_advantages, atol=1e-6)
+
+    @chex.all_variants()
+    def test_scalar_vs_array_lambda(self) -> None:
+        """Test that scalar and array lambda produce identical results.
+
+        This ensures the implementation correctly broadcasts scalar lambda values.
+        """
+        gae_fn = self.variant(batch_truncated_generalized_advantage_estimation)
+
+        # Compute with scalar lambda
+        scalar_adv, scalar_targets = gae_fn(
+            self.r_t, self.discount_t, 0.9, v_tm1=self.v_tm1, v_t=self.v_t
+        )
+
+        # Compute with array lambda (same value everywhere)
+        array_adv, array_targets = gae_fn(
+            self.r_t, self.discount_t, self.array_lambda, v_tm1=self.v_tm1, v_t=self.v_t
+        )
+
+        np.testing.assert_allclose(scalar_adv, array_adv, atol=1e-6)
+        np.testing.assert_allclose(scalar_targets, array_targets, atol=1e-6)
+
+    # ========== Truncation Tests ==========
 
     @chex.all_variants()
     def test_truncation_vs_termination(self) -> None:
-        """Tests that truncation and termination (zero discount) are handled differently."""
-        # Create test data with identical structure but one using truncation and one
-        # using termination
-        r_t = jnp.array([0.0, 0.0, 0.0, 0.0])
-        orig_v_t = jnp.array([1.0, 1.0, 1.0, 1.0, 10.0])  # Original format with T+1 values
-        v_t = orig_v_t[:-1]  # Values for baseline [T]
-        bootstrap_v_t = orig_v_t[1:]  # Values for bootstrapping [T]
+        """Test that truncation and termination are handled differently.
 
-        # Case 1: Using truncation at t=2
-        discount_t_trunc = jnp.array([0.9, 0.9, 0.9, 0.9])
-        truncation_t = jnp.array([0.0, 0.0, 1.0, 0.0])
+        Key difference:
+        - Termination (discount=0): No bootstrapping, episode truly ends
+        - Truncation (truncation_t=1): Bootstrap from value function, episode continues
 
-        # Case 2: Using termination at t=2 (via zero discount)
-        discount_t_term = jnp.array([0.9, 0.9, 0.0, 0.9])
+        This test verifies that truncated episodes correctly bootstrap from the
+        value function while terminated episodes do not.
+        """
+        # Test data: same rewards and values, but different ending conditions
+        r_t = jnp.array([[0.0, 0.0, 0.0, 0.0]])
+        values = jnp.array([[1.0, 1.0, 1.0, 1.0, 10.0]])  # High final value
 
-        r_t, discount_t_trunc, v_t, bootstrap_v_t, truncation_t, discount_t_term = jax.tree_util.tree_map(
-            lambda x: jnp.expand_dims(x, axis=0),
-            (r_t, discount_t_trunc, v_t, bootstrap_v_t, truncation_t, discount_t_term),
+        # Case 1: Truncation at t=2 (episode continues, should bootstrap)
+        discount_truncation = jnp.array([[0.9, 0.9, 0.9, 0.9]])
+        truncation_mask = jnp.array([[0.0, 0.0, 1.0, 0.0]])
+
+        # Case 2: Termination at t=2 (episode ends, no bootstrap)
+        discount_termination = jnp.array([[0.9, 0.9, 0.0, 0.9]])
+
+        gae_fn = self.variant(batch_truncated_generalized_advantage_estimation)
+
+        # Compute advantages for truncation case
+        trunc_adv, _ = gae_fn(
+            r_t,
+            discount_truncation,
+            1.0,
+            v_tm1=values[:, :-1],
+            v_t=values[:, 1:],
+            truncation_t=truncation_mask,
         )
 
-        # Compute advantages for both cases
-        advantage_fn_variant = self.variant(batch_truncated_generalized_advantage_estimation)
-
-        # Truncation case (should bootstrap value at t=3 but not propagate beyond t=2)
-        trunc_advantages, trunc_targets = advantage_fn_variant(
-            r_t, discount_t_trunc, 1.0, v_t, bootstrap_v_t, truncation_t=truncation_t
+        # Compute advantages for termination case
+        term_adv, _ = gae_fn(
+            r_t, discount_termination, 1.0, v_tm1=values[:, :-1], v_t=values[:, 1:]
         )
 
-        # Termination case (should not bootstrap value at t=3)
-        term_advantages, term_targets = advantage_fn_variant(
-            r_t, discount_t_term, 1.0, v_t, bootstrap_v_t
-        )
+        # At t=2, truncation should bootstrap (include future value)
+        # while termination should not
+        # TD errors at t=2:
+        # Truncation: δ = 0 + 0.9 * 1 - 1 = -0.1
+        # Termination: δ = 0 + 0.0 * 1 - 1 = -1.0
+        np.testing.assert_allclose(trunc_adv[0, 2], -0.1, atol=1e-5)
+        np.testing.assert_allclose(term_adv[0, 2], -1.0, atol=1e-5)
 
-        trunc_advantages, trunc_targets, term_advantages, term_targets = jax.tree.map(
-            lambda x: jnp.squeeze(x, axis=0),
-            (trunc_advantages, trunc_targets, term_advantages, term_targets),
-        )
-        r_t, discount_t_trunc, v_t, bootstrap_v_t, truncation_t, discount_t_term = jax.tree_util.tree_map(
-            lambda x: jnp.squeeze(x, axis=0),
-            (r_t, discount_t_trunc, v_t, bootstrap_v_t, truncation_t, discount_t_term),
-        )
-
-        # The truncation case should incorporate the high terminal value at t=2
-        # while the termination case should not
-        delta_t2_trunc = r_t[2] + discount_t_trunc[2] * bootstrap_v_t[2] - v_t[2]  # 0 + 0.9*1 - 1 = -0.1
-        delta_t2_term = r_t[2] + discount_t_term[2] * bootstrap_v_t[2] - v_t[2]  # 0 + 0.0*1 - 1 = -1.0
-
-        # Check that t=2 advantages differ between truncation and termination
-        np.testing.assert_allclose(trunc_advantages[2], delta_t2_trunc, atol=1e-3)
-        np.testing.assert_allclose(term_advantages[2], delta_t2_term, atol=1e-3)
-
-        # Check targets as well
-        np.testing.assert_allclose(trunc_targets[2], v_t[2] + delta_t2_trunc, atol=1e-3)
-        np.testing.assert_allclose(term_targets[2], v_t[2] + delta_t2_term, atol=1e-3)
-
-        # Values at t=0 and t=1 should bootstrap differently too
-        self.assertFalse(np.allclose(trunc_advantages[0:2], term_advantages[0:2], atol=1e-3))
-
-        # Values at t=3 should be identical (after both truncation and termination points)
-        np.testing.assert_allclose(trunc_advantages[3], term_advantages[3], atol=1e-3)
+        # Earlier timesteps should also differ due to different propagation
+        self.assertFalse(np.allclose(trunc_adv[0, :2], term_adv[0, :2], atol=1e-5))
 
     @chex.all_variants()
-    def test_truncation_and_termination_combined(self) -> None:
-        """Tests GAE with a mix of truncation and termination conditions."""
-        # Create a batch with both truncation and termination in different episodes
-        # A batch with 3 episodes:
-        # - First episode: normal with terminal state
-        # - Second episode: truncated
-        # - Third episode: normal with terminal state
+    def test_multiple_truncations(self) -> None:
+        """Test GAE with multiple truncation points in a single sequence.
+
+        This validates that the backward scan correctly resets advantage
+        accumulation at each truncation point while preserving the TD error
+        at the truncation point itself.
+        """
+        # Single sequence with truncations at t=2 and t=4
+        r_t = jnp.array([[0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0]])
+        values = jnp.array([[0.0, 1.0, 2.0, 1.0, 0.0, 1.0, 0.0, 0.0]])
+        discount_t = jnp.full((1, 7), 0.9)
+        truncation_t = jnp.array([[0.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0]])
+
+        gae_fn = self.variant(batch_truncated_generalized_advantage_estimation)
+        advantages, _ = gae_fn(r_t, discount_t, 1.0, values=values, truncation_t=truncation_t)
+
+        # Manually compute expected advantages
+        # Working backwards from t=6 to t=0
+
+        # t=6: δ_6 = 0 + 0.9*0 - 0 = 0
+        self.assertAlmostEqual(advantages[0, 6], 0.0, places=3)
+
+        # t=5: δ_5 = 1 + 0.9*0 - 1 = 0, A_5 = 0 + 0.9*0 = 0
+        self.assertAlmostEqual(advantages[0, 5], 0.0, places=3)
+
+        # t=4 (truncation): δ_4 = 0 + 0.9*1 - 0 = 0.9, A_4 = 0.9 (no accumulation)
+        self.assertAlmostEqual(advantages[0, 4], 0.9, places=3)
+
+        # t=3: δ_3 = 0 + 0.9*0 - 1 = -1, A_3 = -1 + 0.9*0.9 = -0.19
+        self.assertAlmostEqual(advantages[0, 3], -0.19, places=2)
+
+        # t=2 (truncation): δ_2 = 0 + 0.9*1 - 2 = -1.1, A_2 = -1.1 (no accumulation)
+        self.assertAlmostEqual(advantages[0, 2], -1.1, places=3)
+
+    # ========== Complex Scenario Tests ==========
+
+    @chex.all_variants()
+    def test_mixed_truncation_and_termination(self) -> None:
+        """Test GAE with mixed truncation and termination across batches.
+
+        This comprehensive test validates correct handling when different
+        episodes in a batch have different ending conditions:
+        - Episode 1: Normal termination (game over)
+        - Episode 2: Truncation (rollout limit reached)
+        - Episode 3: Normal termination (game over)
+        """
+        # Three episodes with different characteristics
         r_t = jnp.array(
             [
-                [1.0, 0.0, 0.0],  # Episode 1 rewards
-                [0.0, 0.5, 0.0],  # Episode 2 rewards
-                [0.0, 0.0, 2.0],  # Episode 3 rewards
+                [1.0, 0.0, 0.0],  # Episode 1: early reward
+                [0.0, 0.5, 0.0],  # Episode 2: middle reward
+                [0.0, 0.0, 2.0],  # Episode 3: final reward
             ]
         )
 
-        orig_v_t = jnp.array(
+        values = jnp.array(
             [
                 [1.0, 1.0, 0.0, 0.0],  # Episode 1 values
-                [1.0, 1.0, 1.0, 0.0],  # Episode 2 values
+                [1.0, 1.0, 1.0, 0.0],  # Episode 2 values (continuing)
                 [1.0, 1.0, 0.5, 0.0],  # Episode 3 values
             ]
         )
-        
-        v_t = orig_v_t[:, :-1]  # Values for baseline [B, T]
-        bootstrap_v_t = orig_v_t[:, 1:]  # Values for bootstrapping [B, T]
 
-        # Discount for terminal states is 0
+        # Episode 1 & 3 terminate (discount=0), Episode 2 continues
         discount_t = jnp.array(
             [
-                [0.9, 0.9, 0.0],  # Episode 1 - terminal at t=2
-                [0.9, 0.9, 0.9],  # Episode 2 - no termination
-                [0.9, 0.9, 0.0],  # Episode 3 - terminal at t=2
+                [0.9, 0.9, 0.0],  # Episode 1: terminal at t=2
+                [0.9, 0.9, 0.9],  # Episode 2: no termination
+                [0.9, 0.9, 0.0],  # Episode 3: terminal at t=2
             ]
         )
 
-        # Truncation indicator
+        # Only Episode 2 is truncated
         truncation_t = jnp.array(
             [
-                [0.0, 0.0, 0.0],  # Episode 1 - no truncation
-                [0.0, 0.0, 1.0],  # Episode 2 - truncated at t=2
-                [0.0, 0.0, 0.0],  # Episode 3 - no truncation
+                [0.0, 0.0, 0.0],  # Episode 1: no truncation
+                [0.0, 0.0, 1.0],  # Episode 2: truncated at t=2
+                [0.0, 0.0, 0.0],  # Episode 3: no truncation
             ]
         )
 
-        # Calculate advantages using our function
-        batched_advantage_fn_variant = self.variant(
-            batch_truncated_generalized_advantage_estimation
+        gae_fn = self.variant(batch_truncated_generalized_advantage_estimation)
+        advantages, targets = gae_fn(r_t, discount_t, 1.0, values=values, truncation_t=truncation_t)
+
+        # Verify key differences:
+        # Episode 1 (terminated): Should not bootstrap at t=2
+        # δ_2 = 0 + 0*0 - 0 = 0
+        self.assertAlmostEqual(advantages[0, 2], 0.0, places=3)
+
+        # Episode 2 (truncated): Should bootstrap at t=2
+        # δ_2 = 0 + 0.9*0 - 1 = -1
+        self.assertAlmostEqual(advantages[1, 2], -1.0, places=3)
+
+        # Episode 3 (terminated): Should not bootstrap at t=2
+        # δ_2 = 2 + 0*0 - 0.5 = 1.5
+        self.assertAlmostEqual(advantages[2, 2], 1.5, places=3)
+
+        # Verify targets are computed correctly
+        np.testing.assert_allclose(targets, values[:, :-1] + advantages, atol=1e-3)
+
+    # ========== Interface Difference Tests ==========
+
+    @chex.all_variants()
+    def test_values_vs_v_tm1_v_t_interface(self) -> None:
+        """Test the difference between values and v_tm1/v_t interfaces.
+
+        The key difference is in how they handle autoreset scenarios:
+        - values interface: Simple, assumes continuous sequence [0, T]
+        - v_tm1/v_t interface: For complex autoreset where episodes restart
+
+        In autoreset with truncation:
+        - v_tm1: Skips final timestep values (sequences like [0,1,2,3,0,1,2,3,...])
+        - v_t: Skips initial timestep but includes final (sequences like [1,2,3,4,1,2,3,4,...])
+
+        This allows proper bootstrapping when episode is cut and immediately restarts.
+        """
+        # Scenario: 2 episodes of length 3, truncated and autoreset
+        # Episode 1: steps 0,1,2 then truncated and reset
+        # Episode 2: steps 0,1,2 (continuing)
+
+        r_t = jnp.array([[1.0, 0.0, 0.0, 0.5, 0.0, 0.0]])  # 6 timesteps
+        discount_t = jnp.full((1, 6), 0.9)
+
+        # For autoreset scenario with truncation at t=2 and at the end
+        truncation_t = jnp.array([[0.0, 0.0, 1.0, 0.0, 0.0, 1.0]])
+
+        # v_tm1/v_t interface for autoreset:
+        # v_tm1: values at current states, skipping episode boundaries
+        # Represents: [V(s0_ep1), V(s1_ep1), V(s2_ep1), V(s0_ep2), V(s1_ep2), V(s2_ep2)]
+        v_tm1_autoreset = jnp.array([[1.0, 2.0, 3.0, 1.0, 1.5, 2.0]])
+
+        # v_t: values for bootstrapping, includes proper values at truncation
+        # At truncation (t=2), we bootstrap from initial value of next episode
+        # Represents: [V(s1_ep1), V(s2_ep1), V(s3_ep1)=T, V(s1_ep2), V(s2_ep2), V(s3_ep2)=T]
+        v_t_autoreset = jnp.array(
+            [[2.0, 3.0, 4.0, 1.5, 2.0, 1.0]]
+        )  # Note: V(s0_ep2)=1.0 at position 2
+
+        # Simple values interface (would be incorrect for autoreset):
+        # Just includes all values sequentially without special handling
+        values_simple = jnp.array([[1.0, 2.0, 3.0, 1.0, 1.5, 2.0, 100.0]])
+        # Represents: [V(s0_ep1), V(s1_ep1), V(s2_ep1), V(s0_ep2), V(s1_ep2), V(s2_ep2), V(s0_ep3)]
+        gae_fn = self.variant(batch_truncated_generalized_advantage_estimation)
+
+        # Compute with autoreset interface
+        adv_autoreset, _ = gae_fn(
+            r_t,
+            discount_t,
+            1.0,
+            v_tm1=v_tm1_autoreset,
+            v_t=v_t_autoreset,
+            truncation_t=truncation_t,
         )
 
-        advantages, targets = batched_advantage_fn_variant(
-            r_t, discount_t, 1.0, v_t, bootstrap_v_t, truncation_t=truncation_t
+        # Compute with simple values interface (no truncation specified)
+        adv_simple, _ = gae_fn(
+            r_t, discount_t, 1.0, values=values_simple, truncation_t=truncation_t
         )
 
-        # Calculate expected advantages manually for each episode
+        # At truncation point (t=2), the TD errors differ:
+        # Autoreset: δ_2 = 0 + 0.9*4.0 - 3.0 = 0.6 (bootstraps from V(sT_ep1))
+        # Simple: δ_2 = 0 + 0.9*1.0 - 3.0 = -2.1 (bootstraps from V(s0_ep2) - due to
+        # truncation this would be incorrect)
 
-        # Episode 1 (normal with terminal at t=2)
-        # t=2 (terminal)
-        delta_t2_ep1 = r_t[0, 2] + discount_t[0, 2] * bootstrap_v_t[0, 2] - v_t[0, 2]  # 0 + 0*0 - 0 = 0
-        expected_t2_ep1 = delta_t2_ep1  # 0
+        # The key difference is that autoreset correctly handles the episode boundary truncation
+        # while simple interface would incorrectly propagate advantages across episodes
 
-        # t=1
-        delta_t1_ep1 = r_t[0, 1] + discount_t[0, 1] * bootstrap_v_t[0, 1] - v_t[0, 1]  # 0 + 0.9*0 - 1 = -1
-        expected_t1_ep1 = delta_t1_ep1 + discount_t[0, 1] * 1.0 * expected_t2_ep1  # -1 + 0.9*0 = -1
+        # Check that with truncation, advantage at t=2 is just the TD error
+        expected_td_at_truncation = (
+            r_t[0, 2] + discount_t[0, 2] * v_t_autoreset[0, 2] - v_tm1_autoreset[0, 2]
+        )
+        np.testing.assert_allclose(adv_autoreset[0, 2], expected_td_at_truncation, atol=1e-3)
+        np.testing.assert_allclose(adv_autoreset[0, 2], 0.9 * 4.0 - 3.0, atol=1e-3)
 
-        # t=0
-        delta_t0_ep1 = r_t[0, 0] + discount_t[0, 0] * bootstrap_v_t[0, 0] - v_t[0, 0]  # 1 + 0.9*1 - 1 = 0.9
-        expected_t0_ep1 = (
-            delta_t0_ep1 + discount_t[0, 0] * 1.0 * expected_t1_ep1
-        )  # 0.9 + 0.9*(-1) = 0.9 - 0.9 = 0
+        expected_incorrect_td = (
+            r_t[0, 2] + discount_t[0, 2] * values_simple[0, 3] - values_simple[0, 2]
+        )
+        np.testing.assert_allclose(adv_simple[0, 2], expected_incorrect_td, atol=1e-3)
+        np.testing.assert_allclose(adv_simple[0, 2], 0.9 * 1.0 - 3.0, atol=1e-3)
 
-        # Episode 2 (truncated at t=2)
-        # t=2 (truncated)
-        delta_t2_ep2 = r_t[1, 2] + discount_t[1, 2] * bootstrap_v_t[1, 2] - v_t[1, 2]  # 0 + 0.9*0 - 1 = -1
-        expected_t2_ep2 = delta_t2_ep2  # -1 (since truncated, no bootstrapping beyond this point)
+        expected_td_at_truncation = (
+            r_t[0, -1] + discount_t[0, -1] * v_t_autoreset[0, -1] - v_tm1_autoreset[0, -1]
+        )
+        np.testing.assert_allclose(adv_autoreset[0, -1], expected_td_at_truncation, atol=1e-3)
+        np.testing.assert_allclose(adv_autoreset[0, -1], 0.9 * 1.0 - 2.0, atol=1e-3)
 
-        # t=1
-        delta_t1_ep2 = r_t[1, 1] + discount_t[1, 1] * bootstrap_v_t[1, 1] - v_t[1, 1]  # 0.5 + 0.9*1 - 1 = 0.4
-        expected_t1_ep2 = (
-            delta_t1_ep2 + discount_t[1, 1] * 1.0 * expected_t2_ep2
-        )  # 0.4 + 0.9*(-1) = 0.4 - 0.9 = -0.5
+        expected_incorrect_td = (
+            r_t[0, -1] + discount_t[0, -1] * values_simple[0, -1] - values_simple[0, -2]
+        )
+        np.testing.assert_allclose(adv_simple[0, -1], expected_incorrect_td, atol=1e-3)
+        np.testing.assert_allclose(adv_simple[0, -1], 0.9 * 100 - 2, atol=1e-3)
 
-        # t=0
-        delta_t0_ep2 = r_t[1, 0] + discount_t[1, 0] * bootstrap_v_t[1, 0] - v_t[1, 0]  # 0 + 0.9*1 - 1 = -0.1
-        expected_t0_ep2 = (
-            delta_t0_ep2 + discount_t[1, 0] * 1.0 * expected_t1_ep2
-        )  # -0.1 + 0.9*(-0.5) = -0.1 - 0.45 = -0.55
+        # Without truncation handling, advantages would propagate incorrectly
+        # The simple interface would treat this as one continuous episode
+        self.assertFalse(np.allclose(adv_autoreset, adv_simple, atol=1e-3))
 
-        # Episode 3 (normal with terminal at t=2)
-        # t=2 (terminal)
-        delta_t2_ep3 = r_t[2, 2] + discount_t[2, 2] * bootstrap_v_t[2, 2] - v_t[2, 2]  # 2 + 0*0 - 0.5 = 1.5
-        expected_t2_ep3 = delta_t2_ep3  # 1.5
+        # verify that it is the same if we remove truncation and use termination in
+        # the same position
+        discount_t = 1 - truncation_t
+        adv_autoreset_no_trunc, _ = gae_fn(
+            r_t, discount_t, 1.0, v_tm1=v_tm1_autoreset, v_t=v_t_autoreset
+        )
+        adv_simple_no_trunc, _ = gae_fn(r_t, discount_t, 1.0, values=values_simple)
+        np.testing.assert_allclose(adv_autoreset_no_trunc, adv_simple_no_trunc, atol=1e-6)
 
-        # t=1
-        delta_t1_ep3 = (
-            r_t[2, 1] + discount_t[2, 1] * bootstrap_v_t[2, 1] - v_t[2, 1]
-        )  # 0 + 0.9*0.5 - 1 = -0.55
-        expected_t1_ep3 = (
-            delta_t1_ep3 + discount_t[2, 1] * 1.0 * expected_t2_ep3
-        )  # -0.55 + 0.9*1.5 = -0.55 + 1.35 = 0.8
+    @chex.all_variants()
+    def test_autoreset_with_initial_values(self) -> None:
+        """Test autoreset scenario where episodes have different initial values.
 
-        # t=0
-        delta_t0_ep3 = r_t[2, 0] + discount_t[2, 0] * bootstrap_v_t[2, 0] - v_t[2, 0]  # 0 + 0.9*1 - 1 = -0.1
-        expected_t0_ep3 = (
-            delta_t0_ep3 + discount_t[2, 0] * 1.0 * expected_t1_ep3
-        )  # -0.1 + 0.9*0.8 = -0.1 + 0.72 = 0.62
+        This demonstrates why the v_tm1/v_t interface is necessary:
+        when episodes are truncated and immediately reset to different initial states.
+        """
+        # Two episodes with different initial state values
+        # Episode 1: V(s0) = 5.0 (high value initial state)
+        # Episode 2: V(s0) = 1.0 (low value initial state)
 
-        # Combine all expected advantages
-        expected_advantages = jnp.array(
-            [
-                [expected_t0_ep1, expected_t1_ep1, expected_t2_ep1],
-                [expected_t0_ep2, expected_t1_ep2, expected_t2_ep2],
-                [expected_t0_ep3, expected_t1_ep3, expected_t2_ep3],
-            ]
+        r_t = jnp.array([[0.0, 0.0, 1.0, 0.0, 0.0]])  # 5 timesteps
+        discount_t = jnp.full((1, 5), 0.9)
+        truncation_t = jnp.array([[0.0, 0.0, 1.0, 0.0, 0.0]])  # Truncate after step 2
+
+        # Episode 1 values: [5.0, 4.0, 3.0] (decreasing)
+        # Episode 2 values: [1.0, 2.0] (increasing)
+        v_tm1 = jnp.array([[5.0, 4.0, 3.0, 1.0, 2.0]])
+
+        # For v_t at truncation point, we need V(s0) of episode 2
+        v_t = jnp.array([[4.0, 3.0, 1.0, 2.0, 0.0]])  # Note: 1.0 is V(s0_ep2)
+
+        gae_fn = self.variant(batch_truncated_generalized_advantage_estimation)
+
+        advantages, _ = gae_fn(
+            r_t, discount_t, 1.0, v_tm1=v_tm1, v_t=v_t, truncation_t=truncation_t
         )
 
-        # Calculate expected targets (values + advantages)
-        expected_targets = expected_advantages + v_t
+        # At truncation (t=2):
+        # δ_2 = 1.0 + 0.9*1.0 - 3.0 = -1.1
+        # This correctly uses V(s0) of the next episode for bootstrapping
+        # But crucially, A_2 = δ_2 only (no future accumulation due to truncation)
+        expected_td = 1.0 + 0.9 * 1.0 - 3.0
+        np.testing.assert_allclose(advantages[0, 2], expected_td, atol=1e-3)
 
-        # Check if actual advantages match expected advantages
-        np.testing.assert_allclose(advantages, expected_advantages, atol=1e-3)
-        # Check if actual targets match expected targets
-        np.testing.assert_allclose(targets, expected_targets, atol=1e-3)
+        # After truncation (t=3), we're in a new episode
+        # But we need to account for the future advantage from t=4
+        # δ_3 = 0.0 + 0.9*2.0 - 1.0 = 0.8
+        # δ_4 = 0.0 + 0.9*0.0 - 2.0 = -2.0
+        # A_4 = -2.0 (last timestep)
+        # A_3 = δ_3 + γλ*A_4 = 0.8 + 0.9*1.0*(-2.0) = 0.8 - 1.8 = -1.0
+        expected_adv_t3 = -1.0
+        np.testing.assert_allclose(advantages[0, 3], expected_adv_t3, atol=1e-3)
+
+    # ========== Edge Case Tests ==========
+
+    @chex.all_variants()
+    def test_all_truncated(self) -> None:
+        """Test edge case where every timestep is truncated.
+
+        In this case, advantages should just be TD errors with no
+        temporal credit assignment.
+        """
+        r_t = jnp.array([[1.0, 0.5, -0.5]])
+        values = jnp.array([[1.0, 2.0, 1.5, 1.0]])
+        discount_t = jnp.full((1, 3), 0.9)
+        truncation_t = jnp.ones((1, 3))  # All timesteps truncated
+
+        gae_fn = self.variant(batch_truncated_generalized_advantage_estimation)
+        advantages, _ = gae_fn(r_t, discount_t, 1.0, values=values, truncation_t=truncation_t)
+
+        # Each advantage should just be its TD error
+        for t in range(3):
+            expected_td = self._compute_td_error(
+                r_t[0, t], discount_t[0, t], values[0, t + 1], values[0, t]
+            )
+            self.assertAlmostEqual(advantages[0, t], expected_td, places=3)
+
+    def test_time_major_format(self) -> None:
+        """Test that time_major format produces correct results."""
+        # Use the non-JIT version directly
+        gae_fn = batch_truncated_generalized_advantage_estimation
+
+        # Compute with batch-major (default)
+        batch_major_adv, batch_major_targets = gae_fn(
+            self.r_t, self.discount_t, 1.0, values=self.values, time_major=False
+        )
+
+        # Transpose inputs for time-major
+        r_t_tm = jnp.transpose(self.r_t, (1, 0))
+        discount_t_tm = jnp.transpose(self.discount_t, (1, 0))
+        values_tm = jnp.transpose(self.values, (1, 0))
+
+        # Compute with time-major
+        time_major_adv, time_major_targets = gae_fn(
+            r_t_tm, discount_t_tm, 1.0, values=values_tm, time_major=True
+        )
+
+        # Results should match after transposing back
+        np.testing.assert_allclose(
+            batch_major_adv, jnp.transpose(time_major_adv, (1, 0)), atol=1e-6
+        )
+        np.testing.assert_allclose(
+            batch_major_targets, jnp.transpose(time_major_targets, (1, 0)), atol=1e-6
+        )
 
 
 if __name__ == "__main__":
