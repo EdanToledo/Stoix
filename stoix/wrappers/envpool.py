@@ -34,9 +34,9 @@ class EnvPoolToJumanji:
             self.has_lives = False
         self.env.close()
 
-        # Set the flag to use the gym autoreset API
+        # Set the flag to use the stoix autoreset API
         # since envpool does auto resetting slightly differently
-        self._use_gym_autoreset_api = True
+        self._use_autoreset_api = True
 
         self.max_episode_steps = self.env.spec.config.max_episode_steps
 
@@ -73,7 +73,7 @@ class EnvPoolToJumanji:
         truncated = info["elapsed_step"] >= self.max_episode_steps
         ep_done = np.logical_or(terminated, truncated)
         not_done = 1 - ep_done
-        if self._use_gym_autoreset_api:
+        if self._use_autoreset_api:
             env_ids_to_reset = np.where(ep_done)[0]
             if len(env_ids_to_reset) > 0:
                 (

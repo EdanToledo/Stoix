@@ -3,7 +3,7 @@ architecture_name : sebulba
 # --- Training ---
 seed: 42  # RNG seed.
 total_num_envs: 120  # Total Number of vectorised environments across all actors. Needs to be divisible by the number of actor devices and actors per device.
-total_timesteps: 5e7 # Set the total environment steps.
+total_timesteps: 1e6 # Set the total environment steps.
 # If unspecified, it's derived from num_updates; otherwise, num_updates adjusts based on this value.
 num_updates: ~ # Number of updates
 
@@ -28,7 +28,7 @@ evaluator_device_id: 7
 evaluation_greedy: False # Evaluate the policy greedily. If True the policy will select
   # an action which corresponds to the greatest logit. If false, the policy will sample
   # from the logits.
-num_eval_episodes: 128 # Number of episodes to evaluate per evaluation.
-num_evaluation: 1 # Number of evenly spaced evaluations to perform during training.
+num_eval_episodes: 60 # Number of episodes to evaluate per evaluation.
+num_evaluation: 10 # Number of evenly spaced evaluations to perform during training.
 absolute_metric: False # Whether the absolute metric should be computed. For more details
   # on the absolute metric please see: https://arxiv.org/abs/2209.10485

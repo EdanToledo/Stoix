@@ -11,7 +11,7 @@ except ImportError:
     envpool = None
     print(
         f"{Fore.MAGENTA}{Style.BRIGHT}Envpool not installed. "
-        f"Please install it to use the Envpool factory{Style.RESET_ALL}"
+        f"Please install it if you want to use the Envpool factory{Style.RESET_ALL}"
     )
 
 import gymnasium
@@ -76,6 +76,10 @@ class GymnasiumFactory(EnvFactory):
     def __call__(self, num_envs: int) -> Any:
         with self.lock:
             vec_env = gymnasium.make_vec(
-                id=self.task_id, num_envs=num_envs, vectorization_mode="sync", **self.kwargs
+                id=self.task_id,
+                num_envs=num_envs,
+                vectorization_mode="sync",
+                vector_kwargs={"autoreset_mode": gymnasium.vector.AutoresetMode.SAME_STEP},
+                **self.kwargs,
             )
             return self.apply_wrapper_fn(VecGymToJumanji(vec_env))
