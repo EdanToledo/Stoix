@@ -132,7 +132,7 @@ class VisualResNetTorso(nn.Module):
 
         output = observation
 
-        # Optional input normalization (like in IMPALA example: x / 255.0)
+        # Optional pixel input normalization
         if self.normalize_inputs:
             output = output / 255.0
 
