@@ -46,7 +46,7 @@ class ThreadLifetime:
 
 
 class OnPolicyPipeline:
-    """Handles rollout communication for on-policy distributed RL."""
+    """Handles rollout communication for on-policy Sebulba systems."""
 
     def __init__(self, total_num_actors: int, queue_maxsize: int = 1):
         self.num_actors = total_num_actors
@@ -97,7 +97,7 @@ class OnPolicyPipeline:
 
 
 class ParameterServer:
-    """Handles parameter distribution for distributed RL."""
+    """Handles parameter distribution for Sebulba systems."""
 
     def __init__(
         self,
@@ -109,11 +109,19 @@ class ParameterServer:
         self.num_actors = total_num_actors
         self.actor_devices = actor_devices
         self.actors_per_device = actors_per_device
+        self.param_queues = self._create_param_queues(total_num_actors, queue_maxsize)
 
-        # Create dedicated queues for each actor's parameters
-        self.param_queues: List[queue.Queue] = []
-        for _ in range(total_num_actors):
-            self.param_queues.append(queue.Queue(maxsize=queue_maxsize))
+    def _create_param_queues(self, total_num_actors: int, queue_maxsize: int) -> List[queue.Queue]:
+        """Create dedicated queues for each actor's parameters."""
+        return [queue.Queue(maxsize=queue_maxsize) for _ in range(total_num_actors)]
+
+    def _unreplicate_params(self, params: Parameters) -> Optional[Parameters]:
+        """Convert from replicated to single copy for distribution."""
+        try:
+            return flax.jax_utils.unreplicate(params)
+        except Exception as e:
+            warnings.warn(f"Failed to unreplicate parameters: {e}", stacklevel=2)
+            return None
 
     def distribute_params(
         self,
@@ -123,74 +131,132 @@ class ParameterServer:
         block_params_until_ready: bool = False,
     ) -> None:
         """Distribute parameters to all actors with device placement."""
-        # Convert from replicated to single copy for distribution
-        try:
-            unreplicated_params = flax.jax_utils.unreplicate(params)
-        except Exception as e:
-            warnings.warn(f"Failed to unreplicate parameters: {e}", stacklevel=2)
+        unreplicated_params = self._unreplicate_params(params)
+        if unreplicated_params is None:
             return
 
-        # Place parameters on each actor device and distribute to threads
-        actor_idx = 0
-        for _device_idx, device in enumerate(self.actor_devices):
-            try:
-                # Ensure parameters are properly placed on target device
-                device_params = jax.device_put(unreplicated_params, device)
-                if block_params_until_ready:
-                    device_params = jax.block_until_ready(device_params)
+        self._distribute_to_devices(unreplicated_params, block, timeout, block_params_until_ready)
 
-                # Distribute to all actors on this device
-                for _ in range(self.actors_per_device):
-                    try:
-                        if block:
-                            if timeout is not None:
-                                self.param_queues[actor_idx].put(device_params, timeout=timeout)
-                            else:
-                                self.param_queues[actor_idx].put(device_params)
-                        else:
-                            self.param_queues[actor_idx].put_nowait(device_params)
-                    except (queue.Full, queue.Empty):
-                        warnings.warn(
-                            f"Failed to put parameters in queue {actor_idx}", stacklevel=2
-                        )
-                    actor_idx += 1
-            except Exception as e:
-                warnings.warn(f"Failed to place parameters on device {device}: {e}", stacklevel=2)
-                # Skip actors on this device
-                actor_idx += self.actors_per_device
+    def _distribute_to_devices(
+        self,
+        unreplicated_params: Parameters,
+        block: bool,
+        timeout: Optional[float],
+        block_params_until_ready: bool,
+    ) -> None:
+        """Distribute parameters across all devices."""
+        actor_idx = 0
+        for device in self.actor_devices:
+            device_params = self._prepare_device_params(
+                unreplicated_params, device, block_params_until_ready
+            )
+
+            if device_params is not None:
+                self._distribute_to_device_actors(device_params, actor_idx, block, timeout)
+
+            actor_idx += self.actors_per_device
+
+    def _prepare_device_params(
+        self,
+        params: Parameters,
+        device: jax.Device,
+        block_until_ready: bool,
+    ) -> Optional[Parameters]:
+        """Prepare parameters for a specific device."""
+        try:
+            device_params = jax.device_put(params, device)
+            if block_until_ready:
+                device_params = jax.block_until_ready(device_params)
+            return device_params
+        except Exception as e:
+            warnings.warn(f"Failed to place parameters on device {device}: {e}", stacklevel=2)
+            return None
+
+    def _distribute_to_device_actors(
+        self,
+        device_params: Parameters,
+        start_actor_idx: int,
+        block: bool,
+        timeout: Optional[float],
+    ) -> None:
+        """Distribute parameters to all actors on a device."""
+        for i in range(self.actors_per_device):
+            actor_idx = start_actor_idx + i
+            self._put_params_in_queue(actor_idx, device_params, block, timeout)
+
+    def _put_params_in_queue(
+        self,
+        actor_idx: int,
+        params: Parameters,
+        block: bool,
+        timeout: Optional[float],
+    ) -> None:
+        """Put parameters in an actor's queue."""
+        try:
+            if block:
+                self._blocking_put(actor_idx, params, timeout)
+            else:
+                self.param_queues[actor_idx].put_nowait(params)
+        except (queue.Full, queue.Empty):
+            warnings.warn(f"Failed to put parameters in queue {actor_idx}", stacklevel=2)
+
+    def _blocking_put(
+        self,
+        actor_idx: int,
+        params: Parameters,
+        timeout: Optional[float],
+    ) -> None:
+        """Perform blocking put operation with optional timeout."""
+        if timeout is not None:
+            self.param_queues[actor_idx].put(params, timeout=timeout)
+        else:
+            self.param_queues[actor_idx].put(params)
 
     def get_params(self, actor_idx: int, timeout: Optional[float] = None) -> Optional[Parameters]:
         """Get parameters for an actor."""
+        params = self._get_from_queue(actor_idx, timeout)
+        if params is None:
+            return None
+        return jax.block_until_ready(params)
+
+    def _get_from_queue(
+        self,
+        actor_idx: int,
+        timeout: Optional[float],
+    ) -> Optional[Parameters]:
+        """Get parameters from an actor's queue."""
         try:
             if timeout is not None:
-                params = self.param_queues[actor_idx].get(timeout=timeout)
+                return self.param_queues[actor_idx].get(timeout=timeout)
             else:
-                params = self.param_queues[actor_idx].get()
-
-            if params is None:  # Shutdown signal
-                return None
-
-            # Ensure parameters are ready for immediate use
-            return jax.block_until_ready(params)
+                return self.param_queues[actor_idx].get()
         except queue.Empty:
             return None
 
     def shutdown_actors(self) -> None:
         """Send shutdown signals to all actors."""
         for param_queue in self.param_queues:
-            try:
-                param_queue.put_nowait(None)  # Shutdown sentinel
-            except queue.Full:
-                pass  # Actor will eventually check lifetime
+            self._send_shutdown_signal(param_queue)
+
+    def _send_shutdown_signal(self, param_queue: queue.Queue) -> None:
+        """Send shutdown signal to a single queue."""
+        try:
+            param_queue.put_nowait(None)
+        except queue.Full:
+            pass  # Actor will eventually check lifetime
 
     def clear_all_queues(self) -> None:
         """Clear all parameter queues."""
         for param_queue in self.param_queues:
-            while not param_queue.empty():
-                try:
-                    param_queue.get_nowait()
-                except queue.Empty:
-                    break
+            self._clear_queue(param_queue)
+
+    def _clear_queue(self, param_queue: queue.Queue) -> None:
+        """Clear a single queue."""
+        while not param_queue.empty():
+            try:
+                param_queue.get_nowait()
+            except queue.Empty:
+                break
 
 
 class AsyncEvaluatorBase(threading.Thread, ABC):

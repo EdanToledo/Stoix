@@ -1,3 +1,4 @@
+# flake8: noqa: CCR001
 import copy
 import os
 import queue
@@ -239,12 +240,10 @@ def get_rollout_fn(
                 with timer.time("prepare_data_time"):
                     partitioned_traj_storage = prepare_data(traj_storage)
                     sharded_traj_storage = ImpalaTransition(
-                        *list(
-                            map(
-                                lambda x: jax.device_put_sharded(x, devices=learner_devices),
-                                partitioned_traj_storage,
-                            )
-                        )
+                        *[
+                            jax.device_put_sharded(x, devices=learner_devices)
+                            for x in partitioned_traj_storage
+                        ]
                     )
                     payload = (
                         local_step_count,
