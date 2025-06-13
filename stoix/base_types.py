@@ -1,4 +1,14 @@
-from typing import TYPE_CHECKING, Any, Callable, Dict, Generic, Optional, Tuple, TypeVar
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    Generic,
+    List,
+    Optional,
+    Tuple,
+    TypeVar,
+)
 
 import chex
 from distrax import DistributionLike
@@ -20,6 +30,8 @@ Done: TypeAlias = chex.Array
 Truncated: TypeAlias = chex.Array
 First: TypeAlias = chex.Array
 HiddenState: TypeAlias = chex.Array
+LogProb: TypeAlias = chex.Array
+Reward: TypeAlias = chex.Array
 # Can't know the exact type of State.
 State: TypeAlias = Any
 Parameters: TypeAlias = Any
@@ -113,7 +125,7 @@ class CoreLearnerState(NamedTuple):
     params: Parameters
     opt_states: OptStates
     key: chex.PRNGKey
-    timestep: TimeStep
+    # timestep: TimeStep
 
 
 class OnPolicyLearnerState(NamedTuple):
@@ -197,7 +209,9 @@ class EvaluationOutput(NamedTuple, Generic[StoixState]):
 
 RNNObservation: TypeAlias = Tuple[Observation, Done]
 LearnerFn = Callable[[StoixState], AnakinExperimentOutput[StoixState]]
-SebulbaLearnerFn = Callable[[StoixState, StoixTransition], SebulbaExperimentOutput[StoixState]]
+SebulbaLearnerFn = Callable[
+    [StoixState, List[StoixTransition]], SebulbaExperimentOutput[StoixState]
+]
 EvalFn = Callable[[FrozenDict, chex.PRNGKey], EvaluationOutput[StoixState]]
 SebulbaEvalFn = Callable[[FrozenDict, chex.PRNGKey], Dict[str, chex.Array]]
 

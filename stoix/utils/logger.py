@@ -1,6 +1,7 @@
 import abc
 import logging
 import os
+import threading
 import zipfile
 from datetime import datetime
 from enum import Enum
@@ -38,8 +39,26 @@ class StoixLogger:
     def __init__(self, config: DictConfig) -> None:
         self.logger: BaseLogger = _make_multi_logger(config)
         self.cfg = config
+        self._lock = threading.Lock()
 
     def log(self, metrics: Dict, t: int, t_eval: int, event: LogEvent) -> None:
+        """Log a dictionary of metrics at a given timestep.
+
+        Args:
+            metrics (Dict): dictionary of metrics to log.
+            t (int): the current timestep.
+            t_eval (int): the number of previous evaluations.
+            event (LogEvent): the event that the metrics are associated with.
+        """
+        with self._lock:
+            self._log(metrics, t, t_eval, event)
+
+    def stop(self) -> None:
+        """Stop the logger."""
+        with self._lock:
+            self._stop()
+
+    def _log(self, metrics: Dict, t: int, t_eval: int, event: LogEvent) -> None:
         """Log a dictionary metrics at a given timestep.
 
         Args:
@@ -52,7 +71,7 @@ class StoixLogger:
         # Might be better to calculate this outside as we want to keep the number of these
         # if statements to a minimum.
         if "solve_episode" in metrics:
-            metrics = self.calc_solve_rate(metrics, event)
+            metrics = self._calc_solve_rate(metrics, event)
 
         if event == LogEvent.TRAIN:
             # We only want to log mean losses, max/min/std don't matter.
@@ -68,7 +87,7 @@ class StoixLogger:
 
         self.logger.log_dict(metrics, t, t_eval, event)
 
-    def calc_solve_rate(self, episode_metrics: Dict, event: LogEvent) -> Dict:
+    def _calc_solve_rate(self, episode_metrics: Dict, event: LogEvent) -> Dict:
         """Log the solve rate of the environment's episodes."""
         # Get the number of episodes used to evaluate.
         if event == LogEvent.ABSOLUTE:
@@ -89,7 +108,7 @@ class StoixLogger:
 
         return episode_metrics
 
-    def stop(self) -> None:
+    def _stop(self) -> None:
         """Stop the logger."""
         self.logger.stop()
 
