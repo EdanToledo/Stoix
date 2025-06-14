@@ -6,11 +6,12 @@ scenario:
   task_name: pong # For logging purposes.
 
 kwargs:
-  episodic_life: True
-  repeat_action_probability: 0
-  noop_max: 30
-  full_action_space: False
+  episodic_life: False
+  repeat_action_probability: 0.25
+  noop_max: 1
+  full_action_space: True
   max_episode_steps: 27000
+  reward_clip : True
 
 
 # Defines the metric that will be used to evaluate the performance of the agent.
