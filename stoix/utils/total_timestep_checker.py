@@ -260,7 +260,7 @@ def _configure_evaluation_sebulba(config: DictConfig) -> None:
 def _print_timestep_warning(expected: int, actual: int, difference: int) -> None:
     """Print warning about timestep discrepancy."""
     print(
-        f"{Fore.RED}{Style.BRIGHT}⚠️  Timestep Discrepancy Warning:\n"
+        f"{Fore.RED}{Style.BRIGHT}⚠️ Timestep Discrepancy Warning:\n"
         f"   Expected timesteps: {expected:,}\n"
         f"   Actual timesteps:   {actual:,}\n"
         f"   Difference:         {difference:,}\n"
@@ -303,7 +303,7 @@ def check_total_timesteps(config: DictConfig) -> DictConfig:
         ValueError: If system_type is not recognized
     """
 
-    system_type = "sebulba" if "device_ids" in config.arch.learner else "anakin"
+    system_type = "sebulba" if "device_ids" in config.arch.get("learner", {}) else "anakin"
 
     if system_type.lower() == "sebulba":
         return check_total_timesteps_sebulba(config)
