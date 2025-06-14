@@ -3,7 +3,7 @@ architecture_name : sebulba
 # --- Training ---
 seed: 42  # RNG seed.
 total_num_envs: 120  # Total Number of vectorised environments across all actors. Needs to be divisible by the number of actor devices and actors per device.
-total_timesteps: 1e6 # Set the total environment steps.
+total_timesteps: 1e7 # Set the total environment steps.
 # If unspecified, it's derived from num_updates; otherwise, num_updates adjusts based on this value.
 num_updates: ~ # Number of updates
 
