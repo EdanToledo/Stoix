@@ -1,0 +1,11 @@
+defaults:
+  - logger: base_logger
+  - arch: sebulba
+  - system: impala/ff_impala
+  - network: visual_resnet_shared_torso
+  - env: envpool/breakout
+  - _self_
+
+hydra:
+  searchpath:
+    - file://stoix/configs
