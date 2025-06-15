@@ -4,7 +4,9 @@ from typing import Callable, Sequence, Union
 
 import chex
 import flax.linen as nn
+from flax.linen.initializers import orthogonal
 import jax
+import numpy as np
 
 from stoix.networks.utils import parse_activation_fn
 
@@ -154,7 +156,7 @@ class VisualResNetTorso(nn.Module):
 
         output = output.reshape(*observation.shape[:-3], -1)
         for num_hidden_units in self.hidden_sizes:
-            output = nn.Dense(features=num_hidden_units)(output)
+            output = nn.Dense(features=num_hidden_units, kernel_init=orthogonal(np.sqrt(2)))(output)
             output = parse_activation_fn(self.activation)(output)
 
         return output

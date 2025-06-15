@@ -1,0 +1,21 @@
+# ---ResNet (IMPALA-style)---
+
+shared_network:
+  pre_torso:
+    _target_: stoix.networks.resnet.VisualResNetTorso
+    channels_per_group: [16, 32, 32]
+    blocks_per_group: [2, 2, 2]
+    downsampling_strategies: ["conv+max", "conv+max", "conv+max"]
+    use_layer_norm: False
+    activation: relu
+    channel_first: True
+    hidden_sizes: [256]
+    normalize_inputs: True
+
+actor_network:
+  action_head:
+    _target_: stoix.networks.heads.CategoricalHead
+
+critic_network:
+  critic_head:
+    _target_: stoix.networks.heads.ScalarCriticHead
