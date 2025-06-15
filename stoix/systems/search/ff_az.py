@@ -269,7 +269,7 @@ def get_learner_fn(
                     sequence.reward[:, :-1],
                     (1 - sequence.done)[:, :-1] * config.system.gamma,
                     config.system.gae_lambda,
-                    sequence.search_value,
+                    values=sequence.search_value,
                 )
 
                 # CALCULATE VALUE LOSS

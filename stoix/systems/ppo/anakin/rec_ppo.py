@@ -188,10 +188,9 @@ def get_learner_fn(
             r_t,
             d_t,
             config.system.gae_lambda,
-            v_t,
+            values=v_t,
             time_major=True,
             standardize_advantages=config.system.standardize_advantages,
-            truncation_t=traj_batch.truncated,
         )
 
         def _update_epoch(update_state: Tuple, _: Any) -> Tuple:

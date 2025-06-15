@@ -401,16 +401,14 @@ def get_learner_step_fn(
         d_t = 1.0 - traj_batch.done[:-1].astype(jnp.float32)  # Discount at t
         d_t = d_t * config.system.gamma
         values = traj_batch.value  # all values
-        trunc_t = traj_batch.truncated.astype(float)[:-1]  # Truncated flags at t
 
         advantages, targets = batch_truncated_generalized_advantage_estimation(
             r_t,
             d_t,
             config.system.gae_lambda,
-            values,
+            values=values,
             time_major=True,
             standardize_advantages=config.system.standardize_advantages,
-            truncation_t=trunc_t,
         )
 
         chex.assert_shape(advantages, r_t.shape)

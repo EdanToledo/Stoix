@@ -22,6 +22,7 @@ python stoix/systems/mpo/ff_mpo.py arch.total_timesteps=300 arch.total_num_envs=
 python stoix/systems/mpo/ff_vmpo.py arch.total_timesteps=300 arch.total_num_envs=8 arch.num_evaluation=1 system.rollout_length=8
 python stoix/systems/search/ff_az.py arch.total_timesteps=300 arch.total_num_envs=8 arch.num_evaluation=1 system.rollout_length=8
 python stoix/systems/search/ff_mz.py arch.total_timesteps=300 arch.total_num_envs=8 arch.num_evaluation=1 system.rollout_length=8
+python stoix/systems/spo/ff_spo.py arch.total_timesteps=300 arch.total_num_envs=8 arch.num_evaluation=1 system.rollout_length=8
 python stoix/systems/spo/ff_spo_continuous.py arch.total_timesteps=300 arch.total_num_envs=8 arch.num_evaluation=1 system.rollout_length=8
 
 # Test a subset of networks
