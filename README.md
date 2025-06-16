@@ -32,7 +32,7 @@
 
 ## Welcome to Stoix! 🏛️
 
-Stoix provides simplified code for quickly iterating on ideas in single-agent reinforcement learning with useful implementations of popular single-agent RL algorithms in JAX allowing for easy parallelisation across devices with JAX's `pmap`. All implementations are fully compiled with JAX's `jit` thus making training and environment execution very fast. However, this does require environments written in JAX. For environments not written in JAX, Stoix offers Sebulba systems (see below). Algorithms and their default hyperparameters have not been hyper-optimised for any specific environment and are useful as a starting point for research and/or for initial baselines.
+Stoix provides simplified code for quickly iterating on ideas in single-agent reinforcement learning with useful implementations of popular single-agent RL algorithms in JAX allowing for easy parallelisation across devices with JAX's `pmap`. All implementations are fully compiled with JAX's `jit` thus making training and environment execution very fast. However, this does require environments written in JAX. For environments not written in JAX, Stoix offers Sebulba systems (see below). Algorithms and their default hyperparameters have not been optimised for any specific environment and are useful as a starting point for research and/or for initial baselines before hyperparameter tuning.
 
 To join us in these efforts, please feel free to reach out, raise issues or read our [contribution guidelines](#contributing-) (or just star 🌟 to stay up to date with the latest developments)!
 
@@ -41,9 +41,9 @@ Stoix is fully in JAX with substantial speed improvement compared to other popul
 ## System Design Paradigms
 Stoix offers two primary system design paradigms (Podracer Architectures) to cater to different research and deployment needs:
 
-- **Anakin:** Traditional Stoix implementations are fully end-to-end compiled with JAX, focusing on speed and simplicity with native JAX environments. This design paradigm is ideal for setups where all components, including environments, can be optimized using JAX, leveraging the full power of JAX's pmap and jit. For an illustration of the Anakin architecture, see this [figure](docs/images/anakin_arch.jpg) from the [Mava][mava] technical report.
+- **Anakin:** Traditional Stoix implementations are fully end-to-end compiled with JAX, focusing on speed and simplicity with native JAX environments. This design paradigm is ideal for setups where all components, including environments, can be optimized using JAX, leveraging the full power of JAX's pmap and jit. For an illustration of the Anakin architecture, see this [figure](docs/images/anakin_arch.jpg) from the [Mava][mava] technical report or the original podracer [paper][anakin_paper].
 
-- **Sebulba:** The Sebulba system introduces flexibility by allowing different devices to be assigned specifically for learning and acting. In this setup, acting devices serve as inference servers for multiple parallel environments, which can be written in any framework, not just JAX. This enables Stoix to be used with a broader range of environments while still benefiting from JAX's speed. For an illustration of the Sebulba architecture, see this [animation](docs/images/sebulba_arch.gif) from the [InstaDeep Sebulba implementation](https://github.com/instadeepai/sebulba/).
+- **Sebulba:** The Sebulba system introduces flexibility by allowing different devices to be assigned specifically for learning and acting. In this setup, acting devices serve as inference servers for multiple parallel environments, which can be written in any framework, not just JAX. Each set of parallel environments can run on separate threads asynchronously. This enables Stoix to be used with a broader range of environments while still benefiting from JAX's speed. For an illustration of the Sebulba architecture, see this [animation](docs/images/sebulba_arch.gif) from the [InstaDeep Sebulba implementation](https://github.com/instadeepai/sebulba/). Whilst one could optimisie for throughput of data to purely maximise performance, Stoix aims to serve as a research codebase, thus, we take inspiration from [cleanba][cleanba] which focused on ensuring reproducibility and algorithm correctness. With this in mind, one could easily adapt the sebulba systems to optimise for throughput.
 
 Not all implementations have both Anakin and Sebulba implementations but effort has gone into making the two implementations as similar as possible to allow easy conversion.
 
@@ -54,7 +54,7 @@ The current code in Stoix was initially **largely** taken and subsequently adapt
 ## Overview 🦜
 
 ### Stoix TLDR
-1. **Algorithms:** Stoix offers easily hackable, single-file implementations of popular algorithms in pure JAX. You can vectorize algorithm training on a single device using `vmap` as well as distribute training across multiple devices with `pmap` (or both). Multi-host support (i.e., vmap/pmap over multiple devices **and** machines) is coming soon! All implementations include checkpointing to save and resume parameters and training runs.
+1. **Algorithms:** Stoix offers easily hackable, single-file implementations of popular algorithms in pure JAX. You can vectorize algorithm training on a single device using `vmap` as well as distribute training across multiple devices with `pmap` (or both). Multi-host support (i.e., vmap/pmap over multiple devices **and** host machines/nodes) is coming soon! All implementations include checkpointing to save and resume parameters and training runs.
 
 2. **System Designs:** Choose between Anakin systems for fully JAX-optimized workflows or Sebulba systems for flexibility with non-JAX environments.
 
@@ -89,6 +89,7 @@ Stoix currently offers the following building blocks for Single-Agent RL researc
 - **MuZero** - [Paper](https://arxiv.org/abs/1911.08265)
 - **Sampled Alpha/Mu-Zero** - [Paper](https://arxiv.org/abs/2104.06303)
 - **Sequential Monte Carlo Policy Optimisation (SPO)** - [Paper](https://proceedings.neurips.cc/paper_files/paper/2024/file/01fb6de3360f9e32862665580e2c5853-Paper-Conference.pdf)
+- **IMPALA** - [Paper](https://arxiv.org/abs/1802.01561)
 
 ### Environment Wrappers 🍬
 Stoix offers wrappers for:
@@ -176,6 +177,8 @@ For users with access to SLURM clusters, Stoix includes a lightweight flexible S
 - **Hydra Integration:** Configure your experiments and SLURM parameters (such as time, partition, memory, etc.) in a single Hydra config file or override them on the fly from the command line.
 - **Parallel Job Submission:** Automatically submits individual SLURM jobs for each experiment combination, enabling you to distribute your workload across multiple nodes and GPUs.
 - **Resource Flexibility:** Easily customize your SLURM resource requirements (e.g., nodes, GPUs per node, cpus per task) to best suit your hardware and research needs.
+
+One can also use hydra's built in submitit launcher using the hydra submitit plugin, this launcher is just for ease of use.
 
 **Usage Example:**
 
@@ -268,3 +271,4 @@ We would like to thank the authors and developers of [Mava][mava] as this was es
 [navix]: https://github.com/epignatelli/navix
 [envpool]: https://github.com/sail-sg/envpool/
 [gymnasium]: https://github.com/Farama-Foundation/Gymnasium
+[cleanba]: https://github.com/vwxyzjn/cleanba

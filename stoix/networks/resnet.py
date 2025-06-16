@@ -5,6 +5,8 @@ from typing import Callable, Sequence, Union
 import chex
 import flax.linen as nn
 import jax
+import numpy as np
+from flax.linen.initializers import orthogonal
 
 from stoix.networks.utils import parse_activation_fn
 
@@ -113,6 +115,7 @@ class VisualResNetTorso(nn.Module):
     use_layer_norm: bool = False
     activation: str = "relu"
     channel_first: bool = False
+    normalize_inputs: bool = False  # Optional input normalization (divide by 255.0)
 
     @nn.compact
     def __call__(self, observation: chex.Array) -> chex.Array:
@@ -130,6 +133,11 @@ class VisualResNetTorso(nn.Module):
         ), f"Expected inputs to have shape [B, H, W, C] but got shape {observation.shape}."
 
         output = observation
+
+        # Optional pixel input normalization
+        if self.normalize_inputs:
+            output = output / 255.0
+
         channels_blocks_strategies = zip(
             self.channels_per_group, self.blocks_per_group, self.downsampling_strategies
         )
@@ -148,7 +156,7 @@ class VisualResNetTorso(nn.Module):
 
         output = output.reshape(*observation.shape[:-3], -1)
         for num_hidden_units in self.hidden_sizes:
-            output = nn.Dense(features=num_hidden_units)(output)
+            output = nn.Dense(features=num_hidden_units, kernel_init=orthogonal(np.sqrt(2)))(output)
             output = parse_activation_fn(self.activation)(output)
 
         return output

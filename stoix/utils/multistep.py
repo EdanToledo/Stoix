@@ -15,11 +15,13 @@ def batch_truncated_generalized_advantage_estimation(
     r_t: Array,
     discount_t: Array,
     lambda_: Union[Array, Scalar],
-    values: Array,
+    values: Optional[Array] = None,
+    v_tm1: Optional[Array] = None,
+    v_t: Optional[Array] = None,
+    truncation_t: Optional[Array] = None,
     stop_target_gradients: bool = False,
     time_major: bool = False,
     standardize_advantages: bool = False,
-    truncation_t: Optional[Array] = None,
 ) -> Array:
     """Computes truncated generalized advantage estimates for batched sequences of length k.
 
@@ -35,31 +37,63 @@ def batch_truncated_generalized_advantage_estimation(
     received after acting in state sₜ, while the PPO paper uses rₜ.
 
     Args:
-      r_t: Rewards tensor at times [1, k] with shape [B, T] for batch-major or [T, B]
-        for time-major, where B is batch size and T is the number of time steps.
-      discount_t: Discount tensor at times [1, k] with the same shape as r_t.
-      lambda_: Mixing parameter; a scalar or tensor at times [1, k] with the same
-        shape as r_t.
-      values: Values tensor at times [0, k] with shape [B, T+1] for batch-major or
+        r_t: Rewards tensor at times [1, k] with shape [B, T] for batch-major or [T, B]
+            for time-major, where B is batch size and T is the number of time steps.
+        discount_t: Discount tensor at times [1, k] with the same shape as r_t.
+        lambda_: Mixing parameter; a scalar or tensor at times [1, k] with the same
+            shape as r_t.
+        values: Values tensor at times [0, k] with shape [B, T+1] for batch-major or
         [T+1, B] for time-major. Contains one more element than r_t along the time
-        dimension.
-      stop_target_gradients: bool indicating whether or not to apply stop gradient
-        to targets.
-      time_major: bool indicating whether the input tensors are in time-major format
-        (time dimension first) or batch-major format (batch dimension first).
-      standardize_advantages: bool indicating whether to standardize the advantages.
-      truncation_t: Truncation indicators tensor at times [1, k] with the same shape
-        as r_t, where 1 indicates a truncation point and 0 indicates a normal step.
-        If None, no truncation is assumed.
+        dimension. If None, the v_tm1 and v_t arguments must be provided. This is if
+        truncation is not used, since in truncation special bootstrap values must be
+        provided. This interface is just for convenience.
+        v_tm1: Values tensor at times [0, k-1] with shape [B, T] for batch-major or
+            [T, B] for time-major. These are the baseline values for the current states.
+            Important: These are the values to be subtracted from the r_t + v_t targets.
+            Due to autoreset, these values must skip the last time step T, autoreset
+            makes the timestep go as [0, 1, 2, ..., T-1, 0, 1, 2, ..., T-1, 0, 1, ...].
+        v_t: Values tensor at times [1, k] with the same shape as r_t.
+            These are the values for bootstrapping from next states i.e. the v_t in
+            r_t + v_t - v_tm1. To correctly handle truncation, these values need to include
+            the values of the final timestep T. These values do not include the first timestep 0.
+            Due to autoreset, these values must skip the first time step 0, so sequences look
+            like [1, 2, ..., T-1, T, 1, 2, ..., T-1, T, 1, ...].
+        stop_target_gradients: bool indicating whether or not to apply stop gradient
+            to targets.
+        time_major: bool indicating whether the input tensors are in time-major format
+            (time dimension first) or batch-major format (batch dimension first).
+        standardize_advantages: bool indicating whether to standardize the advantages.
+        truncation_t: Truncation indicators tensor at times [1, k] with the same shape
+            as r_t, where 1 indicates a truncation point and 0 indicates a normal step.
+            If None, no truncation is assumed.
 
     Returns:
       A tuple containing:
         - advantages: The generalized advantage estimates at times [0, k-1].
         - target_values: The target values for value function training, computed
-          as values[:-1] + advantages (i.e., values plus advantage estimates).
+          as values + advantages (i.e., values plus advantage estimates).
     """
-    chex.assert_rank([r_t, values, discount_t], 2)
-    chex.assert_type([r_t, values, discount_t], float)
+    # if truncation flags are provided, we need to ensure that v_tm1 and v_t are provided
+    if truncation_t is not None:
+        chex.assert_type([v_tm1, v_t], float)
+
+    # If no values are provided, we assume that v_tm1 and v_t are provided.
+    # If values are provided, we use them to create v_tm1 and v_t.
+    if values is None:
+        chex.assert_type([v_tm1, v_t], float)
+    else:
+        chex.assert_rank([values], 2)
+        chex.assert_type([values], float)
+        if time_major:
+            v_tm1 = values[:-1]
+            v_t = values[1:]
+        else:
+            v_tm1 = values[:, :-1]
+            v_t = values[:, 1:]
+
+    chex.assert_rank([r_t, discount_t, v_tm1, v_t], 2)
+    chex.assert_type([r_t, discount_t, v_tm1, v_t], float)
+    chex.assert_equal_shape([r_t, v_tm1, v_t])
     lambda_ = jnp.ones_like(discount_t) * lambda_  # If scalar, make into vector.
 
     # Default truncation_t to all zeros if not provided
@@ -73,11 +107,13 @@ def batch_truncated_generalized_advantage_estimation(
     if not time_major:
         r_t = jnp.transpose(r_t, (1, 0))
         discount_t = jnp.transpose(discount_t, (1, 0))
-        values = jnp.transpose(values, (1, 0))
+        v_tm1 = jnp.transpose(v_tm1, (1, 0))
+        v_t = jnp.transpose(v_t, (1, 0))
         lambda_ = jnp.transpose(lambda_, (1, 0))
         truncation_t = jnp.transpose(truncation_t, (1, 0))
 
-    delta_t = r_t + discount_t * values[1:] - values[:-1]
+    # Use bootstrap_values directly for handling autoreset correctly
+    delta_t = r_t + discount_t * v_t - v_tm1
 
     # Iterate backwards to calculate advantages.
     def _body(acc: Array, xs: Tuple[Array, Array, Array, Array]) -> Tuple[Array, Array]:
@@ -93,7 +129,7 @@ def batch_truncated_generalized_advantage_estimation(
         reverse=True,
     )
 
-    target_values = values[:-1] + advantage_t
+    target_values = v_tm1 + advantage_t
 
     if not time_major:
         advantage_t = jnp.transpose(advantage_t, (1, 0))
