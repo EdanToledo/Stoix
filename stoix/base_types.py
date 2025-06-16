@@ -220,7 +220,7 @@ ActFn = Callable[[FrozenDict, Observation, chex.PRNGKey], chex.Array]
 CriticApply = Callable[[FrozenDict, Observation], Value]
 DistributionCriticApply = Callable[[FrozenDict, Observation], DistributionLike]
 ContinuousQApply = Callable[[FrozenDict, Observation, Action], Value]
-
+ActorCriticApply = Callable[[FrozenDict, Observation], Tuple[DistributionLike, Value]]
 RecActorApply = Callable[
     [FrozenDict, HiddenState, RNNObservation], Tuple[HiddenState, DistributionLike]
 ]

@@ -25,6 +25,7 @@ from rich.pretty import pprint
 from stoix.base_types import (
     Action,
     ActorApply,
+    ActorCriticApply,
     ActorCriticOptStates,
     ActorCriticParams,
     CoreLearnerState,
@@ -35,8 +36,7 @@ from stoix.base_types import (
     SebulbaLearnerFn,
 )
 from stoix.evaluator import get_distribution_act_fn, get_sebulba_eval_fn
-from stoix.networks.base import FeedForwardActor as Actor
-from stoix.networks.base import FeedForwardCritic as Critic
+from stoix.networks.base import FeedForwardActorCritic as ActorCritic
 from stoix.networks.inputs import EmbeddingInput
 from stoix.systems.impala.impala_types import ImpalaTransition
 from stoix.utils import make_env as environments
@@ -80,7 +80,7 @@ class AsyncEvaluator(AsyncEvaluatorBase):
 
                 # Prepare parameters for evaluation
                 unreplicated_learner_state = unreplicate(learner_state)
-                actor_params = jax.block_until_ready(unreplicated_learner_state.params.actor_params)
+                actor_params = jax.block_until_ready(unreplicated_learner_state.params)
 
                 # Run evaluation and log results
                 eval_metrics = self.evaluator(actor_params, eval_key)
@@ -106,19 +106,15 @@ class AsyncEvaluator(AsyncEvaluatorBase):
 
 
 def get_act_fn(
-    apply_fns: Tuple[ActorApply, CriticApply]
-) -> Callable[
-    [ActorCriticParams, Observation, chex.PRNGKey],
-    Tuple[Action, LogProb, chex.PRNGKey],
-]:
+    actor_critic_apply_fn: ActorCriticApply,
+) -> Callable[[FrozenDict, Observation, chex.PRNGKey], Tuple[Action, LogProb, chex.PRNGKey],]:
     """Create action function for actor threads."""
-    actor_apply_fn, _ = apply_fns
 
     def actor_fn(
-        params: ActorCriticParams, observation: Observation, rng_key: chex.PRNGKey
+        params: FrozenDict, observation: Observation, rng_key: chex.PRNGKey
     ) -> Tuple[Action, LogProb, chex.PRNGKey]:
         rng_key, policy_key = jax.random.split(rng_key)
-        pi = actor_apply_fn(params.actor_params, observation)
+        pi, _ = actor_critic_apply_fn(params, observation)
         action = pi.sample(seed=policy_key)
         log_prob = pi.log_prob(action)
         return action, log_prob, rng_key
@@ -131,7 +127,7 @@ def get_rollout_fn(
     actor_device: jax.Device,
     parameter_server: ParameterServer,
     rollout_pipeline: OnPolicyPipeline,
-    apply_fns: Tuple[ActorApply, CriticApply],
+    actor_critic_apply_fn: ActorCriticApply,
     config: DictConfig,
     logger: StoixLogger,
     learner_devices: Sequence[jax.Device],
@@ -141,7 +137,7 @@ def get_rollout_fn(
     """Create rollout function for actor threads."""
 
     # Setup action function and data preparation
-    act_fn = get_act_fn(apply_fns)
+    act_fn = get_act_fn(actor_critic_apply_fn)
     act_fn = jax.jit(act_fn, device=actor_device)
 
     @jax.jit
@@ -321,7 +317,7 @@ def get_actor_thread(
     actor_device: jax.Device,
     parameter_server: "ParameterServer",
     rollout_pipeline: "OnPolicyPipeline",
-    apply_fns: Tuple[ActorApply, CriticApply],
+    actor_critic_apply_fn: ActorCriticApply,
     rng_key: chex.PRNGKey,
     config: DictConfig,
     seeds: List[int],
@@ -339,7 +335,7 @@ def get_actor_thread(
         actor_device=actor_device,
         parameter_server=parameter_server,
         rollout_pipeline=rollout_pipeline,
-        apply_fns=apply_fns,
+        actor_critic_apply_fn=actor_critic_apply_fn,
         config=config,
         logger=logger,
         learner_devices=learner_devices,
@@ -357,14 +353,11 @@ def get_actor_thread(
 
 
 def get_learner_step_fn(
-    apply_fns: Tuple[ActorApply, CriticApply],
-    update_fns: Tuple[optax.TransformUpdateFn, optax.TransformUpdateFn],
+    actor_critic_apply_fn: ActorCriticApply,
+    actor_critic_update_fn: optax.TransformUpdateFn,
     config: DictConfig,
 ) -> SebulbaLearnerFn[CoreLearnerState, ImpalaTransition]:
     """Create learner update function using V-trace."""
-
-    actor_apply_fn, critic_apply_fn = apply_fns
-    actor_update_fn, critic_update_fn = update_fns
 
     def _update_step(
         learner_state: CoreLearnerState, sharded_traj_batchs: List[ImpalaTransition]
@@ -376,12 +369,12 @@ def get_learner_step_fn(
         traj_batch = jax.tree.map(lambda *x: jnp.hstack(x), *sharded_traj_batchs)
 
         # Extract trajectory components
-        obs = traj_batch.obs
-        a_tm1 = traj_batch.action[:-1]  # Actions at t-1
-        behavior_log_prob_tm1 = traj_batch.log_prob[:-1]  # Behavior policy log probs
-        r_t = traj_batch.reward[:-1]  # Rewards at t
+        o_tm1 = traj_batch.obs
+        a_tm1 = traj_batch.action
+        behavior_log_prob_tm1 = traj_batch.log_prob
+        r_t = traj_batch.reward
         d_t = 1.0 - traj_batch.done.astype(jnp.float32)
-        d_t = (d_t * config.system.gamma).astype(jnp.float32)[:-1]  # Discounts
+        d_t = (d_t * config.system.gamma).astype(jnp.float32)
 
         # Optional reward normalization
         if config.system.normalize_rewards:
@@ -399,29 +392,36 @@ def get_learner_step_fn(
             """Update networks for single minibatch."""
 
             params, opt_states = train_state
-            (obs_batch, a_tm1_batch, r_t_batch, d_t_batch, behavior_log_prob_tm1_batch) = batch_info
+            (
+                o_tm1_batch,
+                a_tm1_batch,
+                r_t_batch,
+                d_t_batch,
+                behavior_log_prob_tm1_batch,
+            ) = batch_info
 
-            def _critic_loss_fn(
-                critic_params: FrozenDict,
-                actor_params: FrozenDict,
-                obs_batch: Array,
-                a_tm1_batch: Array,
-                behavior_log_prob_tm1_batch: Array,
-                r_t_batch: Array,
-                d_t_batch: Array,
+            def _actor_critic_loss_fn(
+                actor_critic_params: FrozenDict,
+                o_tm1: Array,
+                a_tm1: Array,
+                behavior_log_prob_tm1: Array,
+                r_t: Array,
+                d_t: Array,
             ) -> Tuple[Array, Dict[str, Array]]:
-                """Critic loss using V-trace targets."""
+                """Combined actor-critic loss using V-trace targets."""
 
                 # Compute importance sampling ratios with current policy
-                o_tm1_batch = obs_batch[:-1]
-                pi_tm1 = actor_apply_fn(actor_params, o_tm1_batch)
-                log_prob_tm1 = pi_tm1.log_prob(a_tm1_batch)
-                rho_tm1 = jnp.exp(log_prob_tm1 - behavior_log_prob_tm1_batch)
+                pi_tm1, v_tm1 = actor_critic_apply_fn(actor_critic_params, o_tm1)
+                log_prob_tm1 = pi_tm1.log_prob(a_tm1)
+                rho_tm1 = jax.lax.stop_gradient(jnp.exp(log_prob_tm1 - behavior_log_prob_tm1))
 
-                # Compute value estimates
-                values = critic_apply_fn(critic_params, obs_batch)
-                v_tm1 = values[:-1]
-                v_t = values[1:]
+                # Due to bootstrapping, we need to shorten the sequences by 1
+                v_t = v_tm1[1:]
+                v_tm1 = v_tm1[:-1]
+                r_t = r_t[:-1]
+                d_t = d_t[:-1]
+                rho_tm1 = rho_tm1[:-1]
+                log_prob_tm1 = log_prob_tm1[:-1]
 
                 # Apply V-trace algorithm for off-policy correction
                 vtrace_outputs = jax.vmap(
@@ -431,105 +431,77 @@ def get_learner_step_fn(
                 )(
                     v_tm1,
                     v_t,
-                    r_t_batch,
-                    d_t_batch,
+                    r_t,
+                    d_t,
                     rho_tm1,
                     config.system.vtrace_lambda,
                     config.system.clip_rho_threshold,
                     config.system.clip_pg_rho_threshold,
                 )
+
+                # Critic loss
                 value_loss = 0.5 * jnp.sum(jnp.square(vtrace_outputs.errors))
+                critic_loss = config.system.vf_coef * value_loss
 
-                total_loss = config.system.vf_coef * value_loss
-                loss_info = {
-                    "value_loss": value_loss,
-                    "q_estimate": vtrace_outputs.q_estimate,
-                    "pg_advantage": vtrace_outputs.pg_advantage,
-                }
-                return total_loss, loss_info
-
-            def _actor_loss_fn(
-                actor_params: FrozenDict,
-                o_tm1_batch: Array,
-                a_tm1_batch: Array,
-                pg_advantage: Array,
-            ) -> Tuple[Array, Dict[str, Array]]:
-                """Actor loss using policy gradient with V-trace advantages."""
-
-                actor_policy = actor_apply_fn(actor_params, o_tm1_batch)
-                log_prob = actor_policy.log_prob(a_tm1_batch)
-
-                # Policy gradient loss weighted by V-trace advantages
-                policy_loss = -(pg_advantage * log_prob).sum()
+                # Actor loss using V-trace advantages
+                policy_loss = -(
+                    jax.lax.stop_gradient(vtrace_outputs.pg_advantage) * log_prob_tm1
+                ).sum()
 
                 # Entropy regularization for exploration
-                entropy = actor_policy.entropy().sum()
-                total_loss = policy_loss - config.system.ent_coef * entropy
+                entropy = pi_tm1.entropy().sum()
+                actor_loss = policy_loss - config.system.ent_coef * entropy
 
+                # Combined total loss
+                total_loss = critic_loss + actor_loss
+
+                # Collect all loss info
                 loss_info = {
-                    "actor_loss": policy_loss,
+                    "total_loss": total_loss,
+                    "critic_loss": critic_loss,
+                    "actor_loss": actor_loss,
+                    "value_loss": value_loss,
+                    "policy_loss": policy_loss,
                     "entropy": entropy,
+                    "q_estimate": vtrace_outputs.q_estimate.mean(),
+                    "pg_advantage": vtrace_outputs.pg_advantage.mean(),
                 }
+
                 return total_loss, loss_info
 
-            # Compute critic gradients (also provides V-trace advantages)
-            critic_grad_fn = jax.grad(_critic_loss_fn, has_aux=True)
-            critic_grads, critic_loss_info = critic_grad_fn(
-                params.critic_params,
-                params.actor_params,
-                obs_batch,
+            # Compute gradients
+            actor_critic_grad_fn = jax.grad(_actor_critic_loss_fn, has_aux=True)
+            actor_critic_grads, loss_info = actor_critic_grad_fn(
+                params,
+                o_tm1_batch,
                 a_tm1_batch,
                 behavior_log_prob_tm1_batch,
                 r_t_batch,
                 d_t_batch,
             )
 
-            # Extract advantages for actor update
-            pg_advantage = critic_loss_info["pg_advantage"]
-
-            # Compute actor gradients using V-trace advantages
-            o_tm1_batch = obs_batch[:-1]
-            actor_grad_fn = jax.grad(_actor_loss_fn, has_aux=True)
-            actor_grads, actor_loss_info = actor_grad_fn(
-                params.actor_params, o_tm1_batch, a_tm1_batch, pg_advantage
-            )
-
             # Synchronize gradients across devices
-            critic_grads, actor_grads, critic_loss_info, actor_loss_info = jax.lax.pmean(
-                (critic_grads, actor_grads, critic_loss_info, actor_loss_info),
+            actor_critic_grads, loss_info = jax.lax.pmean(
+                (actor_critic_grads, loss_info),
                 axis_name="learner_devices",
             )
 
             # Apply parameter updates
-            actor_updates, actor_new_opt_state = actor_update_fn(
-                actor_grads, opt_states.actor_opt_state
+            actor_critic_updates, actor_critic_new_opt_state = actor_critic_update_fn(
+                actor_critic_grads, opt_states
             )
-            actor_new_params = optax.apply_updates(params.actor_params, actor_updates)
+            actor_critic_new_params = optax.apply_updates(params, actor_critic_updates)
 
-            critic_updates, critic_new_opt_state = critic_update_fn(
-                critic_grads, opt_states.critic_opt_state
-            )
-            critic_new_params = optax.apply_updates(params.critic_params, critic_updates)
-
-            # Pack updated state
-            new_params = ActorCriticParams(actor_new_params, critic_new_params)
-            new_opt_state = ActorCriticOptStates(actor_new_opt_state, critic_new_opt_state)
-
-            loss_info = {
-                **actor_loss_info,
-                **critic_loss_info,
-            }
-
-            return (new_params, new_opt_state), loss_info
+            return (actor_critic_new_params, actor_critic_new_opt_state), loss_info
 
         # Prepare data for minibatch processing
         envs_per_batch = config.arch.total_num_envs // len(config.arch.learner.device_ids)
 
-        batch = (obs, a_tm1, r_t, d_t, behavior_log_prob_tm1)
+        batch = (o_tm1, a_tm1, r_t, d_t, behavior_log_prob_tm1)
         chex.assert_tree_shape_prefix(
             (a_tm1, r_t, d_t, behavior_log_prob_tm1),
             (
-                config.system.rollout_length,
+                config.system.rollout_length + 1,
                 envs_per_batch,
             ),
         )
@@ -551,7 +523,7 @@ def get_learner_step_fn(
             minibatches[1:],
             (
                 config.system.num_minibatches,
-                config.system.rollout_length,
+                config.system.rollout_length + 1,
                 envs_per_minibatch,
             ),
         )
@@ -723,7 +695,7 @@ def learner_setup(
     config: DictConfig,
 ) -> Tuple[
     SebulbaLearnerFn[CoreLearnerState, ImpalaTransition],
-    Tuple[ActorApply, CriticApply],
+    ActorCriticApply,
     CoreLearnerState,
 ]:
     """Setup learner networks and initial state."""
@@ -736,58 +708,51 @@ def learner_setup(
     config.system.observation_shape = example_obs.shape
     env.close()
 
-    key, actor_net_key, critic_net_key = keys
+    key, actor_critic_net_key = keys
 
-    # Build actor and critic networks
-    actor_torso = hydra.utils.instantiate(config.network.actor_network.pre_torso)
+    # Build actor critic network
+    shared_torso = hydra.utils.instantiate(config.network.shared_network.pre_torso)
     actor_action_head = hydra.utils.instantiate(
         config.network.actor_network.action_head, action_dim=num_actions
     )
-    critic_torso = hydra.utils.instantiate(config.network.critic_network.pre_torso)
     critic_head = hydra.utils.instantiate(config.network.critic_network.critic_head)
-
-    actor_network = Actor(
-        input_layer=EmbeddingInput(), torso=actor_torso, action_head=actor_action_head
-    )
-    critic_network = Critic(
-        input_layer=EmbeddingInput(), torso=critic_torso, critic_head=critic_head
+    actor_critic_network = ActorCritic(
+        input_layer=EmbeddingInput(),
+        torso=shared_torso,
+        action_head=actor_action_head,
+        critic_head=critic_head,
     )
 
     # Configure learning rate schedules
-    actor_lr = make_learning_rate(config.system.actor_lr, config, 1, config.system.num_minibatches)
-    critic_lr = make_learning_rate(
-        config.system.critic_lr, config, 1, config.system.num_minibatches
+    assert config.system.actor_lr == config.system.critic_lr, (
+        "Actor and critic learning rates must be the same for IMPALA with a shared torso."
+        "This is more just to ensure the user knows what learning rate is being used."
+    )
+    actor_critic_lr = make_learning_rate(
+        config.system.actor_lr, config, 1, config.system.num_minibatches
     )
 
     # Setup optimizers with gradient clipping
-    actor_optim = optax.chain(
-        optax.clip_by_global_norm(config.system.max_grad_norm), optax.rmsprop(actor_lr)
-    )
-
-    critic_optim = optax.chain(
-        optax.clip_by_global_norm(config.system.max_grad_norm), optax.rmsprop(critic_lr)
+    actor_critic_optim = optax.chain(
+        optax.clip_by_global_norm(config.system.max_grad_norm), optax.rmsprop(actor_critic_lr)
     )
 
     # Initialize network parameters
     init_x = example_obs
     init_x = jnp.expand_dims(init_x, axis=0)
 
-    actor_params = actor_network.init(actor_net_key, init_x)
-    actor_opt_state = actor_optim.init(actor_params)
+    actor_critic_params = actor_critic_network.init(actor_critic_net_key, init_x)
+    actor_critic_opt_state = actor_critic_optim.init(actor_critic_params)
 
-    critic_params = critic_network.init(critic_net_key, init_x)
-    critic_opt_state = critic_optim.init(critic_params)
-
-    params = ActorCriticParams(actor_params, critic_params)
+    params = actor_critic_params
 
     # Extract network functions
-    actor_network_apply_fn = actor_network.apply
-    critic_network_apply_fn = critic_network.apply
-    apply_fns = (actor_network_apply_fn, critic_network_apply_fn)
-    update_fns = (actor_optim.update, critic_optim.update)
+    actor_critic_network_apply_fn = actor_critic_network.apply
 
     # Create and compile learner step function
-    learn_step = get_learner_step_fn(apply_fns, update_fns, config)
+    learn_step = get_learner_step_fn(
+        actor_critic_network_apply_fn, actor_critic_optim.update, config
+    )
     learn_step = jax.pmap(learn_step, axis_name="learner_devices", devices=learner_devices)
 
     # Load from checkpoint if specified
@@ -800,13 +765,12 @@ def learner_setup(
         params = restored_params
 
     # Initialize complete learner state
-    opt_states = ActorCriticOptStates(actor_opt_state, critic_opt_state)
-    learner_state = CoreLearnerState(params, opt_states, key)
+    learner_state = CoreLearnerState(params, actor_critic_opt_state, key)
 
     # Prepare learner state for multi-device training
     learner_state = flax.jax_utils.replicate(learner_state, devices=learner_devices)
 
-    return learn_step, apply_fns, learner_state
+    return learn_step, actor_critic_network_apply_fn, learner_state
 
 
 def run_experiment(_config: DictConfig) -> float:
@@ -865,18 +829,16 @@ def run_experiment(_config: DictConfig) -> float:
     ), "Environment factory must be an instance of EnvFactory"
 
     # Initialize random number generators
-    key, key_e, actor_net_key, critic_net_key = jax.random.split(
-        jax.random.PRNGKey(config.arch.seed), num=4
-    )
+    key, key_e, actor_critic_net_key = jax.random.split(jax.random.PRNGKey(config.arch.seed), num=3)
     np_rng = np.random.default_rng(config.arch.seed)
 
     # Setup learner and networks
-    learn_step, apply_fns, learner_state = learner_setup(
-        env_factory, (key, actor_net_key, critic_net_key), local_learner_devices, config
+    learn_step, actor_critic_apply_fn, learner_state = learner_setup(
+        env_factory, (key, actor_critic_net_key), local_learner_devices, config
     )
 
     # Setup evaluation
-    actor_apply_fn, _ = apply_fns
+    actor_apply_fn = lambda params, obs: actor_critic_apply_fn(params, obs)[0]
     eval_act_fn = get_distribution_act_fn(config, actor_apply_fn)
     evaluator, evaluator_envs = get_sebulba_eval_fn(
         env_factory, eval_act_fn, config, np_rng, evaluator_device
@@ -942,7 +904,7 @@ def run_experiment(_config: DictConfig) -> float:
                 actor_device=local_devices[d_id],
                 parameter_server=parameter_server,
                 rollout_pipeline=rollout_pipeline,
-                apply_fns=apply_fns,
+                actor_critic_apply_fn=actor_critic_apply_fn,
                 rng_key=thread_key,
                 config=config,
                 seeds=seeds,
@@ -1037,7 +999,7 @@ def run_experiment(_config: DictConfig) -> float:
 
 @hydra.main(
     config_path="../../../configs/default/sebulba",
-    config_name="default_ff_impala.yaml",
+    config_name="default_ff_impala_shared_torso.yaml",
     version_base="1.2",
 )
 def hydra_entry_point(cfg: DictConfig) -> float:
