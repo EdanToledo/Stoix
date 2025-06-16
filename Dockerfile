@@ -25,6 +25,7 @@ WORKDIR ${folder}
 # Copy all code to the container
 COPY . .
 
+RUN echo "Installing requirements..."
 RUN uv sync
 
 # Need to use specific cuda versions for jax
