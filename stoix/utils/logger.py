@@ -323,9 +323,7 @@ class ConsoleLogger(BaseLogger):
     }
 
     def __init__(self, cfg: DictConfig, unique_token: str) -> None:
-        self.logger = logging.getLogger()
-
-        self.logger.handlers = []
+        self.logger = logging.getLogger("stoix.ConsoleLogger")
 
         ch = logging.StreamHandler()
         formatter = logging.Formatter(f"{Fore.CYAN}{Style.BRIGHT}%(message)s", "%H:%M:%S")
