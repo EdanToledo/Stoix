@@ -47,6 +47,7 @@ class FeedForwardCritic(nn.Module):
 
         return critic_output
 
+
 class FeedForwardActorCritic(nn.Module):
     """Simple Feedforward Joint Actor Critic Network."""
 
@@ -64,6 +65,7 @@ class FeedForwardActorCritic(nn.Module):
         critic_output = self.critic_head(obs_embedding)
 
         return actor_output, critic_output
+
 
 class CompositeNetwork(nn.Module):
     """Composite Network. Takes in a sequence of layers and applies them sequentially."""

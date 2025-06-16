@@ -4,9 +4,9 @@ from typing import Callable, Sequence, Union
 
 import chex
 import flax.linen as nn
-from flax.linen.initializers import orthogonal
 import jax
 import numpy as np
+from flax.linen.initializers import orthogonal
 
 from stoix.networks.utils import parse_activation_fn
 
