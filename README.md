@@ -120,12 +120,15 @@ Lastly, please keep in mind for practical use that current networks and hyperpar
 
 At the moment Stoix is not meant to be installed as a library, but rather to be used as a research tool.
 
-You can use Stoix by cloning the repo and pip installing as follows:
+You can use Stoix by cloning the repo and installing via UV as follows:
 
 ```bash
 git clone https://github.com/EdanToledo/Stoix.git
 cd Stoix
-pip install -e .
+pipx install uv
+uv venv
+source .venv/bin/activate
+uv sync
 ```
 
 We have tested `Stoix` on Python 3.10. Note that because the installation of JAX differs depending on your hardware accelerator,

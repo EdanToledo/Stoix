@@ -9,6 +9,9 @@ on:
       - main
   workflow_dispatch:
 
+env:
+  UV_SYSTEM_PYTHON: 1
+
 jobs:
   test-algorithms:
     name: "Python ${{ matrix.python-version }} on ${{ matrix.os }}"
@@ -23,11 +26,14 @@ jobs:
     steps:
       - name: Checkout stoix
         uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
+
+      - name: Install uv and set the python version
+        uses: astral-sh/setup-uv@v5
         with:
-            python-version: "${{ matrix.python-version }}"
-      - name: Install python dependencies 🔧
-        run: pip install .
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install the project
+        run: uv sync --all-extras --dev
 
       - name: Make Bash Script Executable
         run: chmod +x bash_scripts/run-algorithms.sh
