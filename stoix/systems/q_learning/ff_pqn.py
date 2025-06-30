@@ -19,6 +19,7 @@ from stoix.base_types import (
     ActorApply,
     AnakinExperimentOutput,
     LearnerFn,
+    Observation,
     OnPolicyLearnerState,
 )
 from stoix.evaluator import evaluator_setup, get_distribution_act_fn
@@ -37,13 +38,14 @@ from stoix.utils.total_timestep_checker import check_total_timesteps
 from stoix.utils.training import make_learning_rate
 from stoix.wrappers.episode_metrics import get_final_step_metrics
 
-# Remember to run PQN with layernorm turned on in the network config file.
+# IMPORTANT: Remember to run PQN with layernorm turned on in the network config file.
 
 
 def get_learner_fn(
     env: Environment,
     q_apply_fn: ActorApply,
     q_update_fn: optax.TransformUpdateFn,
+    epsilon_schedule: optax.Schedule,
     config: DictConfig,
 ) -> LearnerFn[OnPolicyLearnerState]:
     """Get the learner function."""
@@ -59,7 +61,17 @@ def get_learner_fn(
 
             # SELECT ACTION
             key, policy_key = jax.random.split(key)
-            actor_policy = q_apply_fn(params, last_timestep.observation)
+            # Get the update step count from the optimiser state.
+            sgd_step_count = optax.tree_utils.tree_get(opt_states, "count")
+            # Calculate the update number and epsilon.
+            # The update number is the number of SGD steps divided by the total number of
+            # epochs and minibatches.
+            update_no = sgd_step_count // (config.system.epochs * config.system.num_minibatches)
+            epsilon = epsilon_schedule(update_no)
+
+            actor_policy = q_apply_fn(
+                params, last_timestep.observation, head_kwargs={"epsilon": epsilon}
+            )
             action = actor_policy.sample(seed=policy_key)
 
             # STEP ENVIRONMENT
@@ -67,7 +79,9 @@ def get_learner_fn(
 
             # LOG EPISODE METRICS
             done = timestep.last().reshape(-1)
-            info = timestep.extras["episode_metrics"]
+            info = {**timestep.extras["episode_metrics"]}
+            info["epsilon"] = epsilon.repeat(done.shape[0])
+            info["update_no"] = update_no.repeat(done.shape[0])
             next_obs = timestep.extras["next_obs"]
 
             transition = Transition(
@@ -115,17 +129,17 @@ def get_learner_fn(
 
                 # UNPACK TRAIN STATE AND BATCH INFO
                 params, opt_states = train_state
-                traj_batch, q_targets = batch_info
+                o_tm1, a_tm1, q_targets = batch_info
 
                 def _q_loss_fn(
                     params: FrozenDict,
-                    traj_batch: Transition,
+                    o_tm1: Observation,
+                    a_tm1: chex.Array,
                     targets: chex.Array,
                 ) -> Tuple:
                     """Calculate the q loss."""
                     # RERUN NETWORK
-                    q_tm1 = q_apply_fn(params, traj_batch.obs).preferences
-                    a_tm1 = traj_batch.action
+                    q_tm1 = q_apply_fn(params, o_tm1).preferences
                     batch_indices = jnp.arange(q_tm1.shape[0])
                     v_tm1 = q_tm1[batch_indices, a_tm1]
 
@@ -144,7 +158,7 @@ def get_learner_fn(
 
                 # CALCULATE Q LOSS
                 q_grad_fn = jax.grad(_q_loss_fn, has_aux=True)
-                q_grads, q_loss_info = q_grad_fn(params, traj_batch, q_targets)
+                q_grads, q_loss_info = q_grad_fn(params, o_tm1, a_tm1, q_targets)
 
                 # Compute the parallel mean (pmean) over the batch.
                 # This calculation is inspired by the Anakin architecture demo notebook.
@@ -162,10 +176,14 @@ def get_learner_fn(
             params, opt_states, traj_batch, q_targets, key = update_state
             key, shuffle_key = jax.random.split(key)
 
+            # UNPACK TRAJECTORY BATCH
+            o_tm1 = traj_batch.obs
+            a_tm1 = traj_batch.action
+
             # SHUFFLE MINIBATCHES
             batch_size = config.system.rollout_length * config.arch.num_envs
             permutation = jax.random.permutation(shuffle_key, batch_size)
-            batch = (traj_batch, q_targets)
+            batch = (o_tm1, a_tm1, q_targets)
             batch = jax.tree_util.tree_map(lambda x: merge_leading_dims(x, 2), batch)
             shuffled_batch = jax.tree_util.tree_map(
                 lambda x: jnp.take(x, permutation, axis=0), batch
@@ -247,7 +265,7 @@ def learner_setup(
     q_lr = make_learning_rate(config.system.q_lr, config, config.system.epochs)
     q_optim = optax.chain(
         optax.clip_by_global_norm(config.system.max_grad_norm),
-        optax.adam(q_lr, eps=1e-5),
+        optax.radam(q_lr),
     )
 
     # Initialise observation
@@ -267,8 +285,21 @@ def learner_setup(
     apply_fns = q_network_apply_fn
     update_fns = q_optim.update
 
+    if config.system.decay_epsilon:
+        # Create a linear epsilon schedule for exploration.
+        # The schedule will linearly decay from 1.0 to the training epsilon over the
+        # exploration fraction of the total number of updates.
+        epsilon_schedule = optax.linear_schedule(
+            init_value=1.0,
+            end_value=config.system.training_epsilon,
+            transition_steps=config.arch.num_updates * config.system.exploration_fraction,
+        )
+    else:
+        # Use a constant epsilon schedule.
+        epsilon_schedule = optax.constant_schedule(config.system.training_epsilon)
+
     # Get batched iterated update and replicate it to pmap it over cores.
-    learn = get_learner_fn(env, apply_fns, update_fns, config)
+    learn = get_learner_fn(env, apply_fns, update_fns, epsilon_schedule, config)
     learn = jax.pmap(learn, axis_name="device")
 
     # Initialise environment states and timesteps: across devices and batches.
@@ -383,7 +414,7 @@ def run_experiment(_config: DictConfig) -> float:
         )
 
     # Run experiment for a total number of evaluations.
-    max_episode_return = jnp.float32(-1e6)
+    max_episode_return = jnp.float32(-1e7)
     best_params = unreplicate_batch_dim(learner_state.params)
     for eval_step in range(config.arch.num_evaluation):
         # Train.
@@ -402,7 +433,15 @@ def run_experiment(_config: DictConfig) -> float:
         logger.log({"timestep": t}, t, eval_step, LogEvent.MISC)
         if ep_completed:  # only log episode metrics if an episode was completed in the rollout.
             logger.log(episode_metrics, t, eval_step, LogEvent.ACT)
-        logger.log(learner_output.train_metrics, t, eval_step, LogEvent.TRAIN)
+        train_metrics = learner_output.train_metrics
+        # Calculate the number of optimiser steps per second. Since gradients are aggregated
+        # across the device and batch axis, we don't consider updates per device/batch as part of
+        # the SPS for the learner.
+        opt_steps_per_eval = config.arch.num_updates_per_eval * (
+            config.system.epochs * config.system.num_minibatches
+        )
+        train_metrics["steps_per_second"] = opt_steps_per_eval / elapsed_time
+        logger.log(train_metrics, t, eval_step, LogEvent.TRAIN)
 
         # Prepare for evaluation.
         start_time = time.time()
