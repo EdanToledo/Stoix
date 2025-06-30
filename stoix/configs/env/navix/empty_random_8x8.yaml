@@ -1,8 +1,8 @@
 # ---Environment Configs---
 env_name: navix
 scenario:
-  name: Navix-DoorKey-8x8-v0
-  task_name: navix-door_key-8x8-v0
+  name: Navix-Empty-Random-8x8-v0
+  task_name: navix-empty-random-8x8-v0
 
 kwargs: {}
 

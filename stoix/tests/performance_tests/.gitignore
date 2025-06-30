@@ -1,0 +1,11 @@
+# Ignore generated reports
+reports/
+
+# Keep baseline directory structure but ignore contents
+baselines/*
+!baselines/.gitkeep
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
