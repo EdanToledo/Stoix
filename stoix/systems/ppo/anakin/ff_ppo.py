@@ -92,7 +92,7 @@ def get_learner_fn(
 
             running_statistics = getattr(learner_state, "running_statistics", None)
             if running_statistics is not None:
-                observation = normalize(last_timestep.observation, running_statistics)
+                observation = normalize(observation, running_statistics)
 
             # SELECT ACTION
             key, policy_key = jax.random.split(key)
