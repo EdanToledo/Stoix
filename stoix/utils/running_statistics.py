@@ -1,11 +1,21 @@
-# flake8: noqa
-# type: ignore
 """Utility functions to compute running statistics.
-Taken and modified from Acme https://github.com/google-deepmind/acme/blob/master/acme/jax/running_statistics.py"""
+Taken and modified from
+Acme https://github.com/google-deepmind/acme/blob/master/acme/jax/running_statistics.py"""
 
 import dataclasses
 import types
-from typing import Any, List, NamedTuple, Optional, Tuple, Type, TypeVar, Union
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    NamedTuple,
+    Optional,
+    Tuple,
+    Type,
+    TypeVar,
+    Union,
+)
 
 import chex
 import jax
@@ -24,8 +34,11 @@ NestedPath = Union[Tuple[Any, ...], chex.ArrayTree]
   for more details.
 """
 
+# Type variable for generic tree structures
+T = TypeVar("T")
 
-def efficient_map_structure(func, *structure):
+
+def efficient_map_structure(func: Callable[..., T], *structure: chex.ArrayTree) -> chex.ArrayTree:
     """Faster implementation of tree.map_structure which skips some error checking.
 
     Args:
@@ -44,7 +57,9 @@ def efficient_map_structure(func, *structure):
     return tree.unflatten_as(structure[-1], [func(*x) for x in entries])
 
 
-def efficient_map_structure_with_path(func, *structure):
+def efficient_map_structure_with_path(
+    func: Callable[..., T], *structure: chex.ArrayTree
+) -> chex.ArrayTree:
     """Faster implementation of tree.map_structure_with_path.
 
     Args:
@@ -72,7 +87,9 @@ def _is_prefix(a: NestedPath, b: NestedPath) -> bool:
     return b[: len(a)] == a
 
 
-def _zeros_like(nest: chex.ArrayTree, dtype: chex.ArrayDType = None) -> chex.ArrayTree:
+def _zeros_like(
+    nest: chex.ArrayTree, dtype: Optional[jax.typing.DTypeLike] = None
+) -> chex.ArrayTree:
     """Creates a nested structure of zeros with the same shape as the input.
 
     Args:
@@ -85,7 +102,9 @@ def _zeros_like(nest: chex.ArrayTree, dtype: chex.ArrayDType = None) -> chex.Arr
     return jax.tree_map(lambda x: jnp.zeros(x.shape, dtype or x.dtype), nest)
 
 
-def _ones_like(nest: chex.ArrayTree, dtype: chex.ArrayDType = None) -> chex.ArrayTree:
+def _ones_like(
+    nest: chex.ArrayTree, dtype: Optional[jax.typing.DTypeLike] = None
+) -> chex.ArrayTree:
     """Creates a nested structure of ones with the same shape as the input.
 
     Args:
@@ -99,24 +118,19 @@ def _ones_like(nest: chex.ArrayTree, dtype: chex.ArrayDType = None) -> chex.Arra
 
 
 @chex.dataclass(frozen=True)
-class NestedStatistics:
-    """A container for running statistics (mean, std) of possibly nested data."""
-
-    mean: chex.ArrayTree
-    std: chex.ArrayTree
-
-
-@chex.dataclass(frozen=True)
-class RunningStatisticsState(NestedStatistics):
+class RunningStatisticsState:
     """Full state of running statistics computation.
 
     Attributes:
-        count: The number of samples that have been used to compute the statistics.
         mean: The running mean of the data.
-        summed_variance: The sum of squared differences from the mean.
         std: The running standard deviation of the data.
+        count: The number of samples that have been used to compute the statistics.
+        summed_variance: The sum of squared differences from the mean.
+
     """
 
+    mean: chex.ArrayTree
+    std: chex.ArrayTree
     count: Union[int, Array]
     summed_variance: chex.ArrayTree
 
@@ -162,13 +176,13 @@ def initialize_statistics(nest: chex.ArrayTree) -> RunningStatisticsState:
     """
     dtype = jnp.float64 if jax.config.jax_enable_x64 else jnp.float32
 
-    return RunningStatisticsState(  # pytype: disable=wrong-arg-types  # jax-ndarray
-        count=jnp.float32(0.0),
+    return RunningStatisticsState(  # type: ignore
         mean=_zeros_like(nest, dtype=dtype),
-        summed_variance=_zeros_like(nest, dtype=dtype),
         # Initialize with ones to make sure normalization works correctly
         # in the initial state.
         std=_ones_like(nest, dtype=dtype),
+        count=jnp.float32(0.0),
+        summed_variance=_zeros_like(nest, dtype=dtype),
     )
 
 
@@ -197,11 +211,56 @@ def _validate_batch_shapes(
     efficient_map_structure(validate_node_shape, reference_sample, batch)
 
 
+# Create default config as module-level variable to avoid B008
+_DEFAULT_NESTED_STATISTICS_CONFIG = NestedStatisticsConfig()
+
+
+def _compute_node_statistics_step(
+    path: NestedPath,
+    mean: Array,
+    summed_variance: Array,
+    batch: Array,
+    count: Union[int, Array],
+    batch_axis: range,
+    weights: Optional[Array],
+    config: NestedStatisticsConfig,
+    pmap_axis_name: Optional[Union[str, List[str]]],
+) -> Tuple[Array, Array]:
+    """Helper function to compute statistics for a single node."""
+    assert isinstance(mean, Array), type(mean)
+    assert isinstance(summed_variance, Array), type(summed_variance)
+    if not _is_path_included(config, path):
+        # Return unchanged.
+        return mean, summed_variance
+    # The mean and the sum of past variances are updated with Welford's
+    # algorithm using batches (see https://stackoverflow.com/q/56402955).
+    diff_to_old_mean = batch - mean
+    if weights is not None:
+        expanded_weights = jnp.reshape(
+            weights, list(weights.shape) + [1] * (batch.ndim - weights.ndim)
+        )
+        diff_to_old_mean = diff_to_old_mean * expanded_weights
+    mean_update = jnp.sum(diff_to_old_mean, axis=batch_axis) / count
+    if pmap_axis_name is not None:
+        for axis_name in pmap_axis_name:
+            mean_update = jax.lax.psum(mean_update, axis_name=axis_name)
+    mean = mean + mean_update
+
+    diff_to_new_mean = batch - mean
+    variance_update = diff_to_old_mean * diff_to_new_mean
+    variance_update = jnp.sum(variance_update, axis=batch_axis)
+    if pmap_axis_name is not None:
+        for axis_name in pmap_axis_name:
+            variance_update = jax.lax.psum(variance_update, axis_name=axis_name)
+    summed_variance = summed_variance + variance_update
+    return mean, summed_variance
+
+
 def update_statistics(
     state: RunningStatisticsState,
     batch: chex.ArrayTree,
     *,
-    config: NestedStatisticsConfig = NestedStatisticsConfig(),
+    config: Optional[NestedStatisticsConfig] = None,
     weights: Optional[Array] = None,
     std_min_value: float = 1e-6,
     std_max_value: float = 1e6,
@@ -239,6 +298,9 @@ def update_statistics(
     Returns:
       Updated running statistics.
     """
+    if config is None:
+        config = _DEFAULT_NESTED_STATISTICS_CONFIG
+
     # We require exactly the same structure to avoid issues when flattened
     # batch and state have different order of elements.
     tree.assert_same_structure(batch, state.mean)
@@ -247,13 +309,12 @@ def update_statistics(
     batch_dims = batch_shape[: len(batch_shape) - tree.flatten(state.mean)[0].ndim]
     batch_axis = range(len(batch_dims))
     if weights is None:
-        step_increment = np.prod(batch_dims)
+        step_increment: Union[int, Array] = np.prod(batch_dims)
     else:
         step_increment = jnp.sum(weights)
     if pmap_axis_name is not None:
-        if isinstance(pmap_axis_name, str):
-            pmap_axis_name = [pmap_axis_name]
-        for axis_name in pmap_axis_name:
+        pmap_names = [pmap_axis_name] if isinstance(pmap_axis_name, str) else pmap_axis_name
+        for axis_name in pmap_names:
             step_increment = jax.lax.psum(step_increment, axis_name=axis_name)
     count = state.count + step_increment
 
@@ -269,33 +330,9 @@ def update_statistics(
     def _compute_node_statistics(
         path: NestedPath, mean: Array, summed_variance: Array, batch: Array
     ) -> Tuple[Array, Array]:
-        assert isinstance(mean, Array), type(mean)
-        assert isinstance(summed_variance, Array), type(summed_variance)
-        if not _is_path_included(config, path):
-            # Return unchanged.
-            return mean, summed_variance
-        # The mean and the sum of past variances are updated with Welford's
-        # algorithm using batches (see https://stackoverflow.com/q/56402955).
-        diff_to_old_mean = batch - mean
-        if weights is not None:
-            expanded_weights = jnp.reshape(
-                weights, list(weights.shape) + [1] * (batch.ndim - weights.ndim)
-            )
-            diff_to_old_mean = diff_to_old_mean * expanded_weights
-        mean_update = jnp.sum(diff_to_old_mean, axis=batch_axis) / count
-        if pmap_axis_name is not None:
-            for axis_name in pmap_axis_name:
-                mean_update = jax.lax.psum(mean_update, axis_name=axis_name)
-        mean = mean + mean_update
-
-        diff_to_new_mean = batch - mean
-        variance_update = diff_to_old_mean * diff_to_new_mean
-        variance_update = jnp.sum(variance_update, axis=batch_axis)
-        if pmap_axis_name is not None:
-            for axis_name in pmap_axis_name:
-                variance_update = jax.lax.psum(variance_update, axis_name=axis_name)
-        summed_variance = summed_variance + variance_update
-        return mean, summed_variance
+        return _compute_node_statistics_step(
+            path, mean, summed_variance, batch, count, batch_axis, weights, config, pmap_axis_name
+        )
 
     updated_stats = efficient_map_structure_with_path(
         _compute_node_statistics, state.mean, state.summed_variance, batch
@@ -324,11 +361,13 @@ def update_statistics(
 
     std = efficient_map_structure_with_path(compute_std, summed_variance, state.std)
 
-    return RunningStatisticsState(count=count, mean=mean, summed_variance=summed_variance, std=std)
+    return RunningStatisticsState(
+        mean=mean, std=std, count=count, summed_variance=summed_variance  # type: ignore
+    )
 
 
 def normalize(
-    batch: chex.ArrayTree, mean_std: NestedStatistics, max_abs_value: Optional[float] = None
+    batch: chex.ArrayTree, mean_std: RunningStatisticsState, max_abs_value: Optional[float] = None
 ) -> chex.ArrayTree:
     """Normalizes data using running statistics.
 
@@ -350,16 +389,13 @@ def normalize(
             return data
         data = (data - mean) / std
         if max_abs_value is not None:
-            # TODO(b/124318564): remove pylint directive
-            data = jnp.clip(
-                data, -max_abs_value, +max_abs_value
-            )  # pylint: disable=invalid-unary-operand-type
+            data = jnp.clip(data, -max_abs_value, +max_abs_value)
         return data
 
     return efficient_map_structure(normalize_leaf, batch, mean_std.mean, mean_std.std)
 
 
-def denormalize(batch: chex.ArrayTree, mean_std: NestedStatistics) -> chex.ArrayTree:
+def denormalize(batch: chex.ArrayTree, mean_std: RunningStatisticsState) -> chex.ArrayTree:
     """Denormalizes values in a nested structure using the given mean/std.
 
     For each value in the batch, computes value * std + mean, which is the inverse
@@ -413,7 +449,7 @@ def get_clip_config_for_path(
         A new clipping config for the subtree.
     """
     # Start with an empty config.
-    path_map = []
+    path_map: List[Tuple[NestedPath, float]] = []
     for map_path, max_abs_value in config.path_map:
         if _is_prefix(map_path, path):
             return NestedClippingConfig(path_map=(((), max_abs_value),))
@@ -448,10 +484,7 @@ def clip_values(batch: chex.ArrayTree, clipping_config: NestedClippingConfig) ->
 
     def clip_leaf(data: Array, max_abs_value: Optional[float]) -> Array:
         if max_abs_value is not None:
-            # TODO(b/124318564): remove pylint directive
-            data = jnp.clip(
-                data, -max_abs_value, +max_abs_value
-            )  # pylint: disable=invalid-unary-operand-type
+            data = jnp.clip(data, -max_abs_value, +max_abs_value)
         return data
 
     return efficient_map_structure(clip_leaf, batch, max_abs_values)
@@ -471,9 +504,13 @@ class NestedNormalizationConfig:
     clip_config: NestedClippingConfig = NestedClippingConfig()
 
 
+# Define type variable for NamedTuple subclasses
+NT = TypeVar("NT", bound=NamedTuple)
+
+
 def add_field_to_state(
-    base_class: Type[NamedTuple], extra_field_name: str, extra_field_type: Type[Any]
-):
+    base_class: Type[NT], extra_field_name: str, extra_field_type: Type[Any]
+) -> Type[NamedTuple]:
     """Create a new NamedTuple class by extending an existing NamedTuple class with an additional field.
 
     This function creates a specialized NamedTuple class that behaves in a special way:
@@ -481,6 +518,7 @@ def add_field_to_state(
     2. The extra field is accessible as a normal attribute (obj.extra_field_name)
     3. When unpacking the object (a, b, c = obj), only the original fields are included
     4. The _replace method works with all fields including the extra field
+    5. copy.deepcopy works correctly
 
     This approach is useful when you need to attach metadata or state to an existing
     NamedTuple without affecting its unpacking behavior in existing code.
@@ -495,11 +533,11 @@ def add_field_to_state(
         When unpacking, only the original fields from base_class will be included.
     """
     # Get field names and annotations from the base class
-    fields = base_class._fields
+    fields = getattr(base_class, "_fields", ())
     annotations = getattr(base_class, "__annotations__", {})
 
     # Create a new class with all original fields plus the new one
-    new_fields = {field: annotations.get(field, Any) for field in fields}
+    new_fields: Dict[str, Type[Any]] = {field: annotations.get(field, Any) for field in fields}
     new_fields[extra_field_name] = extra_field_type
 
     # Create the new NamedTuple class with all the fields
@@ -520,24 +558,24 @@ def add_field_to_state(
     )
 
     # Need to preserve the _fields for proper replacement
-    all_fields = result_class._fields
+    all_fields = getattr(result_class, "_fields", ())
 
     # Override __iter__ to only include base fields when unpacking
-    def custom_iter(self):
+    def custom_iter(self: Any) -> Any:
         """Iterates only through the original fields, not the extra field."""
         return iter(getattr(self, field) for field in fields)
 
-    result_class.__iter__ = custom_iter
+    result_class.__iter__ = custom_iter  # type: ignore
 
     # Fix the _replace method to ensure it still works
-    def custom_replace(self, **kwargs):
+    def custom_replace(self: Any, **kwargs: Any) -> Any:
         """Custom replacement that works with the modified structure.
 
         Allows replacing any field (original or extra) while preserving the
         custom unpacking behavior.
         """
         # Get a dictionary of all current values
-        current_values = {}
+        current_values: Dict[str, Any] = {}
         for field in all_fields:
             current_values[field] = getattr(self, field)
 
@@ -547,12 +585,19 @@ def add_field_to_state(
         # Create new instance with updated values
         return type(self)(**current_values)
 
-    result_class._replace = custom_replace
+    result_class._replace = custom_replace  # type: ignore
+
+    # Add __getnewargs__ to support copy.deepcopy
+    def custom_getnewargs(self: Any) -> tuple:
+        """Return all field values for pickling/copying, including the extra field."""
+        return tuple(getattr(self, field) for field in all_fields)
+
+    result_class.__getnewargs__ = custom_getnewargs  # type: ignore
 
     return result_class
 
 
-def create_with_running_statistics(state: NamedTuple, running_statistics: RunningStatisticsState):
+def create_with_running_statistics(state: NT, running_statistics: RunningStatisticsState) -> Any:
     """Add running statistics to a state instance.
 
     This function takes an existing state instance and attaches running statistics
@@ -564,6 +609,7 @@ def create_with_running_statistics(state: NamedTuple, running_statistics: Runnin
     1. The running_statistics field is accessible as state.running_statistics
     2. When unpacking (a, b, c = state), only the original fields are included
     3. All NamedTuple methods like _replace work on all fields
+    4. copy.deepcopy works correctly
 
     Args:
         state: An instance of a NamedTuple state.
@@ -574,7 +620,7 @@ def create_with_running_statistics(state: NamedTuple, running_statistics: Runnin
         field but excludes it from unpacking operations.
     """
     cls_type = type(state)
-    new_cls_type = add_field_to_state(cls_type, "running_statistics", RunningStatisticsState)
+    new_cls_type = add_field_to_state(cls_type, "running_statistics", type(running_statistics))
     state_dict = state._asdict()
     state_dict["running_statistics"] = running_statistics
-    return new_cls_type(**state_dict)
+    return new_cls_type(**state_dict)  # type: ignore

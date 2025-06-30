@@ -38,6 +38,7 @@ def merge_leading_dims(x: chex.Array, num_dims: chex.Numeric) -> chex.Array:
     return x.reshape(new_shape)
 
 
+@jax.jit
 def unreplicate_n_dims(x: chex.ArrayTree, unreplicate_depth: int = 2) -> chex.ArrayTree:
     """Unreplicates a pytree by removing the first `unreplicate_depth` axes.
 
@@ -48,6 +49,7 @@ def unreplicate_n_dims(x: chex.ArrayTree, unreplicate_depth: int = 2) -> chex.Ar
     return jax.tree_util.tree_map(lambda x: x[(0,) * unreplicate_depth], x)  # type: ignore
 
 
+@jax.jit
 def unreplicate_batch_dim(x: chex.ArrayTree) -> chex.ArrayTree:
     """Unreplicated just the update batch dimension.
     (The dimension that is vmapped over when acting and learning)

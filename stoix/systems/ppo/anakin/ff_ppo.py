@@ -87,9 +87,12 @@ def get_learner_fn(
             """Step the environment."""
             params, opt_states, key, env_state, last_timestep = learner_state
 
+            # GET OBSERVATION
             observation = last_timestep.observation
-            if config.system.normalize_observations:
-                observation = normalize(last_timestep.observation, learner_state.running_statistics)
+
+            running_statistics = getattr(learner_state, "running_statistics", None)
+            if running_statistics is not None:
+                observation = normalize(last_timestep.observation, running_statistics)
 
             # SELECT ACTION
             key, policy_key = jax.random.split(key)
@@ -109,8 +112,8 @@ def get_learner_fn(
             # Due to auto-resetting and truncation, we have to specifically save the bootstrap value
             # for the next (potentially final) observation.
             bootstrap_obs = timestep.extras["next_obs"]
-            if config.system.normalize_observations:
-                bootstrap_obs = normalize(bootstrap_obs, learner_state.running_statistics)
+            if running_statistics is not None:
+                bootstrap_obs = normalize(bootstrap_obs, running_statistics)
             bootstrap_value = critic_apply_fn(params.critic_params, bootstrap_obs)
 
             transition = PPOTransition(
@@ -142,14 +145,15 @@ def get_learner_fn(
         params, opt_states, key, _, _ = learner_state
 
         # IF NORMALIZING OBSERVATIONS, UPDATE RUNNING STATISTICS
-        if config.system.normalize_observations:
+        running_statistics = getattr(learner_state, "running_statistics", None)
+        if running_statistics is not None:
             # Update running statistics
             running_statistics = update_statistics(
-                learner_state.running_statistics,
+                running_statistics,
                 traj_batch.obs,
                 pmap_axis_name=["device", "batch"],
             )
-            learner_state = learner_state._replace(running_statistics=running_statistics)
+            learner_state = learner_state._replace(running_statistics=running_statistics)  # type: ignore
 
         # CALCULATE ADVANTAGE
         v_tm1 = traj_batch.value
@@ -187,7 +191,7 @@ def get_learner_fn(
                     """Calculate the actor loss."""
                     # RERUN NETWORK
                     observations = traj_batch.obs
-                    if config.system.normalize_observations:
+                    if running_statistics is not None:
                         observations = normalize(observations, running_statistics)
 
                     actor_policy = actor_apply_fn(actor_params, observations)
@@ -215,7 +219,7 @@ def get_learner_fn(
                     """Calculate the critic loss."""
                     # RERUN NETWORK
                     observations = traj_batch.obs
-                    if config.system.normalize_observations:
+                    if running_statistics is not None:
                         observations = normalize(observations, running_statistics)
 
                     value = critic_apply_fn(critic_params, observations)
@@ -320,9 +324,6 @@ def get_learner_fn(
             )
             return update_state, loss_info
 
-        running_statistics = (
-            None if not config.system.normalize_observations else learner_state.running_statistics
-        )
         update_state = (
             params,
             opt_states,
@@ -492,6 +493,8 @@ def learner_setup(
         timestep=timesteps,
     )
 
+    # If normalizing observations, initialize running statistics.
+    # This will add running statistics to the learner state.
     if config.system.normalize_observations:
         running_statistics = initialize_statistics(jax.tree.map(lambda x: x.squeeze(0), init_x))
         running_statistics = jax.tree.map(broadcast, running_statistics)
@@ -564,7 +567,7 @@ def run_experiment(_config: DictConfig) -> float:
 
     # Run experiment for a total number of evaluations.
     max_episode_return = jnp.float32(-1e7)
-    best_params = unreplicate_batch_dim(learner_state.params.actor_params)
+    best_learner_state = unreplicate_batch_dim(learner_state)
     for eval_step in range(config.arch.num_evaluation):
         # Train.
         start_time = time.time()
@@ -602,13 +605,10 @@ def run_experiment(_config: DictConfig) -> float:
         eval_keys = eval_keys.reshape(n_devices, -1)
 
         # Evaluate.
-        if config.system.normalize_observations:
-            running_statistics = unreplicate_batch_dim(
-                learner_output.learner_state.running_statistics
-            )
-            evaluator_output = evaluator(trained_params, eval_keys, running_statistics)
-        else:
-            evaluator_output = evaluator(trained_params, eval_keys)
+        running_statistics = getattr(learner_output.learner_state, "running_statistics", None)
+        if running_statistics is not None:
+            running_statistics = unreplicate_batch_dim(running_statistics)
+        evaluator_output = evaluator(trained_params, eval_keys, running_statistics)
         jax.block_until_ready(evaluator_output)
 
         # Log the results of the evaluation.
@@ -628,7 +628,7 @@ def run_experiment(_config: DictConfig) -> float:
             )
 
         if config.arch.absolute_metric and max_episode_return <= episode_return:
-            best_params = copy.deepcopy(trained_params)
+            best_learner_state = copy.deepcopy(unreplicate_batch_dim(learner_state))
             max_episode_return = episode_return
 
         # Update runner state to continue training.
@@ -642,12 +642,11 @@ def run_experiment(_config: DictConfig) -> float:
         eval_keys = jnp.stack(eval_keys)
         eval_keys = eval_keys.reshape(n_devices, -1)
 
-        # Get the running statistics for the absolute metric evaluation
-        if config.system.normalize_observations:
-            running_statistics = unreplicate_batch_dim(learner_state.running_statistics)
-            evaluator_output = absolute_metric_evaluator(best_params, eval_keys, running_statistics)
-        else:
-            evaluator_output = absolute_metric_evaluator(best_params, eval_keys)
+        best_params = best_learner_state.params.actor_params
+        best_running_statistics = getattr(best_learner_state, "running_statistics", None)
+        evaluator_output = absolute_metric_evaluator(
+            best_params, eval_keys, best_running_statistics
+        )
         jax.block_until_ready(evaluator_output)
 
         elapsed_time = time.time() - start_time
