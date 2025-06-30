@@ -87,10 +87,9 @@ def get_learner_fn(
             """Step the environment."""
             params, opt_states, key, env_state, last_timestep = learner_state
 
+            observation = last_timestep.observation
             if config.system.normalize_observations:
                 observation = normalize(last_timestep.observation, learner_state.running_statistics)
-            else:
-                observation = last_timestep.observation
 
             # SELECT ACTION
             key, policy_key = jax.random.split(key)
@@ -109,7 +108,10 @@ def get_learner_fn(
             # Save bootstrap value for the next step.
             # Due to auto-resetting and truncation, we have to specifically save the bootstrap value
             # for the next (potentially final) observation.
-            bootstrap_value = critic_apply_fn(params.critic_params, timestep.extras["next_obs"])
+            bootstrap_obs = timestep.extras["next_obs"]
+            if config.system.normalize_observations:
+                bootstrap_obs = normalize(bootstrap_obs, learner_state.running_statistics)
+            bootstrap_value = critic_apply_fn(params.critic_params, bootstrap_obs)
 
             transition = PPOTransition(
                 done,
@@ -136,13 +138,11 @@ def get_learner_fn(
             _env_step, learner_state, None, config.system.rollout_length
         )
 
-        # CALCULATE ADVANTAGE
-        params, opt_states, key, env_state, last_timestep = learner_state
+        # UNPACK LEARNER STATE
+        params, opt_states, key, _, _ = learner_state
 
+        # IF NORMALIZING OBSERVATIONS, UPDATE RUNNING STATISTICS
         if config.system.normalize_observations:
-            # Normalise observation
-            observation = normalize(last_timestep.observation, learner_state.running_statistics)
-
             # Update running statistics
             running_statistics = update_statistics(
                 learner_state.running_statistics,
@@ -150,12 +150,8 @@ def get_learner_fn(
                 pmap_axis_name=["device", "batch"],
             )
             learner_state = learner_state._replace(running_statistics=running_statistics)
-        else:
-            # No normalisation
-            observation = last_timestep.observation
 
-        last_val = critic_apply_fn(params.critic_params, observation)
-
+        # CALCULATE ADVANTAGE
         v_tm1 = traj_batch.value
         r_t = traj_batch.reward
         v_t = traj_batch.bootstrap_value
@@ -190,11 +186,9 @@ def get_learner_fn(
                 ) -> Tuple:
                     """Calculate the actor loss."""
                     # RERUN NETWORK
-
+                    observations = traj_batch.obs
                     if config.system.normalize_observations:
-                        observations = normalize(traj_batch.obs, running_statistics)
-                    else:
-                        observations = traj_batch.obs
+                        observations = normalize(observations, running_statistics)
 
                     actor_policy = actor_apply_fn(actor_params, observations)
                     log_prob = actor_policy.log_prob(traj_batch.action)
@@ -220,10 +214,9 @@ def get_learner_fn(
                 ) -> Tuple:
                     """Calculate the critic loss."""
                     # RERUN NETWORK
+                    observations = traj_batch.obs
                     if config.system.normalize_observations:
-                        observations = normalize(traj_batch.obs, running_statistics)
-                    else:
-                        observations = traj_batch.obs
+                        observations = normalize(observations, running_statistics)
 
                     value = critic_apply_fn(critic_params, observations)
 
@@ -254,20 +247,14 @@ def get_learner_fn(
                 # This calculation is inspired by the Anakin architecture demo notebook.
                 # available at https://tinyurl.com/26tdzs5x
                 # This pmean could be a regular mean as the batch axis is on the same device.
-                actor_grads, actor_loss_info = jax.lax.pmean(
-                    (actor_grads, actor_loss_info), axis_name="batch"
+                actor_grads, actor_loss_info, critic_grads, critic_loss_info = jax.lax.pmean(
+                    (actor_grads, actor_loss_info, critic_grads, critic_loss_info),
+                    axis_name="batch",
                 )
                 # pmean over devices.
-                actor_grads, actor_loss_info = jax.lax.pmean(
-                    (actor_grads, actor_loss_info), axis_name="device"
-                )
-
-                critic_grads, critic_loss_info = jax.lax.pmean(
-                    (critic_grads, critic_loss_info), axis_name="batch"
-                )
-                # pmean over devices.
-                critic_grads, critic_loss_info = jax.lax.pmean(
-                    (critic_grads, critic_loss_info), axis_name="device"
+                actor_grads, actor_loss_info, critic_grads, critic_loss_info = jax.lax.pmean(
+                    (actor_grads, actor_loss_info, critic_grads, critic_loss_info),
+                    axis_name="device",
                 )
 
                 # UPDATE ACTOR PARAMS AND OPTIMISER STATE

@@ -213,7 +213,6 @@ LearnerFn = Callable[[StoixState], AnakinExperimentOutput[StoixState]]
 SebulbaLearnerFn = Callable[
     [StoixState, List[StoixTransition]], SebulbaExperimentOutput[StoixState]
 ]
-EvalFn = Callable[[FrozenDict, chex.PRNGKey], EvaluationOutput[StoixState]]
 SebulbaEvalFn = Callable[[FrozenDict, chex.PRNGKey], Dict[str, chex.Array]]
 
 ActorApply = Callable[..., DistributionLike]
