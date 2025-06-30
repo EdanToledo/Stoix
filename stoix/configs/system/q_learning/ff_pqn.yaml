@@ -1,0 +1,18 @@
+# --- Defaults FF-DQN ---
+
+system_name: ff_pqn # Name of the system.
+
+# --- RL hyperparameters ---
+rollout_length: 8 # Number of environment steps per vectorised environment.
+q_lr: 5e-4  # the learning rate of the Q network network optimizer
+epochs: 4 # Number of ppo epochs per training data batch.
+num_minibatches: 16 # Number of minibatches per ppo epoch.
+gamma: 0.99 # Discounting factor.
+q_lambda: 0.95 # Lambda value for Q lambda targets.
+max_grad_norm: 0.5 # Maximum norm of the gradients for a weight update.
+decay_learning_rates: False # Whether learning rates should be linearly decayed during training.
+training_epsilon: 0.1  # epsilon for the epsilon-greedy policy during training
+evaluation_epsilon: 0.00  # epsilon for the epsilon-greedy policy during evaluation
+huber_loss_parameter: 0.0  # parameter for the huber loss. If 0, it uses MSE loss.
+decay_epsilon: True  # Whether to decay the epsilon during training to a final value of training epsilon starting from 1.0.
+exploration_fraction: 0.5  # If decaying, this is the fraction of training to decay the epsilon over.

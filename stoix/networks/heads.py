@@ -204,11 +204,16 @@ class DiscreteQNetworkHead(nn.Module):
     kernel_init: Initializer = orthogonal(1.0)
 
     @nn.compact
-    def __call__(self, embedding: chex.Array) -> distrax.EpsilonGreedy:
+    def __call__(
+        self, embedding: chex.Array, epsilon: Optional[float] = None
+    ) -> distrax.EpsilonGreedy:
 
         q_values = nn.Dense(self.action_dim, kernel_init=self.kernel_init)(embedding)
 
-        return distrax.EpsilonGreedy(preferences=q_values, epsilon=self.epsilon)
+        if epsilon is None:
+            epsilon = self.epsilon
+
+        return distrax.EpsilonGreedy(preferences=q_values, epsilon=epsilon)
 
 
 class PolicyValueHead(nn.Module):

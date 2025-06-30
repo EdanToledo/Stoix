@@ -528,3 +528,42 @@ def importance_corrected_td_errors(
     return jax.lax.select(
         stop_target_gradients, jax.lax.stop_gradient(errors + v_tm1) - v_tm1, errors
     )
+
+
+def batch_q_lambda(
+    r_t: chex.Array,
+    discount_t: chex.Array,
+    q_t: chex.Array,
+    lambda_: chex.Numeric,
+    stop_target_gradients: bool = True,
+    time_major: bool = False,
+) -> chex.Array:
+    """Calculates Peng's or Watkins' Q(lambda) returns.
+
+    See "Reinforcement Learning: An Introduction" by Sutton and Barto.
+    (http://incompleteideas.net/book/ebook/node78.html).
+
+    Args:
+        r_t: sequence of rewards at time t.
+        discount_t: sequence of discounts at time t.
+        q_t: sequence of Q-values at time t.
+        lambda_: mixing parameter lambda, either a scalar (e.g. Peng's Q(lambda)) or
+        a sequence (e.g. Watkin's Q(lambda)).
+        stop_target_gradients: bool indicating whether or not to apply stop gradient
+        to targets.
+        time_major: If True, the first dimension of the input tensors is the time.
+
+    Returns:
+        Q(lambda) target values.
+    """
+    chex.assert_rank([r_t, discount_t, q_t, lambda_], [2, 2, 3, {0, 1, 2}])
+    chex.assert_type([r_t, discount_t, q_t, lambda_], [float, float, float, float])
+    v_t = jnp.max(q_t, axis=-1)
+    target_tm1 = batch_lambda_returns(
+        r_t, discount_t, v_t, lambda_, stop_target_gradients, time_major=time_major
+    )
+
+    target_tm1 = jax.lax.select(
+        stop_target_gradients, jax.lax.stop_gradient(target_tm1), target_tm1
+    )
+    return target_tm1

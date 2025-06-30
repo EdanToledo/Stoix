@@ -1,5 +1,5 @@
 import functools
-from typing import Any, Dict, List, Sequence, Tuple, Union
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import chex
 import distrax
@@ -22,13 +22,17 @@ class FeedForwardActor(nn.Module):
     input_layer: nn.Module = ObservationInput()
 
     @nn.compact
-    def __call__(self, observation: Observation) -> distrax.DistributionLike:
+    def __call__(
+        self,
+        observation: Observation,
+        input_kwargs: Optional[Dict] = None,
+        torso_kwargs: Optional[Dict] = None,
+        head_kwargs: Optional[Dict] = None,
+    ) -> distrax.DistributionLike:
 
-        obs_embedding = self.input_layer(observation)
-
-        obs_embedding = self.torso(obs_embedding)
-
-        return self.action_head(obs_embedding)
+        obs_embedding = self.input_layer(observation, **(input_kwargs or {}))
+        obs_embedding = self.torso(obs_embedding, **(torso_kwargs or {}))
+        return self.action_head(obs_embedding, **(head_kwargs or {}))
 
 
 class FeedForwardCritic(nn.Module):
@@ -39,11 +43,17 @@ class FeedForwardCritic(nn.Module):
     input_layer: nn.Module = ObservationInput()
 
     @nn.compact
-    def __call__(self, observation: Observation) -> chex.Array:
+    def __call__(
+        self,
+        observation: Observation,
+        input_kwargs: Optional[Dict] = None,
+        torso_kwargs: Optional[Dict] = None,
+        head_kwargs: Optional[Dict] = None,
+    ) -> chex.Array:
 
-        obs_embedding = self.input_layer(observation)
-        obs_embedding = self.torso(obs_embedding)
-        critic_output = self.critic_head(obs_embedding)
+        obs_embedding = self.input_layer(observation, **(input_kwargs or {}))
+        obs_embedding = self.torso(obs_embedding, **(torso_kwargs or {}))
+        critic_output = self.critic_head(obs_embedding, **(head_kwargs or {}))
 
         return critic_output
 
@@ -57,12 +67,19 @@ class FeedForwardActorCritic(nn.Module):
     input_layer: nn.Module = ObservationInput()
 
     @nn.compact
-    def __call__(self, observation: Observation) -> chex.Array:
+    def __call__(
+        self,
+        observation: Observation,
+        input_kwargs: Optional[Dict] = None,
+        torso_kwargs: Optional[Dict] = None,
+        actor_head_kwargs: Optional[Dict] = None,
+        critic_head_kwargs: Optional[Dict] = None,
+    ) -> chex.Array:
 
-        obs_embedding = self.input_layer(observation)
-        obs_embedding = self.torso(obs_embedding)
-        actor_output = self.action_head(obs_embedding)
-        critic_output = self.critic_head(obs_embedding)
+        obs_embedding = self.input_layer(observation, **(input_kwargs or {}))
+        obs_embedding = self.torso(obs_embedding, **(torso_kwargs or {}))
+        actor_output = self.action_head(obs_embedding, **(actor_head_kwargs or {}))
+        critic_output = self.critic_head(obs_embedding, **(critic_head_kwargs or {}))
 
         return actor_output, critic_output
 
