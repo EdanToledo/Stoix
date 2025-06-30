@@ -1,0 +1,21 @@
+# ---MLP Dueling DQN Networks---
+actor_network:
+  pre_torso:
+    _target_: stoix.networks.torso.MLPTorso
+    layer_sizes: [256]
+    use_layer_norm: True
+    activation: relu
+  rnn_layer:
+    _target_: stoix.networks.base.ScannedRNN
+    cell_type: gru
+    hidden_state_dim: 256
+  post_torso:
+    _target_: stoix.networks.torso.MLPTorso
+    layer_sizes: [256]
+    use_layer_norm: True
+    activation: relu
+  action_head:
+    _target_: stoix.networks.dueling.DuelingQNetwork
+    layer_sizes: [256]
+    use_layer_norm: True
+    activation: relu

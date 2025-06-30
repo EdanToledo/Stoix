@@ -1,0 +1,20 @@
+# --- Defaults FF-IMPALA ---
+
+system_name: ff_impala # Name of the system.
+
+# --- RL hyperparameters ---
+actor_lr: 6e-4 # Learning rate for actor network
+critic_lr: 6e-4 # Learning rate for critic network
+rollout_length: 128 # Number of environment steps per rollout
+gamma: 0.99 # Discounting factor
+vtrace_lambda: 1.0 # Lambda parameter for V-trace
+clip_rho_threshold: 1.0 # Importance weight clipping threshold for value correction (ρ̄)
+clip_pg_rho_threshold: 1.0 # Importance weight clipping threshold for policy gradient (c̄)
+ent_coef: 0.01 # Entropy regularisation term for loss function
+vf_coef: 0.5 # Value function coefficient in loss
+max_grad_norm: 40.0 # Maximum norm of the gradients for a weight update
+normalize_rewards: False # Whether to normalize rewards
+reward_scale: 1.0 # Scale factor for reward normalization
+reward_eps: 1e-8 # Epsilon for reward normalization numerical stability
+num_minibatches: 4 # Number of minibatches per update
+decay_learning_rates: True # Whether learning rates should be linearly decayed during training

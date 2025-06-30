@@ -4,3 +4,4 @@ LICENSE
 .github
 .gitignore
 .pre-commit-config.yaml
+.venv

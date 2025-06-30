@@ -175,16 +175,15 @@ def get_learner_fn(
             sequence: SequenceStep = sequence_sample.experience
 
             # CALCULATE TARGETS USING LAST ITERATION CRITIC
-            v_t = critic_apply_fn(static_critic_params, sequence.obs)
+            values = critic_apply_fn(static_critic_params, sequence.obs)
             r_t = sequence.reward[:, :-1]
             d_t = (1 - sequence.done.astype(jnp.float32)[:, :-1]) * config.system.gamma
             _, target_vals = batch_truncated_generalized_advantage_estimation(
                 r_t,
                 d_t,
                 config.system.gae_lambda,
-                v_t,
+                values=values,
                 time_major=False,
-                truncation_flags=sequence.truncated[:, :-1],
             )
 
             # CALCULATE CRITIC LOSS
@@ -249,17 +248,16 @@ def get_learner_fn(
             sequence: SequenceStep = sequence_sample.experience
 
             # CALCULATE WEIGHTS USING LATEST CRITIC
-            v_t = critic_apply_fn(params.critic_params, sequence.obs)
+            values = critic_apply_fn(params.critic_params, sequence.obs)
             r_t = sequence.reward[:, :-1]
             d_t = (1 - sequence.done.astype(jnp.float32)[:, :-1]) * config.system.gamma
             advantages, _ = batch_truncated_generalized_advantage_estimation(
                 r_t,
                 d_t,
                 config.system.gae_lambda,
-                v_t,
+                values=values,
                 time_major=False,
                 standardize_advantages=config.system.standardize_advantages,
-                truncation_flags=sequence.truncated[:, :-1],
             )
             weights = jnp.exp(advantages / config.system.beta)
             weights = jnp.minimum(weights, config.system.weight_clip)
@@ -588,7 +586,19 @@ def run_experiment(_config: DictConfig) -> float:
         logger.log({"timestep": t}, t, eval_step, LogEvent.MISC)
         if ep_completed:  # only log episode metrics if an episode was completed in the rollout.
             logger.log(episode_metrics, t, eval_step, LogEvent.ACT)
-        logger.log(learner_output.train_metrics, t, eval_step, LogEvent.TRAIN)
+        train_metrics = learner_output.train_metrics
+        # Calculate the number of optimiser steps per second. Since gradients are aggregated
+        # across the device and batch axis, we don't consider updates per device/batch as part of
+        # the SPS for the learner.
+        act_opt_steps_per_eval = config.arch.num_updates_per_eval * config.system.num_actor_steps
+        critic_opt_steps_per_eval = (
+            config.arch.num_updates_per_eval * config.system.num_critic_steps
+        )
+        total_opt_steps_per_eval = act_opt_steps_per_eval + critic_opt_steps_per_eval
+        train_metrics["actor_steps_per_second"] = act_opt_steps_per_eval / elapsed_time
+        train_metrics["critic_steps_per_second"] = critic_opt_steps_per_eval / elapsed_time
+        train_metrics["steps_per_second"] = total_opt_steps_per_eval / elapsed_time
+        logger.log(train_metrics, t, eval_step, LogEvent.TRAIN)
 
         # Prepare for evaluation.
         start_time = time.time()

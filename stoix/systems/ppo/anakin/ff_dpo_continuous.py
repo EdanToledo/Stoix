@@ -94,6 +94,10 @@ def get_learner_fn(
             done = (timestep.discount == 0.0).reshape(-1)
             truncated = (timestep.last() & (timestep.discount != 0.0)).reshape(-1)
             info = timestep.extras["episode_metrics"]
+            # Save bootstrap value for the next step.
+            # Due to auto-resetting and truncation, we have to specifically save the bootstrap value
+            # for the next (potentially final) observation.
+            bootstrap_value = critic_apply_fn(params.critic_params, timestep.extras["next_obs"])
 
             transition = PPOTransition(
                 done,
@@ -101,6 +105,7 @@ def get_learner_fn(
                 action,
                 value,
                 timestep.reward,
+                bootstrap_value,
                 log_prob,
                 last_timestep.observation,
                 info,
@@ -115,20 +120,21 @@ def get_learner_fn(
 
         # CALCULATE ADVANTAGE
         params, opt_states, key, env_state, last_timestep = learner_state
-        last_val = critic_apply_fn(params.critic_params, last_timestep.observation)
 
+        v_tm1 = traj_batch.value
         r_t = traj_batch.reward
-        v_t = jnp.concatenate([traj_batch.value, last_val[None, ...]], axis=0)
+        v_t = traj_batch.bootstrap_value
         d_t = 1.0 - traj_batch.done.astype(jnp.float32)
         d_t = (d_t * config.system.gamma).astype(jnp.float32)
         advantages, targets = batch_truncated_generalized_advantage_estimation(
             r_t,
             d_t,
             config.system.gae_lambda,
-            v_t,
+            v_tm1=v_tm1,
+            v_t=v_t,
             time_major=True,
             standardize_advantages=config.system.standardize_advantages,
-            truncation_flags=traj_batch.truncated,
+            truncation_t=traj_batch.truncated,
         )
 
         def _update_epoch(update_state: Tuple, _: Any) -> Tuple:
@@ -510,7 +516,15 @@ def run_experiment(_config: DictConfig) -> float:
         logger.log({"timestep": t}, t, eval_step, LogEvent.MISC)
         if ep_completed:  # only log episode metrics if an episode was completed in the rollout.
             logger.log(episode_metrics, t, eval_step, LogEvent.ACT)
-        logger.log(learner_output.train_metrics, t, eval_step, LogEvent.TRAIN)
+        train_metrics = learner_output.train_metrics
+        # Calculate the number of optimiser steps per second. Since gradients are aggregated
+        # across the device and batch axis, we don't consider updates per device/batch as part of
+        # the SPS for the learner.
+        opt_steps_per_eval = config.arch.num_updates_per_eval * (
+            config.system.epochs * config.system.num_minibatches
+        )
+        train_metrics["steps_per_second"] = opt_steps_per_eval / elapsed_time
+        logger.log(train_metrics, t, eval_step, LogEvent.TRAIN)
 
         # Prepare for evaluation.
         start_time = time.time()
