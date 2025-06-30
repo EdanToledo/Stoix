@@ -1,5 +1,6 @@
 import copy
-from typing import Tuple
+import dataclasses
+from typing import Callable, Tuple
 
 import gymnax
 import hydra
@@ -13,6 +14,8 @@ import xminigrid
 from brax.envs import _envs as brax_environments
 from brax.envs import create as brax_make
 from gymnax import registered_envs as gymnax_environments
+from gymnax.environments.environment import Environment as GymnaxEnvironment
+from gymnax.environments.environment import EnvParams as GymnaxEnvParams
 from jaxmarl.environments.smax import map_name_to_scenario
 from jaxmarl.registration import registered_envs as jaxmarl_environments
 from jumanji.env import Environment
@@ -78,6 +81,30 @@ def make_jumanji_env(
     return env, eval_env
 
 
+def _create_gymnax_env_instance(
+    env_name: str, env_kwargs: dict
+) -> Tuple[GymnaxEnvironment, GymnaxEnvParams]:
+    """Helper function to create a single Gymnax env instance with proper kwarg handling.
+
+    This is due to gymnax having both environment init arguments and environment
+    parameters in the EnvParams object."""
+    # Get default params to identify which kwargs are for init and which are for params
+    _, default_params = gymnax.make(env_name)
+    param_fields = {f.name for f in dataclasses.fields(default_params)}
+
+    init_kwargs = {k: v for k, v in env_kwargs.items() if k not in param_fields}
+    params_kwargs = {k: v for k, v in env_kwargs.items() if k in param_fields}
+
+    # Create env, passing only potential init_kwargs
+    env, env_params = gymnax.make(env_name, **init_kwargs)
+
+    # Update params with params_kwargs
+    if params_kwargs:
+        env_params = dataclasses.replace(env_params, **params_kwargs)
+
+    return env, env_params
+
+
 def make_gymnax_env(env_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
     """
     Create a Gymnax environments for training and evaluation.
@@ -89,11 +116,13 @@ def make_gymnax_env(env_name: str, config: DictConfig) -> Tuple[Environment, Env
     Returns:
         A tuple of the environments.
     """
-    # Config generator and select the wrapper.
-    # Create envs.
-    env, env_params = gymnax.make(env_name, **config.env.kwargs)
-    eval_env, eval_env_params = gymnax.make(env_name, **config.env.kwargs)
+    env_kwargs = dict(copy.deepcopy(config.env.kwargs))
 
+    # Create envs using the helper function
+    env, env_params = _create_gymnax_env_instance(env_name, env_kwargs)
+    eval_env, eval_env_params = _create_gymnax_env_instance(env_name, env_kwargs)
+
+    # Wrap environments
     env = GymnaxWrapper(env, env_params)
     eval_env = GymnaxWrapper(eval_env, eval_env_params)
 
@@ -373,23 +402,31 @@ def make_navix_env(env_name: str, config: DictConfig) -> Tuple[Environment, Envi
     return env, eval_env
 
 
-def make_gymnasium_factory(env_name: str, config: DictConfig) -> GymnasiumFactory:
+def make_gymnasium_factory(
+    env_name: str, config: DictConfig, apply_wrapper_fn: Callable
+) -> GymnasiumFactory:
 
-    env_factory = GymnasiumFactory(env_name, init_seed=config.arch.seed, **config.env.kwargs)
+    env_factory = GymnasiumFactory(
+        env_name, init_seed=config.arch.seed, apply_wrapper_fn=apply_wrapper_fn, **config.env.kwargs
+    )
 
     return env_factory
 
 
-def make_envpool_factory(env_name: str, config: DictConfig) -> EnvPoolFactory:
+def make_envpool_factory(
+    env_name: str, config: DictConfig, apply_wrapper_fn: Callable
+) -> EnvPoolFactory:
 
-    env_factory = EnvPoolFactory(env_name, init_seed=config.arch.seed, **config.env.kwargs)
+    env_factory = EnvPoolFactory(
+        env_name, init_seed=config.arch.seed, apply_wrapper_fn=apply_wrapper_fn, **config.env.kwargs
+    )
 
     return env_factory
 
 
 def make(config: DictConfig) -> Tuple[Environment, Environment]:
     """
-    Create environments for training and evaluation..
+    Create environments for training and evaluation.
 
     Args:
         config (Dict): The configuration of the environment.
@@ -440,9 +477,15 @@ def make_factory(config: DictConfig) -> EnvFactory:
     env_name = config.env.scenario.name
     suite_name = config.env.env_name
 
+    apply_wrapper_fn = lambda x: x
+    if "wrapper" in config.env and config.env.wrapper is not None:
+        apply_wrapper_fn = hydra.utils.instantiate(config.env.wrapper, _partial_=True)
+
     if "envpool" in suite_name:
-        return make_envpool_factory(env_name, config)
+        return make_envpool_factory(env_name, config, apply_wrapper_fn)
     elif "gymnasium" in suite_name:
-        return make_gymnasium_factory(env_name, config)
+        return make_gymnasium_factory(env_name, config, apply_wrapper_fn)
     else:
-        return JaxEnvFactory(make(config)[0], init_seed=config.arch.seed)
+        return JaxEnvFactory(
+            make(config)[0], init_seed=config.arch.seed, apply_wrapper_fn=apply_wrapper_fn
+        )

@@ -2,8 +2,8 @@ defaults:
   - logger: base_logger
   - arch: sebulba
   - system: ppo/ff_ppo
-  - network: mlp
-  - env: envpool/cartpole
+  - network: visual_resnet
+  - env: envpool/breakout
   - _self_
 
 hydra:

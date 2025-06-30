@@ -22,6 +22,8 @@ python stoix/systems/mpo/ff_mpo.py arch.total_timesteps=300 arch.total_num_envs=
 python stoix/systems/mpo/ff_vmpo.py arch.total_timesteps=300 arch.total_num_envs=8 arch.num_evaluation=1 system.rollout_length=8
 python stoix/systems/search/ff_az.py arch.total_timesteps=300 arch.total_num_envs=8 arch.num_evaluation=1 system.rollout_length=8
 python stoix/systems/search/ff_mz.py arch.total_timesteps=300 arch.total_num_envs=8 arch.num_evaluation=1 system.rollout_length=8
+python stoix/systems/spo/ff_spo.py arch.total_timesteps=300 arch.total_num_envs=8 arch.num_evaluation=1 system.rollout_length=8
+python stoix/systems/spo/ff_spo_continuous.py arch.total_timesteps=300 arch.total_num_envs=8 arch.num_evaluation=1 system.rollout_length=8
 
 # Test a subset of networks
 python stoix/systems/ppo/anakin/ff_ppo.py arch.total_timesteps=300 arch.total_num_envs=8 arch.num_evaluation=1 system.rollout_length=8 env=gymnax/breakout env.wrapper=null network=cnn network.actor_network.pre_torso.channel_first=False network.critic_network.pre_torso.channel_first=False
@@ -31,5 +33,5 @@ python stoix/systems/q_learning/ff_dqn.py arch.total_timesteps=300 arch.total_nu
 python stoix/systems/q_learning/ff_c51.py arch.total_timesteps=300 arch.total_num_envs=8 arch.num_evaluation=1 system.rollout_length=8 network=mlp_dueling_c51
 
 # Test sebulba algorithms
-python stoix/systems/ppo/sebulba/ff_ppo.py arch.total_timesteps=300 arch.total_num_envs=8 arch.num_evaluation=1 system.rollout_length=8 arch.actor.device_ids=[0] arch.actor.actor_per_device=1 arch.learner.device_ids=[0]
-python stoix/systems/impala/sebulba/ff_impala.py arch.total_timesteps=300 arch.total_num_envs=8 arch.num_evaluation=1 system.rollout_length=8 arch.actor.device_ids=[0] arch.actor.actor_per_device=1 arch.learner.device_ids=[0]
+python stoix/systems/ppo/sebulba/ff_ppo.py arch.total_timesteps=300 arch.total_num_envs=8 arch.num_evaluation=1 system.rollout_length=8 arch.actor.device_ids=[0] arch.actor.actor_per_device=1 arch.learner.device_ids=[0] arch.evaluator_device_id=0
+python stoix/systems/impala/sebulba/ff_impala.py arch.total_timesteps=300 arch.total_num_envs=8 arch.num_evaluation=1 system.rollout_length=8 arch.actor.device_ids=[0] arch.actor.actor_per_device=1 arch.learner.device_ids=[0] arch.evaluator_device_id=0

@@ -1,0 +1,21 @@
+env_name: envpool # Used for logging purposes and selection of the corresponding wrapper.
+
+scenario:
+  name: DoubleDunk-v5
+  task_name: doubledunk # For logging purposes.
+
+kwargs:
+  episodic_life: False
+  repeat_action_probability: 0.25
+  noop_max: 1
+  full_action_space: True
+  max_episode_steps: 27000
+  reward_clip : True
+
+# Defines the metric that will be used to evaluate the performance of the agent.
+# This metric is returned at the end of an experiment and can be used for hyperparameter tuning.
+eval_metric: episode_return
+
+# optional - defines the threshold that needs to be reached in order to consider the environment solved.
+# if present then solve rate will be logged.
+solved_return_threshold: 15.0

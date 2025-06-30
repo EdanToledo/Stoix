@@ -313,9 +313,8 @@ def get_learner_fn(
                         r_t[:, :-1],
                         d_t[:, :-1],
                         config.system.gae_lambda,
-                        v_t,
+                        values=v_t,
                         time_major=False,
-                        truncation_t=sequence.truncated[:, :-1],
                     )
                     td_error = online_q_t[:, :-1] - gae_value_target
                     q_loss = rlax.l2_loss(td_error).mean()
