@@ -26,6 +26,7 @@ from stoix.base_types import (
 )
 from stoix.utils.env_factory import EnvFactory
 from stoix.utils.jax_utils import unreplicate_batch_dim
+from stoix.utils.running_statistics import RunningStatisticsState, normalize
 
 
 def get_distribution_act_fn(
@@ -88,7 +89,11 @@ def get_ff_evaluator_fn(
             single evaluation step.
     """
 
-    def eval_one_episode(params: FrozenDict, init_eval_state: EvalState) -> Dict:
+    def eval_one_episode(
+        params: FrozenDict,
+        init_eval_state: EvalState,
+        running_statistics: Optional[RunningStatisticsState] = None,
+    ) -> Dict:
         """Evaluate one episode. It is vectorized over the number of evaluation episodes."""
 
         def _env_step(eval_state: EvalState) -> EvalState:
@@ -99,9 +104,14 @@ def get_ff_evaluator_fn(
             # Select action.
             key, policy_key = jax.random.split(key)
 
+            # Normalize observation if needed
+            observation = last_timestep.observation
+            if running_statistics is not None:
+                observation = normalize(observation, running_statistics)
+
             action = act_fn(
                 params,
-                jax.tree_util.tree_map(lambda x: x[jnp.newaxis, ...], last_timestep.observation),
+                jax.tree_util.tree_map(lambda x: x[jnp.newaxis, ...], observation),
                 policy_key,
             )
 
@@ -134,7 +144,11 @@ def get_ff_evaluator_fn(
 
         return eval_metrics
 
-    def evaluator_fn(trained_params: FrozenDict, key: chex.PRNGKey) -> EvaluationOutput[EvalState]:
+    def evaluator_fn(
+        trained_params: FrozenDict,
+        key: chex.PRNGKey,
+        running_statistics: Optional[RunningStatisticsState] = None,
+    ) -> EvaluationOutput[EvalState]:
         """Evaluator function."""
 
         # Initialise environment states and timesteps.
@@ -161,9 +175,9 @@ def get_ff_evaluator_fn(
 
         eval_metrics = jax.vmap(
             eval_one_episode,
-            in_axes=(None, 0),
+            in_axes=(None, 0, None),
             axis_name="eval_batch",
-        )(trained_params, eval_state)
+        )(trained_params, eval_state, running_statistics)
 
         return EvaluationOutput(
             learner_state=eval_state,
@@ -183,7 +197,11 @@ def get_rnn_evaluator_fn(
 ) -> EvalFn:
     """Get the evaluator function for recurrent networks."""
 
-    def eval_one_episode(params: FrozenDict, init_eval_state: RNNEvalState) -> Dict:
+    def eval_one_episode(
+        params: FrozenDict,
+        init_eval_state: RNNEvalState,
+        running_statistics: Optional[RunningStatisticsState] = None,
+    ) -> Dict:
         """Evaluate one episode. It is vectorized over the number of evaluation episodes."""
 
         def _env_step(eval_state: RNNEvalState) -> RNNEvalState:
@@ -202,8 +220,13 @@ def get_rnn_evaluator_fn(
             key, policy_key = jax.random.split(key)
 
             # Add a batch dimension and env dimension to the observation.
+            observation = last_timestep.observation
+            # Normalize observation if needed
+            if running_statistics is not None:
+                observation = normalize(observation, running_statistics)
+
             batched_observation = jax.tree_util.tree_map(
-                lambda x: jnp.expand_dims(x, axis=0)[jnp.newaxis, :], last_timestep.observation
+                lambda x: jnp.expand_dims(x, axis=0)[jnp.newaxis, :], observation
             )
             ac_in = (batched_observation, jnp.expand_dims(last_done, axis=0))
 
@@ -247,7 +270,9 @@ def get_rnn_evaluator_fn(
         return eval_metrics
 
     def evaluator_fn(
-        trained_params: FrozenDict, key: chex.PRNGKey
+        trained_params: FrozenDict,
+        key: chex.PRNGKey,
+        running_statistics: Optional[RunningStatisticsState] = None,
     ) -> EvaluationOutput[RNNEvalState]:
         """Evaluator function."""
 
@@ -285,9 +310,9 @@ def get_rnn_evaluator_fn(
 
         eval_metrics = jax.vmap(
             eval_one_episode,
-            in_axes=(None, 0),
+            in_axes=(None, 0, None),
             axis_name="eval_batch",
-        )(trained_params, eval_state)
+        )(trained_params, eval_state, running_statistics)
 
         return EvaluationOutput(
             learner_state=eval_state,
@@ -342,15 +367,16 @@ def evaluator_setup(
             10,
         )
 
-    evaluator = jax.pmap(evaluator, axis_name="device")
-    absolute_metric_evaluator = jax.pmap(absolute_metric_evaluator, axis_name="device")
+    # Pmap the evaluator functions
+    evaluator_fn = jax.pmap(evaluator, axis_name="device")
+    absolute_metric_evaluator_fn = jax.pmap(absolute_metric_evaluator, axis_name="device")
 
     # Broadcast trained params to cores and split keys for each core.
     trained_params = unreplicate_batch_dim(params)
     key_e, *eval_keys = jax.random.split(key_e, n_devices + 1)
     eval_keys = jnp.stack(eval_keys).reshape(n_devices, -1)
 
-    return evaluator, absolute_metric_evaluator, (trained_params, eval_keys)
+    return evaluator_fn, absolute_metric_evaluator_fn, (trained_params, eval_keys)
 
 
 def get_sebulba_eval_fn(

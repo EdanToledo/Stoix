@@ -16,7 +16,9 @@ from flashbax.buffers.trajectory_buffer import BufferState
 from flax.core.frozen_dict import FrozenDict
 from jumanji.types import TimeStep
 from optax import OptState
-from typing_extensions import NamedTuple, TypeAlias
+from typing_extensions import NamedTuple, Protocol, TypeAlias, runtime_checkable
+
+from stoix.utils.running_statistics import RunningStatisticsState
 
 if TYPE_CHECKING:  # https://github.com/python/mypy/issues/6239
     from dataclasses import dataclass
@@ -211,7 +213,6 @@ LearnerFn = Callable[[StoixState], AnakinExperimentOutput[StoixState]]
 SebulbaLearnerFn = Callable[
     [StoixState, List[StoixTransition]], SebulbaExperimentOutput[StoixState]
 ]
-EvalFn = Callable[[FrozenDict, chex.PRNGKey], EvaluationOutput[StoixState]]
 SebulbaEvalFn = Callable[[FrozenDict, chex.PRNGKey], Dict[str, chex.Array]]
 
 ActorApply = Callable[..., DistributionLike]
@@ -228,3 +229,16 @@ RecActFn = Callable[
     [FrozenDict, HiddenState, RNNObservation, chex.PRNGKey], Tuple[HiddenState, chex.Array]
 ]
 RecCriticApply = Callable[[FrozenDict, HiddenState, RNNObservation], Tuple[HiddenState, Value]]
+
+
+@runtime_checkable
+class EvalFn(Protocol[StoixState]):
+    """Evaluator function protocol that allows for optional running_statistics parameter."""
+
+    def __call__(
+        self,
+        trained_params: FrozenDict,
+        key: chex.PRNGKey,
+        running_statistics: Optional[RunningStatisticsState] = None,
+    ) -> EvaluationOutput[StoixState]:
+        ...

@@ -1,4 +1,4 @@
-from typing import Callable, Dict, Tuple
+from typing import Dict, Optional, Tuple
 
 import chex
 import jax
@@ -10,6 +10,7 @@ from omegaconf import DictConfig
 from stoix.base_types import EvalFn, EvalState, EvaluationOutput
 from stoix.systems.search.search_types import RootFnApply, SearchApply
 from stoix.utils.jax_utils import unreplicate_batch_dim
+from stoix.utils.running_statistics import RunningStatisticsState
 
 
 def get_search_evaluator_fn(
@@ -20,9 +21,25 @@ def get_search_evaluator_fn(
     log_solve_rate: bool = False,
     eval_multiplier: int = 1,
 ) -> EvalFn:
-    """Get the evaluator function for search-based agents."""
+    """Get the evaluator function for search-based algorithms.
 
-    def eval_one_episode(params: FrozenDict, init_eval_state: EvalState) -> Dict:
+    Args:
+        env (Environment): An environment instance for evaluation.
+        act_fn (callable): The act_fn that returns the action taken by the agent.
+        config (dict): Experiment configuration.
+        eval_multiplier (int): A scalar that will increase the number of evaluation
+            episodes by a fixed factor. The reason for the increase is to enable the
+            computation of the `absolute metric` which is a metric computed and the end
+            of training by rolling out the policy which obtained the greatest evaluation
+            performance during training for 10 times more episodes than were used at a
+            single evaluation step.
+    """
+
+    def eval_one_episode(
+        params: FrozenDict,
+        init_eval_state: EvalState,
+        running_statistics: Optional[RunningStatisticsState] = None,
+    ) -> Dict:
         """Evaluate one episode. It is vectorized over the number of evaluation episodes."""
 
         def _env_step(eval_state: EvalState) -> EvalState:
@@ -68,7 +85,11 @@ def get_search_evaluator_fn(
 
         return eval_metrics
 
-    def evaluator_fn(trained_params: FrozenDict, key: chex.PRNGKey) -> EvaluationOutput[EvalState]:
+    def evaluator_fn(
+        trained_params: FrozenDict,
+        key: chex.PRNGKey,
+        running_statistics: Optional[RunningStatisticsState] = None,
+    ) -> EvaluationOutput[EvalState]:
         """Evaluator function."""
 
         # Initialise environment states and timesteps.
@@ -95,9 +116,9 @@ def get_search_evaluator_fn(
 
         eval_metrics = jax.vmap(
             eval_one_episode,
-            in_axes=(None, 0),
+            in_axes=(None, 0, None),
             axis_name="eval_batch",
-        )(trained_params, eval_state)
+        )(trained_params, eval_state, running_statistics)
 
         return EvaluationOutput(
             learner_state=eval_state,
@@ -111,7 +132,7 @@ def search_evaluator_setup(
     eval_env: Environment,
     key_e: chex.PRNGKey,
     search_apply_fn: SearchApply,
-    root_fn: Callable,
+    root_fn: RootFnApply,
     params: FrozenDict,
     config: DictConfig,
 ) -> Tuple[EvalFn, EvalFn, Tuple[FrozenDict, chex.Array]]:
@@ -124,11 +145,10 @@ def search_evaluator_setup(
     else:
         log_solve_rate = False
 
-    eval_apply_fn = search_apply_fn
-    evaluator = get_search_evaluator_fn(eval_env, eval_apply_fn, root_fn, config, log_solve_rate)
+    evaluator = get_search_evaluator_fn(eval_env, search_apply_fn, root_fn, config, log_solve_rate)
     absolute_metric_evaluator = get_search_evaluator_fn(
         eval_env,
-        eval_apply_fn,
+        search_apply_fn,
         root_fn,
         config,
         log_solve_rate,

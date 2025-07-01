@@ -37,6 +37,12 @@ from stoix.utils.jax_utils import (
 from stoix.utils.logger import LogEvent, StoixLogger
 from stoix.utils.loss import clipped_value_loss, ppo_clip_loss
 from stoix.utils.multistep import batch_truncated_generalized_advantage_estimation
+from stoix.utils.running_statistics import (
+    create_with_running_statistics,
+    initialize_statistics_from_data,
+    normalize,
+    update_statistics,
+)
 from stoix.utils.total_timestep_checker import check_total_timesteps
 from stoix.utils.training import make_learning_rate
 from stoix.wrappers.episode_metrics import get_final_step_metrics
@@ -80,10 +86,19 @@ def get_learner_fn(
             """Step the environment."""
             params, opt_states, key, env_state, last_timestep = learner_state
 
+            # GET OBSERVATION
+            observation = last_timestep.observation
+
+            # Get running statistics if normalizing observations.
+            # It would not be present if observation normalization is not implemented/setup.
+            running_statistics = getattr(learner_state, "running_statistics", None)
+            if running_statistics is not None:
+                observation = normalize(observation, running_statistics)
+
             # SELECT ACTION
             key, policy_key = jax.random.split(key)
-            actor_policy = actor_apply_fn(params.actor_params, last_timestep.observation)
-            value = critic_apply_fn(params.critic_params, last_timestep.observation)
+            actor_policy = actor_apply_fn(params.actor_params, observation)
+            value = critic_apply_fn(params.critic_params, observation)
             action = actor_policy.sample(seed=policy_key)
             log_prob = actor_policy.log_prob(action)
 
@@ -97,7 +112,10 @@ def get_learner_fn(
             # Save bootstrap value for the next step.
             # Due to auto-resetting and truncation, we have to specifically save the bootstrap value
             # for the next (potentially final) observation.
-            bootstrap_value = critic_apply_fn(params.critic_params, timestep.extras["next_obs"])
+            bootstrap_obs = timestep.extras["next_obs"]
+            if running_statistics is not None:
+                bootstrap_obs = normalize(bootstrap_obs, running_statistics)
+            bootstrap_value = critic_apply_fn(params.critic_params, bootstrap_obs)
 
             transition = PPOTransition(
                 done,
@@ -110,7 +128,12 @@ def get_learner_fn(
                 last_timestep.observation,
                 info,
             )
-            learner_state = OnPolicyLearnerState(params, opt_states, key, env_state, timestep)
+            # Replace the learner state with the new environment state and timestep.
+            learner_state = learner_state._replace(
+                key=key,
+                env_state=env_state,
+                timestep=timestep,
+            )
             return learner_state, transition
 
         # STEP ENVIRONMENT FOR ROLLOUT LENGTH
@@ -118,11 +141,31 @@ def get_learner_fn(
             _env_step, learner_state, None, config.system.rollout_length
         )
 
-        # CALCULATE ADVANTAGE
-        params, opt_states, key, env_state, last_timestep = learner_state
+        # UNPACK LEARNER STATE
+        params, opt_states, key, _, _ = learner_state
 
+        # IF NORMALIZING OBSERVATIONS, UPDATE RUNNING STATISTICS
+        running_statistics = getattr(learner_state, "running_statistics", None)
+        if running_statistics is not None:
+            # We get the raw observations from the trajectory batch.
+            raw_obs = traj_batch.obs
+            # We normalize with pre-updated statistics
+            normalized_obs = normalize(traj_batch.obs, running_statistics)
+            # Update running statistics
+            running_statistics = update_statistics(
+                running_statistics,
+                raw_obs,
+                pmap_axes=["device", "batch"],
+                std_min_value=5e-4,
+                std_max_value=5e4,
+            )
+            learner_state = learner_state._replace(running_statistics=running_statistics)  # type: ignore
+            # We then replace the observations in the trajectory batch with the normalized ones.
+            traj_batch = traj_batch._replace(obs=normalized_obs)
+
+        # CALCULATE ADVANTAGE
         v_tm1 = traj_batch.value
-        r_t = traj_batch.reward
+        r_t = traj_batch.reward * config.system.reward_scale
         v_t = traj_batch.bootstrap_value
         d_t = 1.0 - traj_batch.done.astype(jnp.float32)
         d_t = (d_t * config.system.gamma).astype(jnp.float32)
@@ -168,8 +211,8 @@ def get_learner_fn(
                     loss_info = {
                         "actor_loss": loss_actor,
                         "entropy": entropy,
+                        "advantages": gae,
                     }
-
                     return total_loss_actor, loss_info
 
                 def _critic_loss_fn(
@@ -189,6 +232,8 @@ def get_learner_fn(
                     critic_total_loss = config.system.vf_coef * value_loss
                     loss_info = {
                         "value_loss": value_loss,
+                        "pred_value": value,
+                        "target_value": targets,
                     }
                     return critic_total_loss, loss_info
 
@@ -212,20 +257,14 @@ def get_learner_fn(
                 # This calculation is inspired by the Anakin architecture demo notebook.
                 # available at https://tinyurl.com/26tdzs5x
                 # This pmean could be a regular mean as the batch axis is on the same device.
-                actor_grads, actor_loss_info = jax.lax.pmean(
-                    (actor_grads, actor_loss_info), axis_name="batch"
+                actor_grads, actor_loss_info, critic_grads, critic_loss_info = jax.lax.pmean(
+                    (actor_grads, actor_loss_info, critic_grads, critic_loss_info),
+                    axis_name="batch",
                 )
                 # pmean over devices.
-                actor_grads, actor_loss_info = jax.lax.pmean(
-                    (actor_grads, actor_loss_info), axis_name="device"
-                )
-
-                critic_grads, critic_loss_info = jax.lax.pmean(
-                    (critic_grads, critic_loss_info), axis_name="batch"
-                )
-                # pmean over devices.
-                critic_grads, critic_loss_info = jax.lax.pmean(
-                    (critic_grads, critic_loss_info), axis_name="device"
+                actor_grads, actor_loss_info, critic_grads, critic_loss_info = jax.lax.pmean(
+                    (actor_grads, actor_loss_info, critic_grads, critic_loss_info),
+                    axis_name="device",
                 )
 
                 # UPDATE ACTOR PARAMS AND OPTIMISER STATE
@@ -283,7 +322,7 @@ def get_learner_fn(
         )
 
         params, opt_states, traj_batch, advantages, targets, key = update_state
-        learner_state = OnPolicyLearnerState(params, opt_states, key, env_state, last_timestep)
+        learner_state = learner_state._replace(params=params, opt_states=opt_states, key=key)
         metric = traj_batch.info
         return learner_state, (metric, loss_info)
 
@@ -319,6 +358,57 @@ def get_learner_fn(
     return learner_fn
 
 
+def _collect_obs_norm_rollouts(
+    env: Environment,
+    key: chex.PRNGKey,
+    config: DictConfig,
+) -> chex.ArrayTree:
+    """Collect observations for observation normalization.
+    This function collects observations from the environment by taking random actions
+    for a specified number of warmup steps."""
+    num_warmup_obs = config.system.obs_norm_warmup_steps * config.arch.total_num_envs
+    print(
+        f"{Fore.YELLOW}{Style.BRIGHT}Initializing observation normalization with "
+        f"{num_warmup_obs} observations...{Style.RESET_ALL}"
+    )
+
+    @jax.jit
+    def _warmup_step(env_state: Any, step_key: chex.PRNGKey) -> Tuple[Any, chex.ArrayTree]:
+        """Single warmup step: random action -> environment step -> collect observation."""
+        action = jax.random.uniform(
+            step_key,
+            (config.arch.total_num_envs, config.system.action_dim),
+            minval=config.system.action_minimum,
+            maxval=config.system.action_maximum,
+        )
+        env_state, timestep = jax.vmap(env.step, in_axes=(0, 0))(env_state, action)
+        return env_state, timestep.observation
+
+    # Initialize environments for data collection
+    key, *env_keys = jax.random.split(key, config.arch.total_num_envs + 1)
+    env_states, initial_timesteps = jax.vmap(env.reset, in_axes=(0))(jnp.stack(env_keys))
+
+    # Collect warmup observations through random actions
+    step_keys = jax.random.split(key, config.system.obs_norm_warmup_steps)
+    _, warmup_observations = jax.lax.scan(_warmup_step, env_states, step_keys)
+
+    # Combine initial reset observations with warmup observations
+    all_observations = jax.tree.map(
+        lambda reset_obs, warmup_obs: jnp.concatenate(
+            [
+                reset_obs[
+                    jnp.newaxis,
+                ],
+                warmup_obs,
+            ],
+            axis=0,
+        ),
+        initial_timesteps.observation,
+        warmup_observations,
+    )
+    return all_observations
+
+
 def learner_setup(
     env: Environment, keys: chex.Array, config: DictConfig
 ) -> Tuple[LearnerFn[OnPolicyLearnerState], Actor, OnPolicyLearnerState]:
@@ -327,8 +417,8 @@ def learner_setup(
     n_devices = len(jax.devices())
 
     # Get number of actions.
-    num_actions = int(env.action_spec().shape[-1])
-    config.system.action_dim = num_actions
+    action_dim = int(env.action_spec().shape[-1])
+    config.system.action_dim = action_dim
     config.system.action_minimum = float(env.action_spec().minimum)
     config.system.action_maximum = float(env.action_spec().maximum)
 
@@ -339,7 +429,7 @@ def learner_setup(
     actor_torso = hydra.utils.instantiate(config.network.actor_network.pre_torso)
     actor_action_head = hydra.utils.instantiate(
         config.network.actor_network.action_head,
-        action_dim=num_actions,
+        action_dim=action_dim,
         minimum=config.system.action_minimum,
         maximum=config.system.action_maximum,
     )
@@ -435,6 +525,18 @@ def learner_setup(
     params, opt_states = replicate_learner
     init_learner_state = OnPolicyLearnerState(params, opt_states, step_keys, env_states, timesteps)
 
+    # If normalizing observations, initialize running statistics.
+    # This will add running statistics to the learner state.
+    if config.system.normalize_observations:
+        dummy_obs = jax.tree.map(lambda x: x.squeeze(0), init_x)
+        warmup_observations = _collect_obs_norm_rollouts(env, key, config)
+        running_statistics = initialize_statistics_from_data(dummy_obs, warmup_observations)
+        running_statistics = jax.tree.map(broadcast, running_statistics)
+        running_statistics = flax.jax_utils.replicate(running_statistics, devices=jax.devices())
+        init_learner_state = create_with_running_statistics(
+            state=init_learner_state, running_statistics=running_statistics
+        )
+
     return learn, actor_network, init_learner_state
 
 
@@ -499,7 +601,7 @@ def run_experiment(_config: DictConfig) -> float:
 
     # Run experiment for a total number of evaluations.
     max_episode_return = jnp.float32(-1e7)
-    best_params = unreplicate_batch_dim(learner_state.params.actor_params)
+    best_learner_state = unreplicate_batch_dim(learner_state)
     for eval_step in range(config.arch.num_evaluation):
         # Train.
         start_time = time.time()
@@ -537,7 +639,10 @@ def run_experiment(_config: DictConfig) -> float:
         eval_keys = eval_keys.reshape(n_devices, -1)
 
         # Evaluate.
-        evaluator_output = evaluator(trained_params, eval_keys)
+        running_statistics = getattr(learner_output.learner_state, "running_statistics", None)
+        if running_statistics is not None:
+            running_statistics = unreplicate_batch_dim(running_statistics)
+        evaluator_output = evaluator(trained_params, eval_keys, running_statistics)
         jax.block_until_ready(evaluator_output)
 
         # Log the results of the evaluation.
@@ -557,7 +662,7 @@ def run_experiment(_config: DictConfig) -> float:
             )
 
         if config.arch.absolute_metric and max_episode_return <= episode_return:
-            best_params = copy.deepcopy(trained_params)
+            best_learner_state = copy.deepcopy(unreplicate_batch_dim(learner_state))
             max_episode_return = episode_return
 
         # Update runner state to continue training.
@@ -571,7 +676,11 @@ def run_experiment(_config: DictConfig) -> float:
         eval_keys = jnp.stack(eval_keys)
         eval_keys = eval_keys.reshape(n_devices, -1)
 
-        evaluator_output = absolute_metric_evaluator(best_params, eval_keys)
+        best_params = best_learner_state.params.actor_params
+        best_running_statistics = getattr(best_learner_state, "running_statistics", None)
+        evaluator_output = absolute_metric_evaluator(
+            best_params, eval_keys, best_running_statistics
+        )
         jax.block_until_ready(evaluator_output)
 
         elapsed_time = time.time() - start_time
@@ -600,6 +709,7 @@ def hydra_entry_point(cfg: DictConfig) -> float:
 
     # Run experiment.
     eval_performance = run_experiment(cfg)
+
     print(f"{Fore.CYAN}{Style.BRIGHT}PPO experiment completed{Style.RESET_ALL}")
     return eval_performance
 
