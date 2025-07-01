@@ -18,5 +18,5 @@ decay_learning_rates: True # Whether learning rates should be linearly decayed d
 reward_scale: 1.0 # Scale factor for rewards, useful for environments with large reward magnitudes.
 standardize_advantages: True # Whether to standardize the advantages.
 kl_penalty_coef: 3.0 # KL penalty coefficient for PPO updates if using PPO Penalty.
-normalize_observations: True # Whether to normalize observations using running statistics if observation normalisation is implemented.
+normalize_observations: False # Whether to normalize observations using running statistics if observation normalisation is implemented.
 obs_norm_warmup_steps: 128 # If normalising observations, number of warmup steps to collect observations for initial statistics = total_num_envs * obs_norm_warmup_steps.

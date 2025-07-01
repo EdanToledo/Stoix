@@ -89,6 +89,8 @@ def get_learner_fn(
             # GET OBSERVATION
             observation = last_timestep.observation
 
+            # Get running statistics if normalizing observations.
+            # It would not be present if observation normalization is not implemented/setup.
             running_statistics = getattr(learner_state, "running_statistics", None)
             if running_statistics is not None:
                 observation = normalize(observation, running_statistics)
@@ -195,9 +197,7 @@ def get_learner_fn(
                 ) -> Tuple:
                     """Calculate the actor loss."""
                     # RERUN NETWORK
-                    observations = traj_batch.obs
-
-                    actor_policy = actor_apply_fn(actor_params, observations)
+                    actor_policy = actor_apply_fn(actor_params, traj_batch.obs)
                     log_prob = actor_policy.log_prob(traj_batch.action)
 
                     # CALCULATE ACTOR LOSS
@@ -221,9 +221,7 @@ def get_learner_fn(
                 ) -> Tuple:
                     """Calculate the critic loss."""
                     # RERUN NETWORK
-                    observations = traj_batch.obs
-
-                    value = critic_apply_fn(critic_params, observations)
+                    value = critic_apply_fn(critic_params, traj_batch.obs)
 
                     # CALCULATE VALUE LOSS
                     value_loss = clipped_value_loss(
@@ -387,7 +385,8 @@ def _collect_obs_norm_rollouts(
     num_warmup_obs = config.system.obs_norm_warmup_steps * config.arch.total_num_envs
     print(
         f"{Fore.YELLOW}{Style.BRIGHT}Initializing observation normalization with "
-        f"{num_warmup_obs} observations...{Style.RESET_ALL}"
+        f"{num_warmup_obs} observations..."
+        f"Be aware, we do not count this in the timestep budget.{Style.RESET_ALL}"
     )
 
     @jax.jit
@@ -545,9 +544,7 @@ def learner_setup(
     # This will add running statistics to the learner state.
     if config.system.normalize_observations:
         dummy_obs = jax.tree.map(lambda x: x.squeeze(0), init_x)
-
         warmup_observations = _collect_obs_norm_rollouts(env, key, config)
-
         running_statistics = initialize_statistics_from_data(dummy_obs, warmup_observations)
         running_statistics = jax.tree.map(broadcast, running_statistics)
         running_statistics = flax.jax_utils.replicate(running_statistics, devices=jax.devices())
