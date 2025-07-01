@@ -122,7 +122,7 @@ def get_learner_fn(
         params, opt_states, key, env_state, last_timestep = learner_state
 
         v_tm1 = traj_batch.value
-        r_t = traj_batch.reward
+        r_t = traj_batch.reward * config.system.reward_scale
         v_t = traj_batch.bootstrap_value
         d_t = 1.0 - traj_batch.done.astype(jnp.float32)
         d_t = (d_t * config.system.gamma).astype(jnp.float32)

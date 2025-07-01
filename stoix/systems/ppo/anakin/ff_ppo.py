@@ -1,6 +1,6 @@
 import copy
 import time
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Tuple
 
 import chex
 import flax
@@ -38,9 +38,8 @@ from stoix.utils.logger import LogEvent, StoixLogger
 from stoix.utils.loss import clipped_value_loss, ppo_clip_loss
 from stoix.utils.multistep import batch_truncated_generalized_advantage_estimation
 from stoix.utils.running_statistics import (
-    RunningStatisticsState,
     create_with_running_statistics,
-    initialize_statistics,
+    initialize_statistics_from_data,
     normalize,
     update_statistics,
 )
@@ -127,9 +126,8 @@ def get_learner_fn(
                 last_timestep.observation,
                 info,
             )
+            # Replace the learner state with the new environment state and timestep.
             learner_state = learner_state._replace(
-                params=params,
-                opt_states=opt_states,
                 key=key,
                 env_state=env_state,
                 timestep=timestep,
@@ -147,17 +145,25 @@ def get_learner_fn(
         # IF NORMALIZING OBSERVATIONS, UPDATE RUNNING STATISTICS
         running_statistics = getattr(learner_state, "running_statistics", None)
         if running_statistics is not None:
+            # We get the raw observations from the trajectory batch.
+            raw_obs = traj_batch.obs
+            # We normalize with pre-updated statistics
+            normalized_obs = normalize(traj_batch.obs, running_statistics)
             # Update running statistics
             running_statistics = update_statistics(
                 running_statistics,
-                traj_batch.obs,
-                pmap_axis_name=["device", "batch"],
+                raw_obs,
+                pmap_axes=["device", "batch"],
+                std_min_value=5e-4,
+                std_max_value=5e4,
             )
             learner_state = learner_state._replace(running_statistics=running_statistics)  # type: ignore
+            # We then replace the observations in the trajectory batch with the normalized ones.
+            traj_batch = traj_batch._replace(obs=normalized_obs)
 
         # CALCULATE ADVANTAGE
         v_tm1 = traj_batch.value
-        r_t = traj_batch.reward
+        r_t = traj_batch.reward * config.system.reward_scale
         v_t = traj_batch.bootstrap_value
         d_t = 1.0 - traj_batch.done.astype(jnp.float32)
         d_t = (d_t * config.system.gamma).astype(jnp.float32)
@@ -179,20 +185,17 @@ def get_learner_fn(
                 """Update the network for a single minibatch."""
 
                 # UNPACK TRAIN STATE AND BATCH INFO
-                params, opt_states, running_statistics = train_state
+                params, opt_states = train_state
                 traj_batch, advantages, targets = batch_info
 
                 def _actor_loss_fn(
                     actor_params: FrozenDict,
                     traj_batch: PPOTransition,
                     gae: chex.Array,
-                    running_statistics: Optional[RunningStatisticsState],
                 ) -> Tuple:
                     """Calculate the actor loss."""
                     # RERUN NETWORK
                     observations = traj_batch.obs
-                    if running_statistics is not None:
-                        observations = normalize(observations, running_statistics)
 
                     actor_policy = actor_apply_fn(actor_params, observations)
                     log_prob = actor_policy.log_prob(traj_batch.action)
@@ -207,6 +210,7 @@ def get_learner_fn(
                     loss_info = {
                         "actor_loss": loss_actor,
                         "entropy": entropy,
+                        "advantages": gae,
                     }
                     return total_loss_actor, loss_info
 
@@ -214,13 +218,10 @@ def get_learner_fn(
                     critic_params: FrozenDict,
                     traj_batch: PPOTransition,
                     targets: chex.Array,
-                    running_statistics: Optional[RunningStatisticsState],
                 ) -> Tuple:
                     """Calculate the critic loss."""
                     # RERUN NETWORK
                     observations = traj_batch.obs
-                    if running_statistics is not None:
-                        observations = normalize(observations, running_statistics)
 
                     value = critic_apply_fn(critic_params, observations)
 
@@ -232,19 +233,21 @@ def get_learner_fn(
                     critic_total_loss = config.system.vf_coef * value_loss
                     loss_info = {
                         "value_loss": value_loss,
+                        "pred_value": value,
+                        "target_value": targets,
                     }
                     return critic_total_loss, loss_info
 
                 # CALCULATE ACTOR LOSS
                 actor_grad_fn = jax.grad(_actor_loss_fn, has_aux=True)
                 actor_grads, actor_loss_info = actor_grad_fn(
-                    params.actor_params, traj_batch, advantages, running_statistics
+                    params.actor_params, traj_batch, advantages
                 )
 
                 # CALCULATE CRITIC LOSS
                 critic_grad_fn = jax.grad(_critic_loss_fn, has_aux=True)
                 critic_grads, critic_loss_info = critic_grad_fn(
-                    params.critic_params, traj_batch, targets, running_statistics
+                    params.critic_params, traj_batch, targets
                 )
 
                 # Compute the parallel mean (pmean) over the batch.
@@ -282,7 +285,7 @@ def get_learner_fn(
                     **actor_loss_info,
                     **critic_loss_info,
                 }
-                return (new_params, new_opt_state, running_statistics), loss_info
+                return (new_params, new_opt_state), loss_info
 
             (
                 params,
@@ -291,7 +294,6 @@ def get_learner_fn(
                 advantages,
                 targets,
                 key,
-                running_statistics,
             ) = update_state
             key, shuffle_key = jax.random.split(key)
 
@@ -309,8 +311,8 @@ def get_learner_fn(
             )
 
             # UPDATE MINIBATCHES
-            (params, opt_states, running_statistics), loss_info = jax.lax.scan(
-                _update_minibatch, (params, opt_states, running_statistics), minibatches
+            (params, opt_states), loss_info = jax.lax.scan(
+                _update_minibatch, (params, opt_states), minibatches
             )
 
             update_state = (
@@ -320,7 +322,6 @@ def get_learner_fn(
                 advantages,
                 targets,
                 key,
-                running_statistics,
             )
             return update_state, loss_info
 
@@ -331,7 +332,6 @@ def get_learner_fn(
             advantages,
             targets,
             key,
-            running_statistics,
         )
 
         # UPDATE EPOCHS
@@ -339,7 +339,7 @@ def get_learner_fn(
             _update_epoch, update_state, None, config.system.epochs
         )
 
-        params, opt_states, traj_batch, advantages, targets, key, _ = update_state
+        params, opt_states, traj_batch, advantages, targets, key = update_state
         learner_state = learner_state._replace(params=params, opt_states=opt_states, key=key)
         metric = traj_batch.info
         return learner_state, (metric, loss_info)
@@ -374,6 +374,54 @@ def get_learner_fn(
         )
 
     return learner_fn
+
+
+def _collect_obs_norm_rollouts(
+    env: Environment,
+    key: chex.PRNGKey,
+    config: DictConfig,
+) -> chex.ArrayTree:
+    """Collect observations for observation normalization.
+    This function collects observations from the environment by taking random actions
+    for a specified number of warmup steps."""
+    num_warmup_obs = config.system.obs_norm_warmup_steps * config.arch.total_num_envs
+    print(
+        f"{Fore.YELLOW}{Style.BRIGHT}Initializing observation normalization with "
+        f"{num_warmup_obs} observations...{Style.RESET_ALL}"
+    )
+
+    @jax.jit
+    def _warmup_step(env_state: Any, step_key: chex.PRNGKey) -> Tuple[Any, chex.ArrayTree]:
+        """Single warmup step: random action -> environment step -> collect observation."""
+        action = jax.random.randint(
+            step_key, (config.arch.total_num_envs,), 0, config.system.action_dim
+        )
+        env_state, timestep = jax.vmap(env.step, in_axes=(0, 0))(env_state, action)
+        return env_state, timestep.observation
+
+    # Initialize environments for data collection
+    key, *env_keys = jax.random.split(key, config.arch.total_num_envs + 1)
+    env_states, initial_timesteps = jax.vmap(env.reset, in_axes=(0))(jnp.stack(env_keys))
+
+    # Collect warmup observations through random actions
+    step_keys = jax.random.split(key, config.system.obs_norm_warmup_steps)
+    _, warmup_observations = jax.lax.scan(_warmup_step, env_states, step_keys)
+
+    # Combine initial reset observations with warmup observations
+    all_observations = jax.tree.map(
+        lambda reset_obs, warmup_obs: jnp.concatenate(
+            [
+                reset_obs[
+                    jnp.newaxis,
+                ],
+                warmup_obs,
+            ],
+            axis=0,
+        ),
+        initial_timesteps.observation,
+        warmup_observations,
+    )
+    return all_observations
 
 
 def learner_setup(
@@ -496,7 +544,11 @@ def learner_setup(
     # If normalizing observations, initialize running statistics.
     # This will add running statistics to the learner state.
     if config.system.normalize_observations:
-        running_statistics = initialize_statistics(jax.tree.map(lambda x: x.squeeze(0), init_x))
+        dummy_obs = jax.tree.map(lambda x: x.squeeze(0), init_x)
+
+        warmup_observations = _collect_obs_norm_rollouts(env, key, config)
+
+        running_statistics = initialize_statistics_from_data(dummy_obs, warmup_observations)
         running_statistics = jax.tree.map(broadcast, running_statistics)
         running_statistics = flax.jax_utils.replicate(running_statistics, devices=jax.devices())
         init_learner_state = create_with_running_statistics(

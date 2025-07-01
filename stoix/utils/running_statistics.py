@@ -1,6 +1,8 @@
-"""Utility functions to compute running statistics.
+"""
+Utility functions to compute running statistics.
 Taken and modified from
-Acme https://github.com/google-deepmind/acme/blob/master/acme/jax/running_statistics.py"""
+Acme https://github.com/google-deepmind/acme/blob/master/acme/jax/running_statistics.py
+"""
 
 import dataclasses
 import types
@@ -8,9 +10,9 @@ from typing import (
     Any,
     Callable,
     Dict,
-    List,
     NamedTuple,
     Optional,
+    Sequence,
     Tuple,
     Type,
     TypeVar,
@@ -24,7 +26,7 @@ import numpy as np
 import tree
 from jax import Array
 
-NestedPath = Union[Tuple[Any, ...], chex.ArrayTree]
+Path = Tuple[Any, ...]
 """Path in a nested structure.
 
   A path is a tuple of indices (normally strings for maps and integers for
@@ -34,22 +36,9 @@ NestedPath = Union[Tuple[Any, ...], chex.ArrayTree]
   for more details.
 """
 
-# Type variable for generic tree structures
-T = TypeVar("T")
 
-
-def efficient_map_structure(func: Callable[..., T], *structure: chex.ArrayTree) -> chex.ArrayTree:
-    """Faster implementation of tree.map_structure which skips some error checking.
-
-    Args:
-        func: The function to apply to each leaf in the structure.
-        *structure: The nested structures to map over.
-
-    Returns:
-        A new nested structure with the same shape as the input structures but
-        with the leaves replaced by the results of applying func to the corresponding
-        leaves in the input structures.
-    """
+def fast_map_structure(func: Callable, *structure: chex.ArrayTree) -> chex.ArrayTree:
+    """Faster map_structure implementation which skips some error checking."""
     flat_structure = (tree.flatten(s) for s in structure)
     entries = zip(*flat_structure)
     # Arbitrarily choose one of the structures of the original sequence (the last)
@@ -57,20 +46,8 @@ def efficient_map_structure(func: Callable[..., T], *structure: chex.ArrayTree) 
     return tree.unflatten_as(structure[-1], [func(*x) for x in entries])
 
 
-def efficient_map_structure_with_path(
-    func: Callable[..., T], *structure: chex.ArrayTree
-) -> chex.ArrayTree:
-    """Faster implementation of tree.map_structure_with_path.
-
-    Args:
-        func: The function to apply to each leaf in the structure with its path.
-        *structure: The nested structures to map over.
-
-    Returns:
-        A new nested structure with the same shape as the input structures but
-        with the leaves replaced by the results of applying func to the corresponding
-        paths and leaves in the input structures.
-    """
+def fast_map_structure_with_path(func: Callable, *structure: chex.ArrayTree) -> chex.ArrayTree:
+    """Faster map_structure_with_path implementation."""
     head_entries_with_path = tree.flatten_with_path(structure[0])
     if len(structure) > 1:
         tail_entries = (tree.flatten(s) for s in structure[1:])
@@ -82,107 +59,105 @@ def efficient_map_structure_with_path(
     return tree.unflatten_as(structure[-1], [func(*x) for x in entries_with_path])
 
 
-def _is_prefix(a: NestedPath, b: NestedPath) -> bool:
+def _psum_over_axes(value: Array, pmap_axis_names: Optional[Sequence[str]]) -> Array:
+    """Apply psum over multiple axes sequentially."""
+    if pmap_axis_names is None:
+        return value
+
+    result = value
+    for axis_name in pmap_axis_names:
+        result = jax.lax.psum(result, axis_name=axis_name)
+    return result
+
+
+def _is_prefix(a: Path, b: Path) -> bool:
     """Returns whether `a` is a prefix of `b`."""
     return b[: len(a)] == a
 
 
-def _zeros_like(
-    nest: chex.ArrayTree, dtype: Optional[jax.typing.DTypeLike] = None
-) -> chex.ArrayTree:
-    """Creates a nested structure of zeros with the same shape as the input.
-
-    Args:
-        nest: The nested structure to match.
-        dtype: The data type to use for the zeros. If None, uses the dtype of the input.
-
-    Returns:
-        A nested structure of zeros with the same shape as the input.
-    """
-    return jax.tree_map(lambda x: jnp.zeros(x.shape, dtype or x.dtype), nest)
+def _zeros_like(nest: chex.ArrayTree, dtype: Optional[jnp.dtype] = None) -> chex.ArrayTree:
+    return jax.tree_util.tree_map(lambda x: jnp.zeros(x.shape, dtype or x.dtype), nest)
 
 
-def _ones_like(
-    nest: chex.ArrayTree, dtype: Optional[jax.typing.DTypeLike] = None
-) -> chex.ArrayTree:
-    """Creates a nested structure of ones with the same shape as the input.
-
-    Args:
-        nest: The nested structure to match.
-        dtype: The data type to use for the ones. If None, uses the dtype of the input.
-
-    Returns:
-        A nested structure of ones with the same shape as the input.
-    """
-    return jax.tree_map(lambda x: jnp.ones(x.shape, dtype or x.dtype), nest)
+def _ones_like(nest: chex.ArrayTree, dtype: Optional[jnp.dtype] = None) -> chex.ArrayTree:
+    return jax.tree_util.tree_map(lambda x: jnp.ones(x.shape, dtype or x.dtype), nest)
 
 
 @chex.dataclass(frozen=True)
-class RunningStatisticsState:
-    """Full state of running statistics computation.
-
-    Attributes:
-        mean: The running mean of the data.
-        std: The running standard deviation of the data.
-        count: The number of samples that have been used to compute the statistics.
-        summed_variance: The sum of squared differences from the mean.
-
-    """
+class NestedMeanStd:
+    """A container for running statistics (mean, std) of possibly nested data."""
 
     mean: chex.ArrayTree
     std: chex.ArrayTree
+
+
+@chex.dataclass(frozen=True)
+class RunningStatisticsState(NestedMeanStd):
+    """Full state of running statistics computation."""
+
     count: Union[int, Array]
     summed_variance: chex.ArrayTree
 
 
 @dataclasses.dataclass(frozen=True)
-class NestedStatisticsConfig:
-    """Specifies how to compute statistics for nested structures with the same structure.
+class NestStatisticsConfig:
+    """Specifies how to compute statistics for Nests with the same structure.
 
     Attributes:
-      paths: A sequence of paths in the nested structure to compute statistics for.
-        If there is a collision between paths (one is a prefix of the other),
-        the shorter path takes precedence.
+      paths: A sequence of Nest paths to compute statistics for. If there is a
+        collision between paths (one is a prefix of the other), the shorter path
+        takes precedence.
     """
 
-    paths: Tuple[NestedPath, ...] = ((),)
+    paths: Tuple[Path, ...] = ((),)
 
 
-def _is_path_included(config: NestedStatisticsConfig, path: NestedPath) -> bool:
-    """Returns whether the path is included in the config.
-
-    A path is included in the config if it corresponds to a tree node that
-    belongs to a subtree rooted at the node corresponding to some path in
-    the config.
-
-    Args:
-        config: The configuration specifying which paths to include.
-        path: The path to check.
-
-    Returns:
-        Whether the path is included in the config.
-    """
+def _is_path_included(config: NestStatisticsConfig, path: Path) -> bool:
+    """Returns whether the path is included in the config."""
+    # A path is included in the config if it corresponds to a tree node that
+    # belongs to a subtree rooted at the node corresponding to some path in
+    # the config.
     return any(_is_prefix(config_path, path) for config_path in config.paths)
 
 
 def initialize_statistics(nest: chex.ArrayTree) -> RunningStatisticsState:
-    """Initializes the running statistics for the given nested structure.
-
-    Args:
-        nest: The nested structure to initialize statistics for.
-
-    Returns:
-        A RunningStatisticsState initialized with zeros for means and ones for standard deviations.
-    """
-    dtype = jnp.float64 if jax.config.jax_enable_x64 else jnp.float32
+    """Initializes the running statistics for the given nested structure."""
+    dtype: jnp.dtype = jnp.float64 if jax.config.jax_enable_x64 else jnp.float32
 
     return RunningStatisticsState(  # type: ignore
+        count=0.0,
         mean=_zeros_like(nest, dtype=dtype),
+        summed_variance=_zeros_like(nest, dtype=dtype),
         # Initialize with ones to make sure normalization works correctly
         # in the initial state.
         std=_ones_like(nest, dtype=dtype),
-        count=jnp.float32(0.0),
-        summed_variance=_zeros_like(nest, dtype=dtype),
+    )
+
+
+def initialize_statistics_from_data(
+    nest: chex.ArrayTree,
+    data_sample: chex.ArrayTree,
+    *,
+    config: Optional[NestStatisticsConfig] = None,
+    weights: Optional[Array] = None,
+    std_min_value: float = 5e-4,
+    std_max_value: float = 5e4,
+    pmap_axes: Optional[Union[str, Sequence[str]]] = None,
+    validate_shapes: bool = True,
+) -> RunningStatisticsState:
+    """Initializes the running statistics for the given nested structure from a data sample."""
+    if config is None:
+        config = NestStatisticsConfig()
+    init_running_statistics = initialize_statistics(nest)
+    return update_statistics(
+        state=init_running_statistics,
+        batch=data_sample,
+        config=config,
+        weights=weights,
+        std_min_value=std_min_value,
+        std_max_value=std_max_value,
+        pmap_axes=pmap_axes,
+        validate_shapes=validate_shapes,
     )
 
 
@@ -195,7 +170,7 @@ def _validate_batch_shapes(
     Checks that non-batch dimensions for all leaves in the batch are the same
     as in the reference sample.
 
-    Args:
+    Arguments:
       batch: the nested batch of data to be verified.
       reference_sample: the nested array to check non-batch dimensions.
       batch_dims: a Tuple of indices of batch dimensions in the batch shape.
@@ -205,72 +180,39 @@ def _validate_batch_shapes(
     """
 
     def validate_node_shape(reference_sample: Array, batch: Array) -> None:
-        expected_shape = batch_dims + reference_sample.shape
+        expected_shape: Tuple[int, ...] = batch_dims + reference_sample.shape
         assert batch.shape == expected_shape, f"{batch.shape} != {expected_shape}"
 
-    efficient_map_structure(validate_node_shape, reference_sample, batch)
+    fast_map_structure(validate_node_shape, reference_sample, batch)
 
 
-# Create default config as module-level variable to avoid B008
-_DEFAULT_NESTED_STATISTICS_CONFIG = NestedStatisticsConfig()
+def convert_pmap_axes_names(
+    pmap_axes: Optional[Union[str, Sequence[str]]]
+) -> Optional[Sequence[str]]:
+    """Converts pmap axes names to a list of strings."""
+    # Handle multiple pmap axes
+    pmap_axis_names: Optional[Sequence[str]] = None
+    if pmap_axes is not None:
+        if isinstance(pmap_axes, str):
+            pmap_axis_names = [pmap_axes]
+        else:
+            pmap_axis_names = list(pmap_axes)
 
-
-def _compute_node_statistics_step(
-    path: NestedPath,
-    mean: Array,
-    summed_variance: Array,
-    batch: Array,
-    count: Union[int, Array],
-    batch_axis: range,
-    weights: Optional[Array],
-    config: NestedStatisticsConfig,
-    pmap_axis_name: Optional[Union[str, List[str]]],
-) -> Tuple[Array, Array]:
-    """Helper function to compute statistics for a single node."""
-    assert isinstance(mean, Array), type(mean)
-    assert isinstance(summed_variance, Array), type(summed_variance)
-    if not _is_path_included(config, path):
-        # Return unchanged.
-        return mean, summed_variance
-    # The mean and the sum of past variances are updated with Welford's
-    # algorithm using batches (see https://stackoverflow.com/q/56402955).
-    diff_to_old_mean = batch - mean
-    if weights is not None:
-        expanded_weights = jnp.reshape(
-            weights, list(weights.shape) + [1] * (batch.ndim - weights.ndim)
-        )
-        diff_to_old_mean = diff_to_old_mean * expanded_weights
-    mean_update = jnp.sum(diff_to_old_mean, axis=batch_axis) / count
-    if pmap_axis_name is not None:
-        for axis_name in pmap_axis_name:
-            mean_update = jax.lax.psum(mean_update, axis_name=axis_name)
-    mean = mean + mean_update
-
-    diff_to_new_mean = batch - mean
-    variance_update = diff_to_old_mean * diff_to_new_mean
-    variance_update = jnp.sum(variance_update, axis=batch_axis)
-    if pmap_axis_name is not None:
-        for axis_name in pmap_axis_name:
-            variance_update = jax.lax.psum(variance_update, axis_name=axis_name)
-    summed_variance = summed_variance + variance_update
-    return mean, summed_variance
+    return pmap_axis_names
 
 
 def update_statistics(
     state: RunningStatisticsState,
     batch: chex.ArrayTree,
     *,
-    config: Optional[NestedStatisticsConfig] = None,
+    config: Optional[NestStatisticsConfig] = None,
     weights: Optional[Array] = None,
     std_min_value: float = 1e-6,
     std_max_value: float = 1e6,
-    pmap_axis_name: Optional[Union[str, List[str]]] = None,
+    pmap_axes: Optional[Union[str, Sequence[str]]] = None,
     validate_shapes: bool = True,
 ) -> RunningStatisticsState:
     """Updates the running statistics with the given batch of data.
-
-    This function implements Welford's online algorithm for computing running statistics.
-    It updates the mean and variance estimates based on the new batch of data.
 
     Note: data batch and state elements (mean, etc.) must have the same structure.
 
@@ -281,7 +223,14 @@ def update_statistics(
     To improve precision, consider setting jax_enable_x64 to True, see
     https://jax.readthedocs.io/en/latest/notebooks/Common_Gotchas_in_JAX.html#double-64bit-precision
 
-    Args:
+    Examples:
+      # Single pmap axis
+      updated_state = update(state, batch, pmap_axes='device')
+
+      # Multiple pmap axes
+      updated_state = update(state, batch, pmap_axes=['device', 'batch'])
+
+    Arguments:
       state: The running statistics before the update.
       batch: The data to be used to update the running statistics.
       config: The config that specifies which leaves of the nested structure
@@ -291,7 +240,8 @@ def update_statistics(
         corresponding data point twice.
       std_min_value: Minimum value for the standard deviation.
       std_max_value: Maximum value for the standard deviation.
-      pmap_axis_name: Name or list of names of the pmapped axis, if any.
+      pmap_axes: Name(s) of the pmapped axis/axes. Can be a single string or a
+        sequence of strings for multiple axes (e.g., ['device', 'batch']).
       validate_shapes: If true, the shapes of all leaves of the batch will be
         validated. Enabled by default. Doesn't impact performance when jitted.
 
@@ -299,24 +249,29 @@ def update_statistics(
       Updated running statistics.
     """
     if config is None:
-        config = _DEFAULT_NESTED_STATISTICS_CONFIG
-
+        config = NestStatisticsConfig()
     # We require exactly the same structure to avoid issues when flattened
     # batch and state have different order of elements.
     tree.assert_same_structure(batch, state.mean)
-    batch_shape = tree.flatten(batch)[0].shape
+    batch_shape: Tuple[int, ...] = tree.flatten(batch)[0].shape
     # We assume the batch dimensions always go first.
-    batch_dims = batch_shape[: len(batch_shape) - tree.flatten(state.mean)[0].ndim]
-    batch_axis = range(len(batch_dims))
+    batch_dims: Tuple[int, ...] = batch_shape[: len(batch_shape) - tree.flatten(state.mean)[0].ndim]
+    batch_axis: range = range(len(batch_dims))
+
+    # # Handle multiple pmap axes
+    pmap_axis_names: Optional[Sequence[str]] = convert_pmap_axes_names(pmap_axes)
+
+    step_increment: Union[int, Array]
     if weights is None:
-        step_increment: Union[int, Array] = np.prod(batch_dims)
+        step_increment = np.prod(batch_dims)
     else:
         step_increment = jnp.sum(weights)
-    if pmap_axis_name is not None:
-        pmap_names = [pmap_axis_name] if isinstance(pmap_axis_name, str) else pmap_axis_name
-        for axis_name in pmap_names:
-            step_increment = jax.lax.psum(step_increment, axis_name=axis_name)
-    count = state.count + step_increment
+
+    # Apply psum across all specified axes
+    if pmap_axis_names is not None:
+        step_increment = _psum_over_axes(step_increment, pmap_axis_names)
+
+    count: Union[int, Array] = state.count + step_increment
 
     # Validation is important. If the shapes don't match exactly, but are
     # compatible, arrays will be silently broadcasted resulting in incorrect
@@ -328,19 +283,41 @@ def update_statistics(
         _validate_batch_shapes(batch, state.mean, batch_dims)
 
     def _compute_node_statistics(
-        path: NestedPath, mean: Array, summed_variance: Array, batch: Array
+        path: Path, mean: Array, summed_variance: Array, batch: Array
     ) -> Tuple[Array, Array]:
-        return _compute_node_statistics_step(
-            path, mean, summed_variance, batch, count, batch_axis, weights, config, pmap_axis_name
-        )
+        assert isinstance(mean, Array), type(mean)
+        assert isinstance(summed_variance, Array), type(summed_variance)
+        if not _is_path_included(config, path):
+            # Return unchanged.
+            return mean, summed_variance
+        # The mean and the sum of past variances are updated with Welford's
+        # algorithm using batches (see https://stackoverflow.com/q/56402955).
+        diff_to_old_mean: Array = batch - mean
+        if weights is not None:
+            expanded_weights: Array = jnp.reshape(
+                weights, list(weights.shape) + [1] * (batch.ndim - weights.ndim)
+            )
+            diff_to_old_mean = diff_to_old_mean * expanded_weights
+        mean_update: Array = jnp.sum(diff_to_old_mean, axis=batch_axis) / count
+        mean_update = _psum_over_axes(mean_update, pmap_axis_names)
+        mean = mean + mean_update
 
-    updated_stats = efficient_map_structure_with_path(
+        diff_to_new_mean: Array = batch - mean
+        variance_update: Array = diff_to_old_mean * diff_to_new_mean
+        variance_update = jnp.sum(variance_update, axis=batch_axis)
+        variance_update = _psum_over_axes(variance_update, pmap_axis_names)
+        summed_variance = summed_variance + variance_update
+        return mean, summed_variance
+
+    updated_stats: Union[Tuple[Array, Array], chex.ArrayTree] = fast_map_structure_with_path(
         _compute_node_statistics, state.mean, state.summed_variance, batch
     )
     # map_structure_up_to is slow, so shortcut if we know the input is not
     # structured.
+    mean: chex.ArrayTree
+    summed_variance: chex.ArrayTree
     if isinstance(state.mean, Array):
-        mean, summed_variance = updated_stats
+        mean, summed_variance = updated_stats  # type: ignore
     else:
         # Reshape the updated stats from `nest(mean, summed_variance)` to
         # `nest(mean), nest(summed_variance)`.
@@ -349,39 +326,29 @@ def update_statistics(
             for idx in range(2)
         ]
 
-    def compute_std(path: NestedPath, summed_variance: Array, std: Array) -> Array:
+    def compute_std(path: Path, summed_variance: Array, std: Array) -> Array:
         assert isinstance(summed_variance, Array)
         if not _is_path_included(config, path):
             return std
         # Summed variance can get negative due to rounding errors.
         summed_variance = jnp.maximum(summed_variance, 0)
-        std = jnp.sqrt(summed_variance / count)
+        variance = summed_variance / count
+        variance = jnp.clip(variance, jnp.square(std_min_value), jnp.square(std_max_value))
+        std = jnp.sqrt(variance)
         std = jnp.clip(std, std_min_value, std_max_value)
         return std
 
-    std = efficient_map_structure_with_path(compute_std, summed_variance, state.std)
+    std: chex.ArrayTree = fast_map_structure_with_path(compute_std, summed_variance, state.std)
 
     return RunningStatisticsState(
-        mean=mean, std=std, count=count, summed_variance=summed_variance  # type: ignore
+        count=count, mean=mean, summed_variance=summed_variance, std=std  # type: ignore
     )
 
 
 def normalize(
-    batch: chex.ArrayTree, mean_std: RunningStatisticsState, max_abs_value: Optional[float] = None
+    batch: chex.ArrayTree, mean_std: NestedMeanStd, max_abs_value: Optional[float] = None
 ) -> chex.ArrayTree:
-    """Normalizes data using running statistics.
-
-    For each value in the batch, computes (value - mean) / std.
-
-    Args:
-        batch: The nested structure of data to normalize.
-        mean_std: The statistics (mean and std) to use for normalization.
-        max_abs_value: If provided, the normalized values will be clipped to
-            [-max_abs_value, max_abs_value].
-
-    Returns:
-        A nested structure with the same shape as the input, but with normalized values.
-    """
+    """Normalizes data using running statistics."""
 
     def normalize_leaf(data: Array, mean: Array, std: Array) -> Array:
         # Only normalize inexact types.
@@ -389,17 +356,15 @@ def normalize(
             return data
         data = (data - mean) / std
         if max_abs_value is not None:
+
             data = jnp.clip(data, -max_abs_value, +max_abs_value)
         return data
 
-    return efficient_map_structure(normalize_leaf, batch, mean_std.mean, mean_std.std)
+    return fast_map_structure(normalize_leaf, batch, mean_std.mean, mean_std.std)
 
 
-def denormalize(batch: chex.ArrayTree, mean_std: RunningStatisticsState) -> chex.ArrayTree:
+def denormalize(batch: chex.ArrayTree, mean_std: NestedMeanStd) -> chex.ArrayTree:
     """Denormalizes values in a nested structure using the given mean/std.
-
-    For each value in the batch, computes value * std + mean, which is the inverse
-    of the normalization operation.
 
     Only values of inexact types are denormalized.
     See https://numpy.org/doc/stable/_images/dtype-hierarchy.png for Numpy type
@@ -419,57 +384,39 @@ def denormalize(batch: chex.ArrayTree, mean_std: RunningStatisticsState) -> chex
             return data
         return data * std + mean
 
-    return efficient_map_structure(denormalize_leaf, batch, mean_std.mean, mean_std.std)
+    return fast_map_structure(denormalize_leaf, batch, mean_std.mean, mean_std.std)
 
 
 @dataclasses.dataclass(frozen=True)
-class NestedClippingConfig:
-    """Specifies how to clip values in nested structures with the same structure.
+class NestClippingConfig:
+    """Specifies how to clip Nests with the same structure.
 
     Attributes:
-      path_map: A map that specifies how to clip values in nested structures.
-        Keys correspond to paths in the structure. Values are maximum
+      path_map: A map that specifies how to clip values in Nests with the same
+        structure. Keys correspond to paths in the nest. Values are maximum
         absolute values to use for clipping. If there is a collision between paths
         (one path is a prefix of the other), the behavior is undefined.
     """
 
-    path_map: Tuple[Tuple[NestedPath, float], ...] = ()
+    path_map: Tuple[Tuple[Path, float], ...] = ()
 
 
-def get_clip_config_for_path(
-    config: NestedClippingConfig, path: NestedPath
-) -> NestedClippingConfig:
-    """Returns the clipping config for a subtree defined by the path.
-
-    Args:
-        config: The clipping configuration.
-        path: The path to get the config for.
-
-    Returns:
-        A new clipping config for the subtree.
-    """
+def get_clip_config_for_path(config: NestClippingConfig, path: Path) -> NestClippingConfig:
+    """Returns the config for a subtree from the leaf defined by the path."""
     # Start with an empty config.
-    path_map: List[Tuple[NestedPath, float]] = []
+    path_map: list[Tuple[Path, float]] = []
     for map_path, max_abs_value in config.path_map:
         if _is_prefix(map_path, path):
-            return NestedClippingConfig(path_map=(((), max_abs_value),))
+            return NestClippingConfig(path_map=(((), max_abs_value),))
         if _is_prefix(path, map_path):
             path_map.append((map_path[len(path) :], max_abs_value))
-    return NestedClippingConfig(path_map=tuple(path_map))
+    return NestClippingConfig(path_map=tuple(path_map))
 
 
-def clip_values(batch: chex.ArrayTree, clipping_config: NestedClippingConfig) -> chex.ArrayTree:
-    """Clips values in a nested structure according to the provided configuration.
+def clip(batch: chex.ArrayTree, clipping_config: NestClippingConfig) -> chex.ArrayTree:
+    """Clips the batch."""
 
-    Args:
-        batch: The nested structure of data to clip.
-        clipping_config: Configuration specifying how to clip values.
-
-    Returns:
-        A nested structure with the same shape as the input, but with clipped values.
-    """
-
-    def max_abs_value_for_path(path: NestedPath, x: Array) -> Optional[float]:
+    def max_abs_value_for_path(path: Path, x: Array) -> Optional[float]:
         del x  # Unused, needed by interface.
         return next(
             (
@@ -480,28 +427,14 @@ def clip_values(batch: chex.ArrayTree, clipping_config: NestedClippingConfig) ->
             None,
         )
 
-    max_abs_values = efficient_map_structure_with_path(max_abs_value_for_path, batch)
+    max_abs_values: chex.ArrayTree = fast_map_structure_with_path(max_abs_value_for_path, batch)
 
     def clip_leaf(data: Array, max_abs_value: Optional[float]) -> Array:
         if max_abs_value is not None:
             data = jnp.clip(data, -max_abs_value, +max_abs_value)
         return data
 
-    return efficient_map_structure(clip_leaf, batch, max_abs_values)
-
-
-@dataclasses.dataclass(frozen=True)
-class NestedNormalizationConfig:
-    """Specifies how to normalize nested structures with the same structure.
-
-    Attributes:
-      stats_config: A config that defines how to compute running statistics to be
-        used for normalization.
-      clip_config: A config that defines how to clip normalized values.
-    """
-
-    stats_config: NestedStatisticsConfig = NestedStatisticsConfig()
-    clip_config: NestedClippingConfig = NestedClippingConfig()
+    return fast_map_structure(clip_leaf, batch, max_abs_values)
 
 
 # Define type variable for NamedTuple subclasses
