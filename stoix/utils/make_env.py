@@ -11,8 +11,10 @@ import navix
 import pgx
 import popjym
 import xminigrid
+import mujoco_playground
 from brax.envs import _envs as brax_environments
 from brax.envs import create as brax_make
+from brax.envs.wrappers import training as brax_training
 from gymnax import registered_envs as gymnax_environments
 from gymnax.environments.environment import Environment as GymnaxEnvironment
 from gymnax.environments.environment import EnvParams as GymnaxEnvParams
@@ -26,6 +28,7 @@ from navix import registry as navix_registry
 from omegaconf import DictConfig
 from popjym.registration import REGISTERED_ENVS as POPJYM_REGISTRY
 from xminigrid.registration import _REGISTRY as XMINIGRID_REGISTRY
+from mujoco_playground._src.registry import ALL_ENVS as PLAYGROUND_REGISTRY
 
 from stoix.utils.debug_env import IdentityGame, SequenceGame
 from stoix.utils.env_factory import EnvFactory, EnvPoolFactory, GymnasiumFactory
@@ -35,6 +38,7 @@ from stoix.wrappers.jax_to_factory import JaxEnvFactory
 from stoix.wrappers.jaxmarl import JaxMarlWrapper, MabraxWrapper, SmaxWrapper
 from stoix.wrappers.navix import NavixWrapper
 from stoix.wrappers.pgx import PGXWrapper
+from stoix.wrappers.playground import MuJoCoPlaygroundWrapper
 from stoix.wrappers.transforms import (
     AddStartFlagAndPrevAction,
     MultiBoundedToBounded,
@@ -401,6 +405,35 @@ def make_navix_env(env_name: str, config: DictConfig) -> Tuple[Environment, Envi
 
     return env, eval_env
 
+def make_playground_env(
+    env_name: str, config: DictConfig
+) -> Tuple[Environment, Environment]:
+    """
+    Create Playground environments for training and evaluation.
+
+    Args:
+        env_name (str): The name of the environment to create.
+        config (Dict): The configuration of the environment.
+
+    Returns:
+        A tuple of the environments.
+    """
+
+    env_cfg = mujoco_playground.registry.get_default_config(env_name)
+    env = mujoco_playground.registry.load(env_name, config=env_cfg, config_overrides=config.env.kwargs)
+    eval_env = mujoco_playground.registry.load(env_name, config=env_cfg, config_overrides=config.env.kwargs)
+
+    # To remain standard with brax, we set episode length to 1000 and action repeat to 1.
+    env = brax_training.EpisodeWrapper(env, 1000, 1)
+    eval_env = brax_training.EpisodeWrapper(eval_env, 1000, 1)
+    
+    env = MuJoCoPlaygroundWrapper(env)
+    eval_env = MuJoCoPlaygroundWrapper(eval_env)
+
+    env = AutoResetWrapper(env, next_obs_in_extras=True)
+    env = RecordEpisodeMetrics(env)
+
+    return env, eval_env
 
 def make_gymnasium_factory(
     env_name: str, config: DictConfig, apply_wrapper_fn: Callable
@@ -456,6 +489,8 @@ def make(config: DictConfig) -> Tuple[Environment, Environment]:
         envs = make_popjym_env(env_name, config)
     elif env_name in navix_registry():
         envs = make_navix_env(env_name, config)
+    elif env_name in PLAYGROUND_REGISTRY:
+        envs = make_playground_env(env_name, config)
     else:
         raise ValueError(f"{env_name} is not a supported environment.")
 
