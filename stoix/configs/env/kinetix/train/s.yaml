@@ -1,0 +1,14 @@
+train_level_mode: list
+train_levels_list:
+  [
+    "s/h0_weak_thrust",
+    "s/h7_unicycle_left",
+    "s/h3_point_the_thruster",
+    "s/h4_thrust_aim",
+    "s/h1_thrust_over_ball",
+    "s/h5_rotate_fall",
+    "s/h9_explode_then_thrust_over",
+    "s/h6_unicycle_right",
+    "s/h8_unicycle_balance",
+    "s/h2_one_wheel_car",
+  ]

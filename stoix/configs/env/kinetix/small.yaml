@@ -1,0 +1,20 @@
+# ---Environment Configs---
+env_name: kinetix
+
+defaults:
+  - kinetix/eval: s
+  - kinetix/train: s
+  - _self_
+
+
+scenario:
+  name: Kinetix
+  task_name: small
+  action_type: discrete
+  observation_type: symbolic_flat
+
+
+
+# Defines the metric that will be used to evaluate the performance of the agent.
+# This metric is returned at the end of an experiment and can be used for hyperparameter tuning.
+eval_metric: episode_return
