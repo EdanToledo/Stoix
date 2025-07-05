@@ -138,7 +138,7 @@ dependencies = [
     "jaxlib>=0.5.3",
     "jaxmarl>=0.0.2",
     "jumanji==1.0.0",
-    "kinetix-env>=1.0.2",
+    "kinetix-env>=1.0.5",
     "mctx>=0.0.5",
     "navix>=0.7.0",
     "neptune>=1.13.0",
