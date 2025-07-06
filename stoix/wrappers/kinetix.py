@@ -1,15 +1,62 @@
-from typing import Tuple
+from typing import Optional, Tuple
 
 import chex
 import jax
 import jax.numpy as jnp
 from jumanji.env import Environment
-from jumanji.types import TimeStep, restart
+from jumanji.types import StepType, TimeStep, restart
 from kinetix.util.saving import load_evaluation_levels
 from omegaconf import DictConfig
 
 from stoix.base_types import EvalResetFn, Observation, State
-from stoix.wrappers.gymnax import GymnaxEnvState
+from stoix.wrappers.gymnax import GymnaxEnvState, GymnaxWrapper
+
+
+class KinetixWrapper(GymnaxWrapper):
+    """Puts the solve rate in the episode metrics, and allows for an override reset state."""
+
+    def reset(
+        self, key: chex.PRNGKey, override_state: Optional[State] = None
+    ) -> Tuple[GymnaxEnvState, TimeStep]:
+        key, reset_key = jax.random.split(key)
+        obs, gymnax_state = self._env.reset(reset_key, self._env_params, override_state)
+        obs = Observation(obs, self._legal_action_mask, jnp.array(0, dtype=int))
+        timestep = restart(
+            obs,
+            extras={
+                "episode_metrics": {
+                    "solve_rate": jnp.array(0.0, dtype=float),  # Initialize solve rate
+                    "distance": jnp.array(0.0, dtype=float),  # Initialize solve rate
+                }
+            },
+        )
+        state = GymnaxEnvState(
+            key=key, gymnax_env_state=gymnax_state, step_count=jnp.array(0, dtype=int)
+        )
+        return state, timestep
+
+    def step(self, state: GymnaxEnvState, action: chex.Array) -> Tuple[GymnaxEnvState, TimeStep]:
+        key, key_step = jax.random.split(state.key)
+        obs, gymnax_state, reward, done, info = self._env.step(
+            key_step, state.gymnax_env_state, action, self._env_params
+        )
+        state = GymnaxEnvState(
+            key=key, gymnax_env_state=gymnax_state, step_count=state.step_count + 1
+        )
+
+        timestep = TimeStep(
+            observation=Observation(obs, self._legal_action_mask, state.step_count),
+            reward=reward.astype(float),
+            discount=jnp.array(1.0 - done, dtype=float),
+            step_type=jax.lax.select(done, StepType.LAST, StepType.MID),
+            extras={
+                "episode_metrics": {
+                    "solve_rate": info["GoalR"].astype(jnp.float32),  # Initialize solve rate
+                    "distance": info["distance"],  # Initialize solve rate
+                }
+            },
+        )
+        return state, timestep
 
 
 def make_kinetix_eval_reset_fn(config: DictConfig, env: Environment) -> EvalResetFn:
@@ -36,20 +83,8 @@ def make_kinetix_eval_reset_fn(config: DictConfig, env: Environment) -> EvalRese
         )
         key, *env_keys = jax.random.split(key, num_environments + 1)
 
-        def _single_reset(
-            key: chex.PRNGKey, override_state: State
-        ) -> Tuple[GymnaxEnvState, TimeStep]:
-            key_reset, key_step = jax.random.split(key)
-            obs, gymnax_states = env._env.reset(key_reset, env._env_params, override_state)
-            obs = Observation(obs, env._legal_action_mask, jnp.array(0, dtype=int))
-            timestep = restart(obs, extras={})
-            state = GymnaxEnvState(
-                key=key_step, gymnax_env_state=gymnax_states, step_count=jnp.array(0, dtype=int)
-            )
-            return state, timestep
-
         states, timesteps = jax.vmap(
-            _single_reset,
+            env.reset,
         )(jnp.stack(env_keys), override_states)
 
         return states, timesteps

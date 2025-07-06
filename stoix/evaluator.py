@@ -198,7 +198,7 @@ def get_ff_evaluator_fn(
             in_axes=(None, 0, None),
             axis_name="eval_batch",
         )(trained_params, eval_state, running_statistics)
-
+        print("SHAPE", eval_metrics["episode_return"].shape)
         return EvaluationOutput(
             learner_state=eval_state,
             episode_metrics=eval_metrics,

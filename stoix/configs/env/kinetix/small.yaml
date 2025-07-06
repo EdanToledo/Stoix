@@ -20,3 +20,5 @@ scenario:
 eval_metric: episode_return
 eval_reset_fn:
   _target_: stoix.wrappers.kinetix.make_kinetix_eval_reset_fn
+
+solved_return_threshold: 0.6

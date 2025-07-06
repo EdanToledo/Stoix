@@ -34,6 +34,7 @@ from stoix.wrappers import GymnaxWrapper, JumanjiWrapper, RecordEpisodeMetrics
 from stoix.wrappers.brax import BraxJumanjiWrapper
 from stoix.wrappers.jax_to_factory import JaxEnvFactory
 from stoix.wrappers.jaxmarl import JaxMarlWrapper, MabraxWrapper, SmaxWrapper
+from stoix.wrappers.kinetix import KinetixWrapper
 from stoix.wrappers.navix import NavixWrapper
 from stoix.wrappers.pgx import PGXWrapper
 from stoix.wrappers.transforms import (
@@ -290,7 +291,7 @@ def make_kinetix_env(env_name: str, config: DictConfig) -> Tuple[Environment, En
             auto_reset=False,
         )
 
-        return GymnaxWrapper(env, env_params)
+        return KinetixWrapper(env, env_params)
 
     env = _make_env(reset_fn=reset_fn_train, static_env_params=static_env_params_train)
     eval_env = _make_env(reset_fn=reset_fn_eval, static_env_params=static_env_params_eval)
