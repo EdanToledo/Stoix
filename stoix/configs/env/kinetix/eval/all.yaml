@@ -1,4 +1,5 @@
-eval_levels:
+mode: list
+levels:
   [
     "s/h0_weak_thrust",
     "s/h7_unicycle_left",
