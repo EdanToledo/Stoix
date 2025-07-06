@@ -2,8 +2,9 @@
 env_name: kinetix
 
 defaults:
-  - kinetix/eval: s
   - kinetix/train: s
+  - kinetix/eval: s
+  - kinetix/env_size: s
   - _self_
 
 
@@ -22,3 +23,6 @@ eval_reset_fn:
   _target_: stoix.wrappers.kinetix.make_kinetix_eval_reset_fn
 
 solved_return_threshold: 0.6
+
+dense_reward_scale: 0.2
+frame_skip: 2

@@ -248,37 +248,48 @@ def make_kinetix_env(env_name: str, config: DictConfig) -> Tuple[Environment, En
     Returns:
         A tuple of the environments.
     """
-    from kinetix.environment import (
-        EnvParams,
-        EnvState,
-        StaticEnvParams,
-        make_kinetix_env,
-    )
+    from kinetix.environment import EnvState, StaticEnvParams, make_kinetix_env
     from kinetix.environment.env import KinetixEnv
+    from kinetix.environment.ued.ued import make_reset_fn_sample_kinetix_level
     from kinetix.environment.utils import ActionType, ObservationType
+    from kinetix.util.config import generate_params_from_config
     from kinetix.util.saving import load_evaluation_levels
 
-    def _get_static_params_and_reset_fn(levels: list[str]) -> tuple[Callable, StaticEnvParams]:
-        levels_to_reset_to, static_env_params = load_evaluation_levels(levels)
+    env_params, override_static_env_params = generate_params_from_config(
+        dict(config.env.kinetix.env_size)
+        | {
+            "dense_reward_scale": config.env.dense_reward_scale,
+            "frame_skip": config.env.frame_skip,
+        }
+    )
 
-        def reset(rng: jax.Array) -> EnvState:
-            rng, _rng = jax.random.split(rng)
-            level_idx = jax.random.randint(_rng, (), 0, len(levels))
-            sampled_level = jax.tree.map(lambda x: x[level_idx], levels_to_reset_to)
+    def _get_static_params_and_reset_fn(
+        level_config: DictConfig,
+    ) -> tuple[Callable, StaticEnvParams]:
+        if level_config.mode == "list":
+            levels = level_config.levels
+            levels_to_reset_to, static_env_params = load_evaluation_levels(levels)
 
-            return sampled_level
+            def reset(rng: jax.Array) -> EnvState:
+                rng, _rng = jax.random.split(rng)
+                level_idx = jax.random.randint(_rng, (), 0, len(levels))
+                sampled_level = jax.tree.map(lambda x: x[level_idx], levels_to_reset_to)
 
+                return sampled_level
+
+        elif level_config.mode == "random":
+            return (
+                make_reset_fn_sample_kinetix_level(env_params, override_static_env_params),
+                override_static_env_params,
+            )
+        else:
+            raise ValueError(f"Unsupported level mode: {level_config.mode}")
         return reset, static_env_params
 
-    env_params = EnvParams()
-    assert config.env.kinetix.train.train_level_mode == "list", "Only list supported for now."
-
     reset_fn_train, static_env_params_train = _get_static_params_and_reset_fn(
-        config.env.kinetix.train.train_levels_list
+        config.env.kinetix.train
     )
-    reset_fn_eval, static_env_params_eval = _get_static_params_and_reset_fn(
-        config.env.kinetix.eval.eval_levels
-    )
+    reset_fn_eval, static_env_params_eval = _get_static_params_and_reset_fn(config.env.kinetix.eval)
 
     def _make_env(reset_fn: Callable, static_env_params: StaticEnvParams) -> KinetixEnv:
 

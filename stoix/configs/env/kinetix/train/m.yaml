@@ -1,5 +1,5 @@
-train_level_mode: list
-train_levels_list:
+mode: list
+levels:
   [
     "m/h0_unicycle",
     "m/h1_car_left",

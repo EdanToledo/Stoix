@@ -1,5 +1,4 @@
-train_level_mode: list
-train_levels_list:
+eval_levels:
   [
     "s/h0_weak_thrust",
     "s/h7_unicycle_left",

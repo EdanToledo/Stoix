@@ -1,0 +1,8 @@
+num_polygons: 6
+num_circles: 3
+num_joints: 2
+num_thrusters: 2
+env_size_name: m
+num_motor_bindings: 4
+num_thruster_bindings: 2
+env_size_type: predefined

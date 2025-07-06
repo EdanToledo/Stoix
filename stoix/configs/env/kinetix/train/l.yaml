@@ -1,5 +1,5 @@
-train_level_mode: list
-train_levels_list:
+mode: list
+levels:
   [
     "l/h0_angrybirds",
     "l/h1_car_left",
@@ -24,6 +24,8 @@ train_levels_list:
     "l/hard_cartpole_wheels",
     "l/hard_lunar_lander",
     "l/hard_pinball",
+    "l/grasp_hard",
+    "l/grasp_easy",
     "l/mjc_half_cheetah",
     "l/mjc_half_cheetah_easy",
     "l/mjc_hopper",
@@ -31,8 +33,6 @@ train_levels_list:
     "l/mjc_swimmer",
     "l/mjc_walker",
     "l/mjc_walker_easy",
-    "l/grasp_hard",
-    "l/grasp_easy",
     "l/car_launch",
     "l/car_swing_around",
     "l/chain_lander",

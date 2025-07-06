@@ -1,4 +1,5 @@
-eval_levels:
+mode: list
+levels:
   [
     "l/h0_angrybirds",
     "l/h1_car_left",

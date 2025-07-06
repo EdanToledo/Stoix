@@ -1,4 +1,5 @@
-eval_levels:
+mode: list
+levels:
   [
     "m/h0_unicycle",
     "m/h1_car_left",
