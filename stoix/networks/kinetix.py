@@ -3,7 +3,8 @@ import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import numpy as np
-from flax.linen.initializers import constant, orthogonal
+from flax.linen.initializers import Initializer, constant, orthogonal
+from kinetix.models.action_spaces import MultiDiscreteActionDistribution
 from kinetix.models.actor_critic import MultiHeadDense
 from kinetix.render.renderer_symbolic_entity import EntityObservation
 
@@ -88,3 +89,23 @@ class EncoderAndTorso(nn.Module):
         """Forward pass through the encoder and torso."""
         encoded_obs = self.encoder(obs)
         return self.torso(encoded_obs)
+
+
+class MultiDiscreteHead(nn.Module):
+    """A head for multi-discrete action spaces."""
+
+    action_dim: int
+    number_of_dims_per_distribution: list[int]
+    kernel_init: Initializer = orthogonal(0.01)
+
+    @nn.compact
+    def __call__(self, embedding: chex.Array) -> MultiDiscreteActionDistribution:
+        assert sum(self.number_of_dims_per_distribution) == self.action_dim, (
+            f"Sum of number_of_dims_per_distribution {sum(self.number_of_dims_per_distribution)} "
+            f"must equal action_dim {self.action_dim}."
+        )
+        logits = nn.Dense(self.action_dim, kernel_init=self.kernel_init)(embedding)
+
+        return MultiDiscreteActionDistribution(
+            flat_logits=logits, number_of_dims_per_distribution=self.number_of_dims_per_distribution
+        )

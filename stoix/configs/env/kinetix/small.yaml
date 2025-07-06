@@ -10,8 +10,8 @@ defaults:
 scenario:
   name: Kinetix
   task_name: small
-  action_type: discrete
-  observation_type: symbolic
+  action_type: multi_discrete
+  observation_type: symbolic_entity
 
 
 

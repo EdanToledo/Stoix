@@ -10,7 +10,8 @@ actor_network:
       use_layer_norm: False
       activation: tanh
   action_head:
-    _target_: stoix.networks.heads.CategoricalHead
+    _target_: stoix.networks.kinetix.MultiDiscreteHead
+    number_of_dims_per_distribution: [3, 3, 3, 3, 2, 2]
 
 critic_network:
   pre_torso:
