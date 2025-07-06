@@ -60,14 +60,17 @@ class KinetixWrapper(GymnaxWrapper):
 
 
 def make_kinetix_eval_reset_fn(config: DictConfig, env: Environment) -> EvalResetFn:
+    """Creates a reset function that resets the environment to each of the specific evaluation levels.
+    This assumes the number of evaluation environments must be a multiple of the number of levels.
+    """
     levels = config.env.kinetix.eval.eval_levels
     levels_to_reset_to, _ = load_evaluation_levels(levels)
 
     def kinetix_eval_fn(key: chex.PRNGKey, num_environments: int) -> Tuple[State, TimeStep]:
-        print("OIN HERE", num_environments, levels)
         assert num_environments % len(levels) == 0, (
             f"Number of environments ({num_environments}) must be a multiple of the number of "
-            f"evaluation levels ({len(levels)})."
+            f"evaluation levels ({len(levels)}). "
+            f"Consider using a different value of `arch.num_eval_episodes`"
         )
         num_repeats = num_environments // len(levels)
         print(jax.tree.map(lambda x: jnp.shape(x), levels_to_reset_to))
