@@ -5,6 +5,7 @@ import jax
 import jax.numpy as jnp
 from jumanji.env import Environment
 from jumanji.types import StepType, TimeStep, restart
+from kinetix.render.renderer_pixels import PixelsObservation
 from kinetix.util.saving import load_evaluation_levels
 from omegaconf import DictConfig
 
@@ -16,12 +17,18 @@ from stoix.wrappers.gymnax import GymnaxEnvState, GymnaxWrapper
 class KinetixWrapper(GymnaxWrapper):
     """Puts the solve rate in the episode metrics, and allows for an override reset state."""
 
+    def _fix_obs(self, obs: PixelsObservation | chex.Array) -> chex.Array:
+        """Fixes the observation to be a 2D array."""
+        if isinstance(obs, PixelsObservation):
+            return obs.image
+        return obs
+
     def reset(
         self, key: chex.PRNGKey, override_state: Optional[State] = None
     ) -> Tuple[GymnaxEnvState, TimeStep]:
         key, reset_key = jax.random.split(key)
         obs, gymnax_state = self._env.reset(reset_key, self._env_params, override_state)
-        obs = Observation(obs, self._legal_action_mask, jnp.array(0, dtype=int))
+        obs = Observation(self._fix_obs(obs), self._legal_action_mask, jnp.array(0, dtype=int))
         timestep = restart(
             obs,
             extras={
@@ -46,7 +53,7 @@ class KinetixWrapper(GymnaxWrapper):
         )
 
         timestep = TimeStep(
-            observation=Observation(obs, self._legal_action_mask, state.step_count),
+            observation=Observation(self._fix_obs(obs), self._legal_action_mask, state.step_count),
             reward=reward.astype(float),
             discount=jnp.array(1.0 - done, dtype=float),
             step_type=jax.lax.select(done, StepType.LAST, StepType.MID),
