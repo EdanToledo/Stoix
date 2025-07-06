@@ -34,7 +34,6 @@ from stoix.wrappers import GymnaxWrapper, JumanjiWrapper, RecordEpisodeMetrics
 from stoix.wrappers.brax import BraxJumanjiWrapper
 from stoix.wrappers.jax_to_factory import JaxEnvFactory
 from stoix.wrappers.jaxmarl import JaxMarlWrapper, MabraxWrapper, SmaxWrapper
-from stoix.wrappers.kinetix import KinetixWrapper
 from stoix.wrappers.navix import NavixWrapper
 from stoix.wrappers.pgx import PGXWrapper
 from stoix.wrappers.transforms import (
@@ -254,6 +253,8 @@ def make_kinetix_env(env_name: str, config: DictConfig) -> Tuple[Environment, En
     from kinetix.environment.utils import ActionType, ObservationType
     from kinetix.util.config import generate_params_from_config
     from kinetix.util.saving import load_evaluation_levels
+
+    from stoix.wrappers.kinetix import KinetixWrapper
 
     env_params, override_static_env_params = generate_params_from_config(
         dict(config.env.kinetix.env_size)
