@@ -11,7 +11,7 @@ scenario:
   name: Kinetix
   task_name: small
   action_type: discrete
-  observation_type: symbolic_flat
+  observation_type: symbolic
 
 
 
