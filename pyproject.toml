@@ -146,6 +146,7 @@ dependencies = [
     "omegaconf>=2.3.0",
     "optax",
     "pgx>=2.6.0",
+    "popgym-arcade",
     "popjym",
     "protobuf==3.20.2",
     "rlax>=0.1.6",
