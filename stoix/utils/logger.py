@@ -325,10 +325,17 @@ class ConsoleLogger(BaseLogger):
     def __init__(self, cfg: DictConfig, unique_token: str) -> None:
         self.logger = logging.getLogger()
 
-        # Get existing stream handler
-        ch = [h for h in self.logger.handlers if isinstance(h, logging.StreamHandler)][0]
         formatter = logging.Formatter(f"{Fore.CYAN}{Style.BRIGHT}%(message)s", "%H:%M:%S")
-        ch.setFormatter(formatter)
+        # Get existing stream handler
+        handlers = [h for h in self.logger.handlers if isinstance(h, logging.StreamHandler)]
+        if len(handlers) > 0:
+            ch = handlers[0]
+            ch.setFormatter(formatter)
+        else:
+            self.logger.handlers = []
+            ch = logging.StreamHandler()
+            ch.setFormatter(formatter)
+            self.logger.addHandler(ch)
 
         # Set to info to suppress debug outputs.
         self.logger.setLevel("INFO")
