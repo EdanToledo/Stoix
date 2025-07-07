@@ -98,6 +98,7 @@ optax = { git = "https://github.com/google-deepmind/optax.git" }
 popjym = { git = "https://github.com/FLAIROx/popjym.git" }
 xminigrid = { git = "https://github.com/corl-team/xland-minigrid.git", rev = "main" }
 gymnax = { git = " git+https://github.com/RobertTLange/gymnax.git", rev = "main" }
+stoa = { git = " https://github.com/EdanToledo/Stoa.git", rev = "main"}
 
 [project]
 name = "stoix"
@@ -148,6 +149,7 @@ dependencies = [
     "popjym",
     "protobuf==3.20.2",
     "rlax>=0.1.6",
+    "stoa",
     "tensorboard-logger>=0.1.0",
     "tensorflow-probability>=0.25.0",
     "tqdm>=4.67.1",

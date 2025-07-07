@@ -110,7 +110,6 @@ celerybeat.pid
 .env
 .venv
 venv/
-ENV/
 env.bak/
 venv.bak/
 
@@ -166,8 +165,6 @@ bin/act
 
 # Created by debugging component
 component_dependency_map.png
-
-# Stoix env
 
 # Sacred logs
 results/
