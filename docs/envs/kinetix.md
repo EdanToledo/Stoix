@@ -2,7 +2,8 @@
 <p align="middle">
   <img src="https://raw.githubusercontent.com/FlairOX/Kinetix/main/images/kinetix_logo.gif" width="500" />
 </p>
-See the [main Kinetix repo](https://github.com/FLAIROx/Kinetix/) for an introduction to this environment.
+
+See the [main Kinetix repo](https://github.com/FLAIROx/Kinetix) for an introduction to this environment.
 
 ## Basic Usage
 
