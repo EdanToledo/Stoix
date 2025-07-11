@@ -209,6 +209,12 @@ class DiscreteValuedTfpDistribution(Categorical):
 
 
 class MultiDiscreteActionDistribution(distrax.Distribution):
+    """A multi discrete action distribution where each discrete
+        subspace can have a different number of dimensions.
+
+    Copied from Kinetix.
+    """
+
     def __init__(self, flat_logits: chex.Array, number_of_dims_per_distribution: list[int]) -> None:
         self.distributions = []
         total_dims = 0
