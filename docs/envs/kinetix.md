@@ -9,7 +9,7 @@ See the [main Kinetix repo](https://github.com/FLAIROx/Kinetix/) for an introduc
 To run PPO with Kinetix, you can use:
 
 ```bash
-python stoix/systems/ppo/anakin/ff_ppo.py env=kinetix/small arch.num_eval_episodes=720 network=kinetix_entity
+python stoix/systems/ppo/anakin/ff_ppo.py env=kinetix/small arch.num_eval_episodes=720 network=specialised/kinetix_entity
 ```
 
 This by default runs using the `small` environment size, trains and tests on the [list of small levels](../../stoix/configs/env/kinetix/eval/s.yaml)
@@ -28,7 +28,7 @@ If you want to use the standard flat symbolic representation, you can do so by s
 Similarly, you can use the continuous action space by setting `env.scenario.action_type=continuous`.
 
 > [!WARNING]
-> When changing the action type or the observation type, your network may need to change as well. See `stoix/configs/network/kinetix_{pixels,flat,entity}.yaml` for example configs for each of the observation spaces and the multi-discrete action space.
+> When changing the action type or the observation type, your network may need to change as well. See `stoix/configs/network/specialised/kinetix_{pixels,flat,entity}.yaml` for example configs for each of the observation spaces and the multi-discrete action space. Similarly, if you use the continuous action space, please run a compatible system, e.g. `ff_ppo_continuous.py`
 
 
 ### Different Train / Eval Environments

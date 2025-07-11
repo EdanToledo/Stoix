@@ -10,7 +10,7 @@ actor_network:
     channel_first: True
     hidden_sizes: [128, 128]
   action_head:
-    _target_: stoix.networks.kinetix.MultiDiscreteHead
+    _target_: stoix.networks.heads.MultiDiscreteHead
     number_of_dims_per_distribution: [3, 3, 3, 3, 2, 2]
 
 critic_network:

@@ -1,6 +1,7 @@
 from typing import Any, Optional, Sequence
 
 import chex
+import distrax
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -205,3 +206,31 @@ class DiscreteValuedTfpDistribution(Categorical):
 
     def _event_shape_tensor(self) -> chex.Array:
         return []
+
+
+class MultiDiscreteActionDistribution(distrax.Distribution):
+    def __init__(self, flat_logits: chex.Array, number_of_dims_per_distribution: list[int]) -> None:
+        self.distributions = []
+        total_dims = 0
+        for dims in number_of_dims_per_distribution:
+            self.distributions.append(
+                distrax.Categorical(logits=flat_logits[..., total_dims : total_dims + dims])
+            )
+            total_dims += dims
+
+    def _sample_n(self, key: chex.PRNGKey, n: int) -> Any:
+        rngs = jax.random.split(key, len(self.distributions))
+        samples = [
+            jnp.expand_dims(d._sample_n(rng, n), axis=-1)
+            for rng, d in zip(rngs, self.distributions)
+        ]
+        return jnp.concatenate(samples, axis=-1)
+
+    def log_prob(self, value: Any) -> chex.Array:
+        return sum(d.log_prob(value[..., i]) for i, d in enumerate(self.distributions))
+
+    def entropy(self) -> chex.Array:
+        return sum(d.entropy() for d in self.distributions)
+
+    def event_shape(self) -> Sequence[int]:
+        return ()

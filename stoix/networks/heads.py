@@ -21,6 +21,7 @@ from stoix.networks.distributions import (
     AffineTanhTransformedDistribution,
     ClippedBeta,
     DiscreteValuedTfpDistribution,
+    MultiDiscreteActionDistribution,
 )
 
 tfb = tfp.bijectors
@@ -298,3 +299,31 @@ class LinearHead(nn.Module):
     def __call__(self, embedding: chex.Array) -> chex.Array:
 
         return nn.Dense(self.output_dim, kernel_init=self.kernel_init)(embedding)
+
+
+class MultiDiscreteHead(nn.Module):
+    """A head for multi-discrete action spaces, where each
+        discrete subspace can have a different number of dimensions.
+
+    Arguments:
+        action_dim: Total number of actions across all discrete subspaces.
+        number_of_dims_per_distribution: A list where each element
+            represents the number of dimensions for each discrete subspace.
+        kernel_init: Initializer for the dense layer.
+    """
+
+    action_dim: int
+    number_of_dims_per_distribution: list[int]
+    kernel_init: Initializer = orthogonal(0.01)
+
+    @nn.compact
+    def __call__(self, embedding: chex.Array) -> MultiDiscreteActionDistribution:
+        assert sum(self.number_of_dims_per_distribution) == self.action_dim, (
+            f"Sum of number_of_dims_per_distribution {sum(self.number_of_dims_per_distribution)} "
+            f"must equal action_dim {self.action_dim}."
+        )
+        logits = nn.Dense(self.action_dim, kernel_init=self.kernel_init)(embedding)
+
+        return MultiDiscreteActionDistribution(
+            flat_logits=logits, number_of_dims_per_distribution=self.number_of_dims_per_distribution
+        )
