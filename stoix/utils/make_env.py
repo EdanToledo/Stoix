@@ -4,6 +4,7 @@ from typing import Callable, Tuple
 
 import gymnax
 import hydra
+import jax
 import jax.numpy as jnp
 import jaxmarl
 import jumanji
@@ -235,6 +236,83 @@ def make_jaxmarl_env(
     return env, eval_env
 
 
+def make_kinetix_env(env_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
+    """
+    Create a Kinetix environment for training and evaluation.
+
+    Args:
+        env_name (str): The name of the environment to create.
+        config (Dict): The configuration of the environment.
+
+    Returns:
+        A tuple of the environments.
+    """
+    from kinetix.environment import EnvState, StaticEnvParams, make_kinetix_env
+    from kinetix.environment.env import KinetixEnv
+    from kinetix.environment.ued.ued import make_reset_fn_sample_kinetix_level
+    from kinetix.environment.utils import ActionType, ObservationType
+    from kinetix.util.config import generate_params_from_config
+    from kinetix.util.saving import load_evaluation_levels
+
+    from stoix.wrappers.kinetix import KinetixWrapper
+
+    env_params, override_static_env_params = generate_params_from_config(
+        dict(config.env.kinetix.env_size)
+        | {
+            "dense_reward_scale": config.env.dense_reward_scale,
+            "frame_skip": config.env.frame_skip,
+        }
+    )
+
+    def _get_static_params_and_reset_fn(
+        level_config: DictConfig,
+    ) -> tuple[Callable, StaticEnvParams]:
+        if level_config.mode == "list":
+            levels = level_config.levels
+            levels_to_reset_to, static_env_params = load_evaluation_levels(levels)
+
+            def reset(rng: jax.Array) -> EnvState:
+                rng, _rng = jax.random.split(rng)
+                level_idx = jax.random.randint(_rng, (), 0, len(levels))
+                sampled_level = jax.tree.map(lambda x: x[level_idx], levels_to_reset_to)
+
+                return sampled_level
+
+        elif level_config.mode == "random":
+            return (
+                make_reset_fn_sample_kinetix_level(env_params, override_static_env_params),
+                override_static_env_params,
+            )
+        else:
+            raise ValueError(f"Unsupported level mode: {level_config.mode}")
+        return reset, static_env_params
+
+    reset_fn_train, static_env_params_train = _get_static_params_and_reset_fn(
+        config.env.kinetix.train
+    )
+    reset_fn_eval, static_env_params_eval = _get_static_params_and_reset_fn(config.env.kinetix.eval)
+
+    def _make_env(reset_fn: Callable, static_env_params: StaticEnvParams) -> KinetixEnv:
+
+        env = make_kinetix_env(
+            action_type=ActionType.from_string(config.env.scenario.action_type),
+            observation_type=ObservationType.from_string(config.env.scenario.observation_type),
+            reset_fn=reset_fn,
+            env_params=env_params,
+            static_env_params=static_env_params,
+            auto_reset=False,
+        )
+
+        return KinetixWrapper(env, env_params)
+
+    env = _make_env(reset_fn=reset_fn_train, static_env_params=static_env_params_train)
+    eval_env = _make_env(reset_fn=reset_fn_eval, static_env_params=static_env_params_eval)
+    env = AutoResetWrapper(env, next_obs_in_extras=True)
+    env = RecordEpisodeMetrics(env)
+
+    return env, eval_env
+
+
 def make_craftax_env(env_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
     """
     Create a craftax environment for training and evaluation.
@@ -448,6 +526,8 @@ def make(config: DictConfig) -> Tuple[Environment, Environment]:
         envs = make_jaxmarl_env(env_name, config)
     elif "craftax" in env_name.lower():
         envs = make_craftax_env(env_name, config)
+    elif "kinetix" in env_name.lower():
+        envs = make_kinetix_env(env_name, config)
     elif "debug" in env_name.lower():
         envs = make_debug_env(env_name, config)
     elif env_name in pgx.available_envs():

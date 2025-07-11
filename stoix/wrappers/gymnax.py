@@ -8,9 +8,10 @@ import numpy as np
 from gymnax import EnvParams, EnvState
 from gymnax.environments.environment import Environment
 from jumanji import specs
-from jumanji.specs import Array, DiscreteArray, Spec
+from jumanji.specs import Array, DiscreteArray, MultiDiscreteArray, Spec
 from jumanji.types import StepType, TimeStep, restart
 from jumanji.wrappers import Wrapper
+from kinetix.environment.utils import MultiDiscrete
 
 from stoix.base_types import Observation
 
@@ -43,6 +44,10 @@ def gymnax_space_to_jumanji_spec(
             key: gymnax_space_to_jumanji_spec(value) for key, value in space.spaces.items()
         }
         return dict_specs
+    elif isinstance(space, MultiDiscrete):
+        return specs.MultiDiscreteArray(
+            num_values=jnp.array(space.n),
+        )
     else:
         raise TypeError(f"Unsupported Gymnax space type: {type(space)}")
 
@@ -58,7 +63,9 @@ class GymnaxWrapper(Wrapper):
     def __init__(self, env: Environment, env_params: EnvParams):
         self._env = env
         self._env_params = env_params
-        if isinstance(self.action_spec(), DiscreteArray):
+        if isinstance(self.action_spec(), DiscreteArray) or isinstance(
+            self.action_spec(), MultiDiscreteArray
+        ):
             n_actions = self.action_spec().num_values
         else:
             n_actions = self.action_spec().shape[0]

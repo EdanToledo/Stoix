@@ -1,0 +1,27 @@
+# ---Environment Configs---
+env_name: kinetix
+
+defaults:
+  - kinetix/train: l
+  - kinetix/eval: l
+  - kinetix/env_size: l
+  - _self_
+
+scenario:
+  name: Kinetix
+  task_name: large
+  action_type: multi_discrete
+  observation_type: symbolic_entity
+
+
+
+# Defines the metric that will be used to evaluate the performance of the agent.
+# This metric is returned at the end of an experiment and can be used for hyperparameter tuning.
+eval_metric: solve_rate
+eval_reset_fn:
+  _target_: stoix.wrappers.kinetix.make_kinetix_eval_reset_fn
+
+solved_return_threshold: 0.6
+
+dense_reward_scale: 0.2
+frame_skip: 2

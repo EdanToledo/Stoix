@@ -4,18 +4,21 @@ from typing import Any, Dict, Optional, Tuple, Union
 
 import chex
 import flax.linen as nn
+import hydra
 import jax
 import jax.numpy as jnp
 import numpy as np
 from colorama import Fore, Style
 from flax.core.frozen_dict import FrozenDict
 from jumanji.env import Environment
+from jumanji.types import TimeStep
 from omegaconf import DictConfig
 
 from stoix.base_types import (
     ActFn,
     ActorApply,
     EvalFn,
+    EvalResetFn,
     EvalState,
     EvaluationOutput,
     RecActFn,
@@ -23,10 +26,24 @@ from stoix.base_types import (
     RNNEvalState,
     RNNObservation,
     SebulbaEvalFn,
+    State,
 )
 from stoix.utils.env_factory import EnvFactory
 from stoix.utils.jax_utils import unreplicate_batch_dim
 from stoix.utils.running_statistics import RunningStatisticsState, normalize
+
+
+def make_random_initial_eval_reset_fn(config: DictConfig, env: Environment) -> EvalResetFn:
+    def random_initial_eval_reset_fn(
+        key: chex.PRNGKey, num_environments: int
+    ) -> Tuple[State, TimeStep]:
+        key, *env_keys = jax.random.split(key, num_environments + 1)
+        env_states, timesteps = jax.vmap(env.reset)(
+            jnp.stack(env_keys),
+        )
+        return env_states, timesteps
+
+    return random_initial_eval_reset_fn
 
 
 def get_distribution_act_fn(
@@ -72,6 +89,7 @@ def get_ff_evaluator_fn(
     env: Environment,
     act_fn: ActFn,
     config: DictConfig,
+    eval_reset_fn: EvalResetFn,
     log_solve_rate: bool = False,
     eval_multiplier: int = 1,
 ) -> EvalFn:
@@ -81,6 +99,8 @@ def get_ff_evaluator_fn(
         env (Environment): An environment instance for evaluation.
         act_fn (callable): The act_fn that returns the action taken by the agent.
         config (dict): Experiment configuration.
+        eval_reset_fn (EvalResetFn): A function that resets the environment and returns
+            the initial environment state and timestep for evaluation.
         eval_multiplier (int): A scalar that will increase the number of evaluation
             episodes by a fixed factor. The reason for the increase is to enable the
             computation of the `absolute metric` which is a metric computed and the end
@@ -156,10 +176,10 @@ def get_ff_evaluator_fn(
 
         eval_batch = (config.arch.num_eval_episodes // n_devices) * eval_multiplier
 
-        key, *env_keys = jax.random.split(key, eval_batch + 1)
-        env_states, timesteps = jax.vmap(env.reset)(
-            jnp.stack(env_keys),
-        )
+        # Get initial states
+        key, reset_key = jax.random.split(key)
+        env_states, timesteps = eval_reset_fn(reset_key, eval_batch)
+
         # Split keys for each core.
         key, *step_keys = jax.random.split(key, eval_batch + 1)
         # Add dimension to pmap over.
@@ -191,6 +211,7 @@ def get_rnn_evaluator_fn(
     env: Environment,
     rec_act_fn: RecActFn,
     config: DictConfig,
+    eval_reset_fn: EvalResetFn,
     scanned_rnn: nn.Module,
     log_solve_rate: bool = False,
     eval_multiplier: int = 1,
@@ -281,8 +302,10 @@ def get_rnn_evaluator_fn(
 
         eval_batch = config.arch.num_eval_episodes // n_devices * eval_multiplier
 
-        key, *env_keys = jax.random.split(key, eval_batch + 1)
-        env_states, timesteps = jax.vmap(env.reset)(jnp.stack(env_keys))
+        # Get initial states
+        key, reset_key = jax.random.split(key)
+        env_states, timesteps = eval_reset_fn(reset_key, eval_batch)
+
         # Split keys for each core.
         key, *step_keys = jax.random.split(key, eval_batch + 1)
         # Add dimension to pmap over.
@@ -339,6 +362,16 @@ def evaluator_setup(
         log_solve_rate = True
     else:
         log_solve_rate = False
+    # Get the initial evaluation environment state function
+    if "eval_reset_fn" in config.env and config.env.eval_reset_fn is not None:
+        eval_reset_fn = hydra.utils.instantiate(
+            config.env.eval_reset_fn,
+            config,
+            eval_env,
+        )
+    else:
+        eval_reset_fn = make_random_initial_eval_reset_fn(config, eval_env)
+
     # Vmap it over number of agents and create evaluator_fn.
     if use_recurrent_net:
         assert scanned_rnn is not None
@@ -346,6 +379,7 @@ def evaluator_setup(
             eval_env,
             eval_act_fn,  # type: ignore
             config,
+            eval_reset_fn,
             scanned_rnn,
             log_solve_rate,
         )
@@ -353,16 +387,20 @@ def evaluator_setup(
             eval_env,
             eval_act_fn,  # type: ignore
             config,
+            eval_reset_fn,
             scanned_rnn,
             log_solve_rate,
             10,
         )
     else:
-        evaluator = get_ff_evaluator_fn(eval_env, eval_act_fn, config, log_solve_rate)  # type: ignore
+        evaluator = get_ff_evaluator_fn(
+            eval_env, eval_act_fn, config, eval_reset_fn, log_solve_rate  # type: ignore
+        )
         absolute_metric_evaluator = get_ff_evaluator_fn(
             eval_env,
             eval_act_fn,  # type: ignore
             config,
+            eval_reset_fn,
             log_solve_rate,
             10,
         )
