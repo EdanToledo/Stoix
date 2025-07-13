@@ -12,7 +12,7 @@ actor_network:
 
 q_network:
   input_layer:
-    _target_: stoix.networks.inputs.ObservationActionInput
+    _target_: stoix.networks.inputs.EmbeddingActionInput
   pre_torso:
     _target_: stoix.networks.torso.MLPTorso
     layer_sizes: [256, 256, 256]

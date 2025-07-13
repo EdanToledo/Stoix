@@ -4,8 +4,8 @@ import chex
 import jax
 import jax.numpy as jnp
 from flax.core.frozen_dict import FrozenDict
-from jumanji.env import Environment
 from omegaconf import DictConfig
+from stoa.environment import Environment
 
 from stoix.base_types import EvalFn, EvalState, EvaluationOutput
 from stoix.systems.search.search_types import RootFnApply, SearchApply

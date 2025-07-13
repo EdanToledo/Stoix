@@ -16,10 +16,11 @@ import tensorflow_probability.substrates.jax as tfp
 from colorama import Fore, Style
 from flashbax.buffers.trajectory_buffer import BufferState
 from flax.core.frozen_dict import FrozenDict
-from jumanji.env import Environment
 from jumanji.types import TimeStep
 from omegaconf import DictConfig, OmegaConf
 from rich.pretty import pprint
+from stoa.core_wrappers.episode_metrics import get_final_step_metrics
+from stoa.environment import Environment
 from tensorflow_probability.substrates.jax.distributions import Distribution
 
 from stoix.base_types import (
@@ -67,7 +68,6 @@ from stoix.utils.logger import LogEvent, StoixLogger
 from stoix.utils.multistep import batch_truncated_generalized_advantage_estimation
 from stoix.utils.total_timestep_checker import check_total_timesteps
 from stoix.utils.training import make_learning_rate
-from stoix.wrappers.episode_metrics import get_final_step_metrics
 
 tfd = tfp.distributions
 
@@ -1504,7 +1504,7 @@ def learner_setup(
     n_devices = len(jax.devices())
 
     # Get number/dimension of actions.
-    action_dim = int(env.action_spec().num_values)
+    action_dim = int(env.action_space().num_values)
     config.system.action_dim = action_dim
 
     # PRNG keys.
@@ -1543,7 +1543,7 @@ def learner_setup(
     )
 
     # Initialise observation
-    init_x = env.observation_spec().generate_value()
+    init_x = env.observation_space().generate_value()
     init_x = jax.tree_util.tree_map(lambda x: x[None, ...], init_x)
 
     # Initialise actor params and optimiser state.

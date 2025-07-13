@@ -10,9 +10,9 @@ import jax.numpy as jnp
 import numpy as np
 from colorama import Fore, Style
 from flax.core.frozen_dict import FrozenDict
-from jumanji.env import Environment
 from jumanji.types import TimeStep
 from omegaconf import DictConfig
+from stoa.environment import Environment
 
 from stoix.base_types import (
     ActFn,

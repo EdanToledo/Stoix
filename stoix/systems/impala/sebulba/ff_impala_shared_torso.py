@@ -21,6 +21,7 @@ from flax.jax_utils import unreplicate
 from jax import Array
 from omegaconf import DictConfig, OmegaConf
 from rich.pretty import pprint
+from stoa.core_wrappers.episode_metrics import get_final_step_metrics
 
 from stoix.base_types import (
     Action,
@@ -37,7 +38,7 @@ from stoix.base_types import (
 )
 from stoix.evaluator import get_distribution_act_fn, get_sebulba_eval_fn
 from stoix.networks.base import FeedForwardActorCritic as ActorCritic
-from stoix.networks.inputs import EmbeddingInput
+from stoix.networks.inputs import ArrayInput
 from stoix.systems.impala.impala_types import ImpalaTransition
 from stoix.utils import make_env as environments
 from stoix.utils.checkpointing import Checkpointer
@@ -53,7 +54,6 @@ from stoix.utils.sebulba_utils import (
 from stoix.utils.timing_utils import TimingTracker
 from stoix.utils.total_timestep_checker import check_total_timesteps
 from stoix.utils.training import make_learning_rate
-from stoix.wrappers.episode_metrics import get_final_step_metrics
 
 # Memory and performance optimizations for JAX
 os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.6"
@@ -702,8 +702,8 @@ def learner_setup(
 
     # Get environment specifications
     env = env_factory(num_envs=1)
-    num_actions = int(env.action_spec().num_values)
-    example_obs = env.observation_spec().generate_value()
+    num_actions = int(env.action_space().num_values)
+    example_obs = env.observation_space().generate_value()
     config.system.action_dim = num_actions
     config.system.observation_shape = example_obs.shape
     env.close()
@@ -717,7 +717,7 @@ def learner_setup(
     )
     critic_head = hydra.utils.instantiate(config.network.critic_network.critic_head)
     actor_critic_network = ActorCritic(
-        input_layer=EmbeddingInput(),
+        input_layer=ArrayInput(),
         torso=shared_torso,
         action_head=actor_action_head,
         critic_head=critic_head,

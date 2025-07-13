@@ -10,7 +10,7 @@ import numpy as np
 from flax import linen as nn
 
 from stoix.base_types import Observation, RNNObservation
-from stoix.networks.inputs import ObservationInput
+from stoix.networks.inputs import ArrayInput
 from stoix.networks.utils import parse_rnn_cell
 
 
@@ -19,7 +19,7 @@ class FeedForwardActor(nn.Module):
 
     action_head: nn.Module
     torso: nn.Module
-    input_layer: nn.Module = ObservationInput()
+    input_layer: nn.Module = ArrayInput()
 
     @nn.compact
     def __call__(
@@ -40,7 +40,7 @@ class FeedForwardCritic(nn.Module):
 
     critic_head: nn.Module
     torso: nn.Module
-    input_layer: nn.Module = ObservationInput()
+    input_layer: nn.Module = ArrayInput()
 
     @nn.compact
     def __call__(
@@ -64,7 +64,7 @@ class FeedForwardActorCritic(nn.Module):
     action_head: nn.Module
     critic_head: nn.Module
     torso: nn.Module
-    input_layer: nn.Module = ObservationInput()
+    input_layer: nn.Module = ArrayInput()
 
     @nn.compact
     def __call__(
@@ -166,7 +166,7 @@ class RecurrentActor(nn.Module):
     hidden_state_dim: int
     cell_type: str
     pre_torso: nn.Module
-    input_layer: nn.Module = ObservationInput()
+    input_layer: nn.Module = ArrayInput()
 
     @nn.compact
     def __call__(
@@ -197,7 +197,7 @@ class RecurrentCritic(nn.Module):
     hidden_state_dim: int
     cell_type: str
     pre_torso: nn.Module
-    input_layer: nn.Module = ObservationInput()
+    input_layer: nn.Module = ArrayInput()
 
     @nn.compact
     def __call__(

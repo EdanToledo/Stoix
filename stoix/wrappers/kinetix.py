@@ -3,11 +3,11 @@ from typing import Optional, Tuple
 import chex
 import jax
 import jax.numpy as jnp
-from jumanji.env import Environment
 from jumanji.types import StepType, TimeStep, restart
 from kinetix.render.renderer_pixels import PixelsObservation
 from kinetix.util.saving import load_evaluation_levels
 from omegaconf import DictConfig
+from stoa.environment import Environment
 
 from stoix.base_types import EvalResetFn, Observation, State
 from stoix.evaluator import make_random_initial_eval_reset_fn

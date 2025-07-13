@@ -13,6 +13,7 @@ import popjym
 import xminigrid
 from brax.envs import _envs as brax_environments
 from brax.envs import create as brax_make
+from colorama import Fore, Style
 from gymnax import registered_envs as gymnax_environments
 from gymnax.environments.environment import Environment as GymnaxEnvironment
 from gymnax.environments.environment import EnvParams as GymnaxEnvParams
@@ -28,16 +29,66 @@ from stoa import (
     Environment,
     GymnaxToStoa,
     JumanjiToStoa,
+    MultiDiscreteSpace,
+    MultiDiscreteToDiscreteWrapper,
     NavixToStoa,
     ObservationExtractWrapper,
     RecordEpisodeMetrics,
     XMiniGridToStoa,
 )
+from stoa.core_wrappers.auto_reset import CachedAutoResetWrapper
+from stoa.core_wrappers.wrapper import AddRNGKey
+from stoa.utility_wrappers.consistent_extras import ConsistentExtrasWrapper
 from xminigrid.registration import _REGISTRY as XMINIGRID_REGISTRY
 
 from stoix.utils.debug_env import DEBUG_ENVIRONMENTS
 from stoix.utils.env_factory import EnvFactory, EnvPoolFactory, GymnasiumFactory
 from stoix.wrappers.jax_to_factory import JaxEnvFactory
+
+
+def apply_core_wrappers(env: Environment, config: DictConfig) -> Environment:
+    """Apply core wrappers to the train environment.
+    This includes wrappers for auto-resetting, adding RNG keys (if necessary),
+    and recording episode metrics."""
+
+    # Add wrappers for auto-resetting
+    if config.env.get("use_cached_auto_reset", False):
+        env = CachedAutoResetWrapper(env, next_obs_in_extras=True)
+    else:
+        env = AddRNGKey(env)
+        env = AutoResetWrapper(env, next_obs_in_extras=True)
+
+    # Add wrapper for recording episode metrics.
+    env = RecordEpisodeMetrics(env)
+
+    return env
+
+
+def apply_optional_wrappers(
+    envs: Tuple[Environment, Environment], config: DictConfig
+) -> Tuple[Environment, Environment]:
+    """Apply optional wrappers to the train and eval environments.
+
+    Args:
+        envs (Tuple[Environment, Environment]): The training and evaluation environments to wrap.
+        config (Dict): The configuration of the environment.
+
+    Returns:
+        A tuple of the environments.
+    """
+
+    # Unpack the environments.
+    train_env, eval_env = envs
+
+    # If a wrapper function is specified in the config, instantiate it.
+    if "wrapper" in config.env and config.env.wrapper is not None:
+        # Create the wrapper function.
+        wrapper_fn = hydra.utils.instantiate(config.env.wrapper, _partial_=True)
+        # Apply wrapper function to both environments.
+        train_env = wrapper_fn(train_env)
+        eval_env = wrapper_fn(eval_env)
+
+    return train_env, eval_env
 
 
 def make_jumanji_env(
@@ -65,7 +116,8 @@ def make_jumanji_env(
     # Create envs.
     env = jumanji.make(scenario_name, **env_kwargs)
     eval_env = jumanji.make(scenario_name, **env_kwargs)
-    # If the environment is multi-agent, we need to wrap it to handle multiple agents.
+
+    # If the environment is multi-agent, we convert it to a single-agent environment.
     if config.env.multi_agent:
         env = jumanji_wrappers.MultiToSingleWrapper(env)
         eval_env = jumanji_wrappers.MultiToSingleWrapper(eval_env)
@@ -79,9 +131,17 @@ def make_jumanji_env(
     eval_env = JumanjiToStoa(eval_env)
     eval_env = ObservationExtractWrapper(eval_env, config.env.observation_attribute)
 
+    # If the environment has a multi-discrete action space, we convert it to a single discrete action space.
+    # This is the case for multi-agent jumanji environments.
+    if isinstance(env.action_space(), MultiDiscreteSpace):
+        env = MultiDiscreteToDiscreteWrapper(env)
+        eval_env = MultiDiscreteToDiscreteWrapper(eval_env)
+
+    # Apply any additional wrappers specified in the config.
+    env, eval_env = apply_optional_wrappers((env, eval_env), config)
+
     # Add wrappers for auto-resetting and recording episode metrics.
-    env = AutoResetWrapper(env, next_obs_in_extras=True)
-    env = RecordEpisodeMetrics(env)
+    env = apply_core_wrappers(env, config)
 
     return env, eval_env
 
@@ -134,14 +194,23 @@ def make_gymnax_env(scenario_name: str, config: DictConfig) -> Tuple[Environment
     env = GymnaxToStoa(env, env_params)
     eval_env = GymnaxToStoa(eval_env, eval_env_params)
 
+    # Add wrapper to ensure all extras field objects
+    # are consistent for JAX scanning/while loops.
+    env = ConsistentExtrasWrapper(env)
+    eval_env = ConsistentExtrasWrapper(eval_env)
+
+    # Apply any additional wrappers specified in the config.
+    env, eval_env = apply_optional_wrappers((env, eval_env), config)
+
     # Add wrappers for auto-resetting and recording episode metrics.
-    env = AutoResetWrapper(env, next_obs_in_extras=True)
-    env = RecordEpisodeMetrics(env)
+    env = apply_core_wrappers(env, config)
 
     return env, eval_env
 
 
-def make_popgym_arcade_env(scenario_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
+def make_popgym_arcade_env(
+    scenario_name: str, config: DictConfig
+) -> Tuple[Environment, Environment]:
     """
     Create a PopGym Arcade environments for training and evaluation.
 
@@ -165,14 +234,23 @@ def make_popgym_arcade_env(scenario_name: str, config: DictConfig) -> Tuple[Envi
     env = GymnaxToStoa(env, env_params)
     eval_env = GymnaxToStoa(eval_env, eval_env_params)
 
+    # Add wrapper to ensure all extras field objects
+    # are consistent for JAX scanning/while loops.
+    env = ConsistentExtrasWrapper(env)
+    eval_env = ConsistentExtrasWrapper(eval_env)
+
+    # Apply any additional wrappers specified in the config.
+    env, eval_env = apply_optional_wrappers((env, eval_env), config)
+
     # Add wrappers for auto-resetting and recording episode metrics.
-    env = AutoResetWrapper(env, next_obs_in_extras=True)
-    env = RecordEpisodeMetrics(env)
+    env = apply_core_wrappers(env, config)
 
     return env, eval_env
 
 
-def make_xland_minigrid_env(scenario_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
+def make_xland_minigrid_env(
+    scenario_name: str, config: DictConfig
+) -> Tuple[Environment, Environment]:
     """
     Create a XLand Minigrid environments for training and evaluation.
 
@@ -192,9 +270,16 @@ def make_xland_minigrid_env(scenario_name: str, config: DictConfig) -> Tuple[Env
     env = XMiniGridToStoa(env, env_params)
     eval_env = XMiniGridToStoa(eval_env, eval_env_params)
 
+    # Add wrapper to ensure all extras field objects
+    # are consistent for JAX scanning/while loops.
+    env = ConsistentExtrasWrapper(env)
+    eval_env = ConsistentExtrasWrapper(eval_env)
+
+    # Apply any additional wrappers specified in the config.
+    env, eval_env = apply_optional_wrappers((env, eval_env), config)
+
     # Add wrappers for auto-resetting and recording episode metrics.
-    env = AutoResetWrapper(env, next_obs_in_extras=True)
-    env = RecordEpisodeMetrics(env)
+    env = apply_core_wrappers(env, config)
 
     return env, eval_env
 
@@ -215,13 +300,23 @@ def make_brax_env(scenario_name: str, config: DictConfig) -> Tuple[Environment, 
     env = brax_make(scenario_name, auto_reset=False, **config.env.kwargs)
     eval_env = brax_make(scenario_name, auto_reset=False, **config.env.kwargs)
 
+    # Convert Brax environments to Stoa interface.
     env = BraxToStoa(env)
     eval_env = BraxToStoa(eval_env)
 
-    env = AutoResetWrapper(env, next_obs_in_extras=True)
-    env = RecordEpisodeMetrics(env)
+    # Add wrapper to ensure all extras field objects
+    # are consistent for JAX scanning/while loops.
+    env = ConsistentExtrasWrapper(env)
+    eval_env = ConsistentExtrasWrapper(eval_env)
+
+    # Apply any additional wrappers specified in the config.
+    env, eval_env = apply_optional_wrappers((env, eval_env), config)
+
+    # Add wrappers for auto-resetting and recording episode metrics.
+    env = apply_core_wrappers(env, config)
 
     return env, eval_env
+
 
 def make_kinetix_env(scenario_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
     """
@@ -334,12 +429,21 @@ def make_craftax_env(scenario_name: str, config: DictConfig) -> Tuple[Environmen
     # Extract the default parameters from the environment.
     env_params = env.default_params
     eval_env_params = eval_env.default_params
+
     # Convert Craftax environments to Stoa interface.
     env = GymnaxToStoa(env, env_params)
     eval_env = GymnaxToStoa(eval_env, eval_env_params)
+
+    # Add wrapper to ensure all extras field objects
+    # are consistent for JAX scanning/while loops.
+    env = ConsistentExtrasWrapper(env)
+    eval_env = ConsistentExtrasWrapper(eval_env)
+
+    # Apply any additional wrappers specified in the config.
+    env, eval_env = apply_optional_wrappers((env, eval_env), config)
+
     # Add wrappers for auto-resetting and recording episode metrics.
-    env = AutoResetWrapper(env, next_obs_in_extras=True)
-    env = RecordEpisodeMetrics(env)
+    env = apply_core_wrappers(env, config)
 
     return env, eval_env
 
@@ -360,31 +464,13 @@ def make_debug_env(scenario_name: str, config: DictConfig) -> Tuple[Environment,
     env = DEBUG_ENVIRONMENTS[scenario_name](**config.env.kwargs)
     eval_env = DEBUG_ENVIRONMENTS[scenario_name](**config.env.kwargs)
 
+    # Apply any additional wrappers specified in the config.
+    env, eval_env = apply_optional_wrappers((env, eval_env), config)
+
     # Add wrappers for auto-resetting and recording episode metrics.
-    env = AutoResetWrapper(env, next_obs_in_extras=True)
-    env = RecordEpisodeMetrics(env)
+    env = apply_core_wrappers(env, config)
 
     return env, eval_env
-
-
-def apply_optional_wrappers(
-    envs: Tuple[Environment, Environment], config: DictConfig
-) -> Tuple[Environment, Environment]:
-    """Apply optional wrappers to the environments.
-
-    Args:
-        envs (Tuple[Environment, Environment]): The training and evaluation environments to wrap.
-        config (Dict): The configuration of the environment.
-
-    Returns:
-        A tuple of the environments.
-    """
-    envs = list(envs)
-    if "wrapper" in config.env and config.env.wrapper is not None:
-        for i in range(len(envs)):
-            envs[i] = hydra.utils.instantiate(config.env.wrapper, env=envs[i])
-
-    return tuple(envs)  # type: ignore
 
 
 def make_popjym_env(scenario_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
@@ -408,13 +494,20 @@ def make_popjym_env(scenario_name: str, config: DictConfig) -> Tuple[Environment
     env = GymnaxToStoa(env, env_params)
     eval_env = GymnaxToStoa(eval_env, eval_env_params)
 
+    # Add wrapper to ensure all extras field objects
+    # are consistent for JAX scanning/while loops.
+    env = ConsistentExtrasWrapper(env)
+    eval_env = ConsistentExtrasWrapper(eval_env)
+
     # Add wrappers for adding start flag and previous action.
     env = AddStartFlagAndPrevAction(env)
     eval_env = AddStartFlagAndPrevAction(eval_env)
 
+    # Apply any additional wrappers specified in the config.
+    env, eval_env = apply_optional_wrappers((env, eval_env), config)
+
     # Add wrappers for auto-resetting and recording episode metrics.
-    env = AutoResetWrapper(env, next_obs_in_extras=True)
-    env = RecordEpisodeMetrics(env)
+    env = apply_core_wrappers(env, config)
 
     return env, eval_env
 
@@ -439,9 +532,16 @@ def make_navix_env(scenario_name: str, config: DictConfig) -> Tuple[Environment,
     env = NavixToStoa(env)
     eval_env = NavixToStoa(eval_env)
 
+    # Add wrapper to ensure all extras field objects
+    # are consistent for JAX scanning/while loops.
+    env = ConsistentExtrasWrapper(env)
+    eval_env = ConsistentExtrasWrapper(eval_env)
+
+    # Apply any additional wrappers specified in the config.
+    env, eval_env = apply_optional_wrappers((env, eval_env), config)
+
     # Add wrappers for auto-resetting and recording episode metrics.
-    env = AutoResetWrapper(env, next_obs_in_extras=True)
-    env = RecordEpisodeMetrics(env)
+    env = apply_core_wrappers(env, config)
 
     return env, eval_env
 
@@ -460,7 +560,10 @@ def make_gymnasium_factory(
         GymnasiumFactory: The created GymnasiumFactory.
     """
     env_factory = GymnasiumFactory(
-        scenario_name, init_seed=config.arch.seed, apply_wrapper_fn=apply_wrapper_fn, **config.env.kwargs
+        scenario_name,
+        init_seed=config.arch.seed,
+        apply_wrapper_fn=apply_wrapper_fn,
+        **config.env.kwargs,
     )
 
     return env_factory
@@ -478,7 +581,10 @@ def make_envpool_factory(
         EnvPoolFactory: The created EnvPoolFactory.
     """
     env_factory = EnvPoolFactory(
-        scenario_name, init_seed=config.arch.seed, apply_wrapper_fn=apply_wrapper_fn, **config.env.kwargs
+        scenario_name,
+        init_seed=config.arch.seed,
+        apply_wrapper_fn=apply_wrapper_fn,
+        **config.env.kwargs,
     )
 
     return env_factory
@@ -494,7 +600,7 @@ def make(config: DictConfig) -> Tuple[Environment, Environment]:
     Returns:
         training and evaluation environments.
     """
-
+    suite_name = config.env.env_name
     scenario_name = config.env.scenario.name
 
     if scenario_name in gymnax_environments:
@@ -520,8 +626,9 @@ def make(config: DictConfig) -> Tuple[Environment, Environment]:
     else:
         raise ValueError(f"{scenario_name} is not a supported environment.")
 
-    envs = apply_optional_wrappers(envs, config)
-
+    print(
+        f"{Fore.YELLOW}{Style.BRIGHT}Created environments for {suite_name} - {scenario_name}{Style.RESET_ALL}"
+    )
     return envs
 
 

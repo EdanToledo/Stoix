@@ -2,13 +2,14 @@ import copy
 import time
 from typing import TYPE_CHECKING, Any, Callable, Dict, Tuple
 
+from stoa.core_wrappers.episode_metrics import get_final_step_metrics
+
 from stoix.systems.q_learning.dqn_types import Transition
 from stoix.utils.checkpointing import Checkpointer
 from stoix.utils.jax_utils import unreplicate_batch_dim, unreplicate_n_dims
 from stoix.utils.loss import categorical_double_q_learning  # noqa: F401
 from stoix.utils.multistep import batch_discounted_returns
 from stoix.utils.training import make_learning_rate
-from stoix.wrappers.episode_metrics import get_final_step_metrics
 
 if TYPE_CHECKING:
     from dataclasses import dataclass
@@ -26,10 +27,10 @@ import optax
 from colorama import Fore, Style
 from flashbax.buffers.trajectory_buffer import BufferState
 from flax.core.frozen_dict import FrozenDict
-from jumanji.env import Environment
 from jumanji.types import TimeStep
 from omegaconf import DictConfig, OmegaConf
 from rich.pretty import pprint
+from stoa.environment import Environment
 
 from stoix.base_types import (
     ActorApply,
@@ -344,7 +345,7 @@ def learner_setup(
     n_devices = len(jax.devices())
 
     # Get number of actions.
-    action_dim = int(env.action_spec().num_values)
+    action_dim = int(env.action_space().num_values)
     config.system.action_dim = action_dim
 
     # PRNG keys.
@@ -384,7 +385,7 @@ def learner_setup(
     )
 
     # Initialise observation
-    init_x = env.observation_spec().generate_value()
+    init_x = env.observation_space().generate_value()
     init_x = jax.tree_util.tree_map(lambda x: x[None, ...], init_x)
 
     # Initialise q params and optimiser state.

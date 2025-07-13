@@ -7,7 +7,7 @@ import jax.numpy as jnp
 from flax import linen as nn
 
 from stoix.base_types import Observation
-from stoix.networks.inputs import ObservationInput
+from stoix.networks.inputs import ArrayInput
 from stoix.networks.layers import StackedRNN
 from stoix.networks.utils import parse_activation_fn, parse_rnn_cell
 
@@ -24,7 +24,7 @@ class RewardBasedWorldModel(nn.Module):
     recurrent_activation: str = "tanh"
     nonlinear_to_hidden: bool = False
     embed_actions: bool = True
-    observation_input_layer: nn.Module = ObservationInput()
+    observation_input_layer: nn.Module = ArrayInput()
 
     def setup(self) -> None:
         self._to_hidden = nn.Dense(self.hidden_state_size)

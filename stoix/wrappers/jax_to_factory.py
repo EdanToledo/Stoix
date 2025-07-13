@@ -3,9 +3,9 @@ from typing import Callable, Optional
 
 import jax
 import numpy as np
-from jumanji.env import Environment
 from jumanji.specs import Spec
 from jumanji.types import TimeStep
+from stoa.environment import Environment
 
 from stoix.utils.env_factory import EnvFactory
 
