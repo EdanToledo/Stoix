@@ -4,6 +4,7 @@ from typing import Callable, Tuple
 
 import gymnax
 import hydra
+import jax
 import jumanji
 import jumanji.wrappers as jumanji_wrappers
 import navix
@@ -40,14 +41,14 @@ from stoix.wrappers.jax_to_factory import JaxEnvFactory
 
 
 def make_jumanji_env(
-    env_name: str,
+    scenario_name: str,
     config: DictConfig,
 ) -> Tuple[Environment, Environment]:
     """
     Create a Jumanji environments for training and evaluation.
 
     Args:
-        env_name (str): The name of the environment to create.
+        scenario_name (str): The name of the environment to create.
         config (Dict): The configuration of the environment.
 
     Returns:
@@ -62,8 +63,8 @@ def make_jumanji_env(
         env_kwargs["generator"] = generator
 
     # Create envs.
-    env = jumanji.make(env_name, **env_kwargs)
-    eval_env = jumanji.make(env_name, **env_kwargs)
+    env = jumanji.make(scenario_name, **env_kwargs)
+    eval_env = jumanji.make(scenario_name, **env_kwargs)
     # If the environment is multi-agent, we need to wrap it to handle multiple agents.
     if config.env.multi_agent:
         env = jumanji_wrappers.MultiToSingleWrapper(env)
@@ -86,7 +87,7 @@ def make_jumanji_env(
 
 
 def _create_gymnax_env_instance(
-    env_name: str,
+    scenario_name: str,
     env_kwargs: dict,
     env_make_fn: Callable[[str], Tuple[GymnaxEnvironment, GymnaxEnvParams]] = gymnax.make,
 ) -> Tuple[GymnaxEnvironment, GymnaxEnvParams]:
@@ -96,14 +97,14 @@ def _create_gymnax_env_instance(
     This is due to gymnax having both environment init arguments and environment
     parameters in the EnvParams object."""
     # Get default params to identify which kwargs are for init and which are for params
-    _, default_params = env_make_fn(env_name)
+    _, default_params = env_make_fn(scenario_name)
     param_fields = {f.name for f in dataclasses.fields(default_params)}
 
     init_kwargs = {k: v for k, v in env_kwargs.items() if k not in param_fields}
     params_kwargs = {k: v for k, v in env_kwargs.items() if k in param_fields}
 
     # Create env, passing only potential init_kwargs
-    env, env_params = env_make_fn(env_name, **init_kwargs)
+    env, env_params = env_make_fn(scenario_name, **init_kwargs)
 
     # Update params with params_kwargs
     if params_kwargs:
@@ -112,12 +113,12 @@ def _create_gymnax_env_instance(
     return env, env_params
 
 
-def make_gymnax_env(env_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
+def make_gymnax_env(scenario_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
     """
     Create a Gymnax environments for training and evaluation.
 
     Args:
-        env_name (str): The name of the environment to create.
+        scenario_name (str): The name of the environment to create.
         config (Dict): The configuration of the environment.
 
     Returns:
@@ -126,8 +127,8 @@ def make_gymnax_env(env_name: str, config: DictConfig) -> Tuple[Environment, Env
     env_kwargs = dict(copy.deepcopy(config.env.kwargs))
 
     # Create envs using the helper function
-    env, env_params = _create_gymnax_env_instance(env_name, env_kwargs)
-    eval_env, eval_env_params = _create_gymnax_env_instance(env_name, env_kwargs)
+    env, env_params = _create_gymnax_env_instance(scenario_name, env_kwargs)
+    eval_env, eval_env_params = _create_gymnax_env_instance(scenario_name, env_kwargs)
 
     # Convert Gymnax environments to Stoa interface.
     env = GymnaxToStoa(env, env_params)
@@ -140,12 +141,12 @@ def make_gymnax_env(env_name: str, config: DictConfig) -> Tuple[Environment, Env
     return env, eval_env
 
 
-def make_popgym_arcade_env(env_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
+def make_popgym_arcade_env(scenario_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
     """
     Create a PopGym Arcade environments for training and evaluation.
 
     Args:
-        env_name (str): The name of the environment to create.
+        scenario_name (str): The name of the environment to create.
         config (Dict): The configuration of the environment.
 
     Returns:
@@ -154,9 +155,9 @@ def make_popgym_arcade_env(env_name: str, config: DictConfig) -> Tuple[Environme
     env_kwargs = dict(copy.deepcopy(config.env.kwargs))
 
     # Create envs using the helper function
-    env, env_params = _create_gymnax_env_instance(env_name, env_kwargs, popgym_arcade.make)
+    env, env_params = _create_gymnax_env_instance(scenario_name, env_kwargs, popgym_arcade.make)
     eval_env, eval_env_params = _create_gymnax_env_instance(
-        env_name, env_kwargs, popgym_arcade.make
+        scenario_name, env_kwargs, popgym_arcade.make
     )
 
     # Convert Popgym Arcade environments to Stoa interface. These environments are based on Gymnax.
@@ -171,12 +172,12 @@ def make_popgym_arcade_env(env_name: str, config: DictConfig) -> Tuple[Environme
     return env, eval_env
 
 
-def make_xland_minigrid_env(env_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
+def make_xland_minigrid_env(scenario_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
     """
     Create a XLand Minigrid environments for training and evaluation.
 
     Args:
-        env_name (str): The name of the environment to create.
+        scenario_name (str): The name of the environment to create.
         config (Dict): The configuration of the environment.
 
     Returns:
@@ -184,8 +185,8 @@ def make_xland_minigrid_env(env_name: str, config: DictConfig) -> Tuple[Environm
     """
 
     # Create envs.
-    env, env_params = xminigrid.make(env_name, **config.env.kwargs)
-    eval_env, eval_env_params = xminigrid.make(env_name, **config.env.kwargs)
+    env, env_params = xminigrid.make(scenario_name, **config.env.kwargs)
+    eval_env, eval_env_params = xminigrid.make(scenario_name, **config.env.kwargs)
 
     # Convert XLand Minigrid environments to Stoa interface.
     env = XMiniGridToStoa(env, env_params)
@@ -198,12 +199,12 @@ def make_xland_minigrid_env(env_name: str, config: DictConfig) -> Tuple[Environm
     return env, eval_env
 
 
-def make_brax_env(env_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
+def make_brax_env(scenario_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
     """
     Create a brax environments for training and evaluation.
 
     Args:
-        env_name (str): The name of the environment to create.
+        scenario_name (str): The name of the environment to create.
         config (Dict): The configuration of the environment.
 
     Returns:
@@ -211,26 +212,100 @@ def make_brax_env(env_name: str, config: DictConfig) -> Tuple[Environment, Envir
     """
 
     # Create envs.
-    env = brax_make(env_name, auto_reset=False, **config.env.kwargs)
-    eval_env = brax_make(env_name, auto_reset=False, **config.env.kwargs)
+    env = brax_make(scenario_name, auto_reset=False, **config.env.kwargs)
+    eval_env = brax_make(scenario_name, auto_reset=False, **config.env.kwargs)
 
-    # Convert Brax environments to Stoa interface.
     env = BraxToStoa(env)
     eval_env = BraxToStoa(eval_env)
 
-    # Add wrappers for auto-resetting and recording episode metrics.
+    env = AutoResetWrapper(env, next_obs_in_extras=True)
+    env = RecordEpisodeMetrics(env)
+
+    return env, eval_env
+
+def make_kinetix_env(scenario_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
+    """
+    Create a Kinetix environment for training and evaluation.
+
+    Args:
+        scenario_name (str): The name of the environment to create.
+        config (Dict): The configuration of the environment.
+
+    Returns:
+        A tuple of the environments.
+    """
+    from kinetix.environment import EnvState, StaticEnvParams, make_kinetix_env
+    from kinetix.environment.env import KinetixEnv
+    from kinetix.environment.ued.ued import make_reset_fn_sample_kinetix_level
+    from kinetix.environment.utils import ActionType, ObservationType
+    from kinetix.util.config import generate_params_from_config
+    from kinetix.util.saving import load_evaluation_levels
+
+    from stoix.wrappers.kinetix import KinetixWrapper
+
+    env_params, override_static_env_params = generate_params_from_config(
+        dict(config.env.kinetix.env_size)
+        | {
+            "dense_reward_scale": config.env.dense_reward_scale,
+            "frame_skip": config.env.frame_skip,
+        }
+    )
+
+    def _get_static_params_and_reset_fn(
+        level_config: DictConfig,
+    ) -> tuple[Callable, StaticEnvParams]:
+        if level_config.mode == "list":
+            levels = level_config.levels
+            levels_to_reset_to, static_env_params = load_evaluation_levels(levels)
+
+            def reset(rng: jax.Array) -> EnvState:
+                rng, _rng = jax.random.split(rng)
+                level_idx = jax.random.randint(_rng, (), 0, len(levels))
+                sampled_level = jax.tree.map(lambda x: x[level_idx], levels_to_reset_to)
+
+                return sampled_level
+
+        elif level_config.mode == "random":
+            return (
+                make_reset_fn_sample_kinetix_level(env_params, override_static_env_params),
+                override_static_env_params,
+            )
+        else:
+            raise ValueError(f"Unsupported level mode: {level_config.mode}")
+        return reset, static_env_params
+
+    reset_fn_train, static_env_params_train = _get_static_params_and_reset_fn(
+        config.env.kinetix.train
+    )
+    reset_fn_eval, static_env_params_eval = _get_static_params_and_reset_fn(config.env.kinetix.eval)
+
+    def _make_env(reset_fn: Callable, static_env_params: StaticEnvParams) -> KinetixEnv:
+
+        env = make_kinetix_env(
+            action_type=ActionType.from_string(config.env.scenario.action_type),
+            observation_type=ObservationType.from_string(config.env.scenario.observation_type),
+            reset_fn=reset_fn,
+            env_params=env_params,
+            static_env_params=static_env_params,
+            auto_reset=False,
+        )
+
+        return KinetixWrapper(env, env_params)
+
+    env = _make_env(reset_fn=reset_fn_train, static_env_params=static_env_params_train)
+    eval_env = _make_env(reset_fn=reset_fn_eval, static_env_params=static_env_params_eval)
     env = AutoResetWrapper(env, next_obs_in_extras=True)
     env = RecordEpisodeMetrics(env)
 
     return env, eval_env
 
 
-def make_craftax_env(env_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
+def make_craftax_env(scenario_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
     """
     Create a craftax environment for training and evaluation.
 
     Args:
-        env_name (str): The name of the environment to create.
+        scenario_name (str): The name of the environment to create.
         config (Dict): The configuration of the environment.
 
     Returns:
@@ -254,8 +329,8 @@ def make_craftax_env(env_name: str, config: DictConfig) -> Tuple[Environment, En
     }
 
     # Create envs.
-    env = craftax_environments[env_name](**config.env.kwargs)
-    eval_env = craftax_environments[env_name](**config.env.kwargs)
+    env = craftax_environments[scenario_name](**config.env.kwargs)
+    eval_env = craftax_environments[scenario_name](**config.env.kwargs)
     # Extract the default parameters from the environment.
     env_params = env.default_params
     eval_env_params = eval_env.default_params
@@ -269,12 +344,12 @@ def make_craftax_env(env_name: str, config: DictConfig) -> Tuple[Environment, En
     return env, eval_env
 
 
-def make_debug_env(env_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
+def make_debug_env(scenario_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
     """
     Create a debug environment for training and evaluation.
 
     Args:
-        env_name (str): The name of the environment to create.
+        scenario_name (str): The name of the environment to create.
         config (Dict): The configuration of the environment.
 
     Returns:
@@ -282,8 +357,8 @@ def make_debug_env(env_name: str, config: DictConfig) -> Tuple[Environment, Envi
     """
 
     # Create debug environments
-    env = DEBUG_ENVIRONMENTS[env_name](**config.env.kwargs)
-    eval_env = DEBUG_ENVIRONMENTS[env_name](**config.env.kwargs)
+    env = DEBUG_ENVIRONMENTS[scenario_name](**config.env.kwargs)
+    eval_env = DEBUG_ENVIRONMENTS[scenario_name](**config.env.kwargs)
 
     # Add wrappers for auto-resetting and recording episode metrics.
     env = AutoResetWrapper(env, next_obs_in_extras=True)
@@ -312,12 +387,12 @@ def apply_optional_wrappers(
     return tuple(envs)  # type: ignore
 
 
-def make_popjym_env(env_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
+def make_popjym_env(scenario_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
     """
     Create POPJym environments for training and evaluation.
 
     Args:
-        env_name (str): The name of the environment to create.
+        scenario_name (str): The name of the environment to create.
         config (Dict): The configuration of the environment.
 
     Returns:
@@ -325,8 +400,8 @@ def make_popjym_env(env_name: str, config: DictConfig) -> Tuple[Environment, Env
     """
 
     # Create envs.
-    env, env_params = popjym.make(env_name, **config.env.kwargs)
-    eval_env, eval_env_params = popjym.make(env_name, **config.env.kwargs)
+    env, env_params = popjym.make(scenario_name, **config.env.kwargs)
+    eval_env, eval_env_params = popjym.make(scenario_name, **config.env.kwargs)
 
     # Convert POPJym environments to Stoa interface.
     # Popjym follows the Gymnax interface, so we can use the GymnaxToStoa wrapper.
@@ -344,12 +419,12 @@ def make_popjym_env(env_name: str, config: DictConfig) -> Tuple[Environment, Env
     return env, eval_env
 
 
-def make_navix_env(env_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
+def make_navix_env(scenario_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
     """
     Create Navix environments for training and evaluation.
 
     Args:
-        env_name (str): The name of the environment to create.
+        scenario_name (str): The name of the environment to create.
         config (Dict): The configuration of the environment.
 
     Returns:
@@ -357,8 +432,8 @@ def make_navix_env(env_name: str, config: DictConfig) -> Tuple[Environment, Envi
     """
 
     # Create envs.
-    env = navix.make(env_name, **config.env.kwargs)
-    eval_env = navix.make(env_name, **config.env.kwargs)
+    env = navix.make(scenario_name, **config.env.kwargs)
+    eval_env = navix.make(scenario_name, **config.env.kwargs)
 
     # Convert Navix environments to Stoa interface.
     env = NavixToStoa(env)
@@ -372,12 +447,12 @@ def make_navix_env(env_name: str, config: DictConfig) -> Tuple[Environment, Envi
 
 
 def make_gymnasium_factory(
-    env_name: str, config: DictConfig, apply_wrapper_fn: Callable
+    scenario_name: str, config: DictConfig, apply_wrapper_fn: Callable
 ) -> GymnasiumFactory:
     """Create a GymnasiumFactory for the specified environment.
 
     Args:
-        env_name (str): The name of the environment.
+        scenario_name (str): The name of the environment.
         config (Dict): The configuration for the environment.
         apply_wrapper_fn (Callable): A function to apply wrappers to the environment.
 
@@ -385,25 +460,25 @@ def make_gymnasium_factory(
         GymnasiumFactory: The created GymnasiumFactory.
     """
     env_factory = GymnasiumFactory(
-        env_name, init_seed=config.arch.seed, apply_wrapper_fn=apply_wrapper_fn, **config.env.kwargs
+        scenario_name, init_seed=config.arch.seed, apply_wrapper_fn=apply_wrapper_fn, **config.env.kwargs
     )
 
     return env_factory
 
 
 def make_envpool_factory(
-    env_name: str, config: DictConfig, apply_wrapper_fn: Callable
+    scenario_name: str, config: DictConfig, apply_wrapper_fn: Callable
 ) -> EnvPoolFactory:
     """Create an EnvPoolFactory for the specified environment.
     Args:
-        env_name (str): The name of the environment.
+        scenario_name (str): The name of the environment.
         config (Dict): The configuration for the environment.
         apply_wrapper_fn (Callable): A function to apply wrappers to the environment.
     Returns:
         EnvPoolFactory: The created EnvPoolFactory.
     """
     env_factory = EnvPoolFactory(
-        env_name, init_seed=config.arch.seed, apply_wrapper_fn=apply_wrapper_fn, **config.env.kwargs
+        scenario_name, init_seed=config.arch.seed, apply_wrapper_fn=apply_wrapper_fn, **config.env.kwargs
     )
 
     return env_factory
@@ -440,6 +515,8 @@ def make(config: DictConfig) -> Tuple[Environment, Environment]:
         envs = make_navix_env(scenario_name, config)
     elif scenario_name in POPGYM_ARCADE_REGISTRY:
         envs = make_popgym_arcade_env(scenario_name, config)
+    elif "kinetix" in scenario_name.lower():
+        envs = make_kinetix_env(scenario_name, config)
     else:
         raise ValueError(f"{scenario_name} is not a supported environment.")
 

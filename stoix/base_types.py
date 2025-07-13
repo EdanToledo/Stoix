@@ -40,6 +40,8 @@ Parameters: TypeAlias = Any
 OptStates: TypeAlias = Any
 HiddenStates: TypeAlias = Any
 
+EvalResetFn = Callable[[chex.PRNGKey, int], Tuple[State, TimeStep]]
+
 
 class Observation(NamedTuple):
     """The observation that the agent sees.
