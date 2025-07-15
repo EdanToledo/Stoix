@@ -86,7 +86,7 @@ def get_warmup_fn(
             )
 
             # STEP ENVIRONMENT
-            env_state, timestep = jax.vmap(env.step, in_axes=(0, 0))(env_state, action)
+            env_state, timestep = env.step(env_state, action)
 
             # LOG EPISODE METRICS
             done = timestep.last().reshape(-1)
@@ -149,7 +149,7 @@ def get_learner_fn(
             )
 
             # STEP ENVIRONMENT
-            env_state, timestep = jax.vmap(env.step, in_axes=(0, 0))(env_state, action)
+            env_state, timestep = env.step(env_state, action)
 
             # LOG EPISODE METRICS
             done = timestep.last().reshape(-1)
@@ -497,9 +497,7 @@ def learner_setup(
     key, *env_keys = jax.random.split(
         key, n_devices * config.arch.update_batch_size * config.arch.num_envs + 1
     )
-    env_states, timesteps = jax.vmap(env.reset, in_axes=(0))(
-        jnp.stack(env_keys),
-    )
+    env_states, timesteps = env.reset(jnp.stack(env_keys))
 
     def reshape_states(x: chex.Array) -> chex.Array:
         return x.reshape(

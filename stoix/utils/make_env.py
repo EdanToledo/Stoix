@@ -37,7 +37,10 @@ from stoa import (
     XMiniGridToStoa,
 )
 from stoa.core_wrappers.auto_reset import CachedAutoResetWrapper
+from stoa.core_wrappers.optimistic_auto_reset import OptimisticResetVmapWrapper
+from stoa.core_wrappers.vmap import VmapWrapper
 from stoa.core_wrappers.wrapper import AddRNGKey
+from stoa.env_wrappers.kinetix import KinetixToStoa
 from stoa.utility_wrappers.consistent_extras import ConsistentExtrasWrapper
 from xminigrid.registration import _REGISTRY as XMINIGRID_REGISTRY
 
@@ -48,19 +51,38 @@ from stoix.wrappers.jax_to_factory import JaxEnvFactory
 
 def apply_core_wrappers(env: Environment, config: DictConfig) -> Environment:
     """Apply core wrappers to the train environment.
-    This includes wrappers for auto-resetting, adding RNG keys (if necessary),
-    and recording episode metrics."""
-
-    # Add wrappers for auto-resetting
-    if config.env.get("use_cached_auto_reset", False):
-        env = CachedAutoResetWrapper(env, next_obs_in_extras=True)
-    else:
-        env = AddRNGKey(env)
-        env = AutoResetWrapper(env, next_obs_in_extras=True)
-
-    # Add wrapper for recording episode metrics.
+    
+    This includes wrappers for:
+    - Adding RNG keys to environment state
+    - Auto-resetting episodes when they terminate (unless using optimistic reset)
+    - Recording episode metrics
+    - Vectorization for efficient batched execution
+    """
+    
+    # Always add RNG key support first (required by other wrappers)
+    env = AddRNGKey(env)
+    
+    # Add episode metrics recording
     env = RecordEpisodeMetrics(env)
-
+    
+    # Choose between different reset and vectorization strategies
+    if config.env.get("use_optimistic_reset", False):
+        # OptimisticResetVmapWrapper handles both auto-reset and vectorization
+        env = OptimisticResetVmapWrapper(env, config.arch.num_envs, min(config.env.get("reset_ratio", 16), config.arch.num_envs))
+    else:
+        # Apply separate auto-reset and vectorization wrappers
+        
+        # Add auto-reset functionality
+        if config.env.get("use_cached_auto_reset", False):
+            # Use cached auto-reset if available (more efficient)
+            env = CachedAutoResetWrapper(env, next_obs_in_extras=True)
+        else:
+            # Use standard auto-reset
+            env = AutoResetWrapper(env, next_obs_in_extras=True)
+        
+        # Add vectorization wrapper
+        env = VmapWrapper(env)
+    
     return env
 
 
@@ -336,8 +358,6 @@ def make_kinetix_env(scenario_name: str, config: DictConfig) -> Tuple[Environmen
     from kinetix.util.config import generate_params_from_config
     from kinetix.util.saving import load_evaluation_levels
 
-    from stoix.wrappers.kinetix import KinetixWrapper
-
     env_params, override_static_env_params = generate_params_from_config(
         dict(config.env.kinetix.env_size)
         | {
@@ -385,12 +405,21 @@ def make_kinetix_env(scenario_name: str, config: DictConfig) -> Tuple[Environmen
             auto_reset=False,
         )
 
-        return KinetixWrapper(env, env_params)
+        return KinetixToStoa(env, env_params)
 
     env = _make_env(reset_fn=reset_fn_train, static_env_params=static_env_params_train)
     eval_env = _make_env(reset_fn=reset_fn_eval, static_env_params=static_env_params_eval)
-    env = AutoResetWrapper(env, next_obs_in_extras=True)
-    env = RecordEpisodeMetrics(env)
+    
+    # Add wrapper to ensure all extras field objects
+    # are consistent for JAX scanning/while loops.
+    # env = ConsistentExtrasWrapper(env)
+    # eval_env = ConsistentExtrasWrapper(eval_env)
+
+    # Apply any additional wrappers specified in the config.
+    env, eval_env = apply_optional_wrappers((env, eval_env), config)
+
+    # Add wrappers for auto-resetting and recording episode metrics.
+    env = apply_core_wrappers(env, config)
 
     return env, eval_env
 
@@ -627,7 +656,7 @@ def make(config: DictConfig) -> Tuple[Environment, Environment]:
         raise ValueError(f"{scenario_name} is not a supported environment.")
 
     print(
-        f"{Fore.YELLOW}{Style.BRIGHT}Created environments for {suite_name} - {scenario_name}{Style.RESET_ALL}"
+        f"{Fore.YELLOW}{Style.BRIGHT}Created environments for Suite:{suite_name} - Scenario:{scenario_name}{Style.RESET_ALL}"
     )
     return envs
 

@@ -1,0 +1,22 @@
+# ---Environment Configs---
+env_name: brax
+
+scenario:
+  name: hopper
+  task_name: hopper
+
+kwargs: {
+  backend: spring
+}
+
+# Defines the metric that will be used to evaluate the performance of the agent.
+# This metric is returned at the end of an experiment and can be used for hyperparameter tuning.
+eval_metric: episode_return
+
+# Defines whether to use cached auto-reset wrapper.
+# If set to true, the environment will cache the reset state and use it for
+# auto-resetting, which can improve performance in some scenarios.
+# If set to false, the environment will reset normally without caching.
+# This is useful for environments where the reset state is expensive to compute
+# or the initial state is always the same.
+use_cached_auto_reset: true

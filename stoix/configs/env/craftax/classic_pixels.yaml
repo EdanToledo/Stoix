@@ -15,3 +15,7 @@ eval_metric: episode_return
 # Optional wrapper to flatten the observation space.
 wrapper:
   _target_: stoa.FlattenObservationWrapper
+
+# Defines whether the optimistic reset wrapper should be used.
+use_optimistic_reset: True
+reset_ratio: 16
