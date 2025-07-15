@@ -7,6 +7,7 @@ import hydra
 import jax
 import jumanji
 import jumanji.wrappers as jumanji_wrappers
+import mujoco_playground
 import navix
 import popgym_arcade
 import popjym
@@ -18,6 +19,7 @@ from gymnax import registered_envs as gymnax_environments
 from gymnax.environments.environment import Environment as GymnaxEnvironment
 from gymnax.environments.environment import EnvParams as GymnaxEnvParams
 from jumanji.registration import _REGISTRY as JUMANJI_REGISTRY
+from mujoco_playground._src.registry import ALL_ENVS as PLAYGROUND_REGISTRY
 from navix import registry as navix_registry
 from omegaconf import DictConfig
 from popgym_arcade.registration import REGISTERED_ENVIRONMENTS as POPGYM_ARCADE_REGISTRY
@@ -27,8 +29,10 @@ from stoa import (
     AutoResetWrapper,
     BraxToStoa,
     Environment,
+    EpisodeStepLimitWrapper,
     GymnaxToStoa,
     JumanjiToStoa,
+    MuJoCoPlaygroundToStoa,
     MultiDiscreteSpace,
     MultiDiscreteToDiscreteWrapper,
     NavixToStoa,
@@ -51,27 +55,32 @@ from stoix.wrappers.jax_to_factory import JaxEnvFactory
 
 def apply_core_wrappers(env: Environment, config: DictConfig) -> Environment:
     """Apply core wrappers to the train environment.
-    
+
     This includes wrappers for:
     - Adding RNG keys to environment state
     - Auto-resetting episodes when they terminate (unless using optimistic reset)
     - Recording episode metrics
     - Vectorization for efficient batched execution
     """
-    
+
     # Always add RNG key support first (required by other wrappers)
     env = AddRNGKey(env)
-    
+
     # Add episode metrics recording
     env = RecordEpisodeMetrics(env)
-    
+
     # Choose between different reset and vectorization strategies
     if config.env.get("use_optimistic_reset", False):
         # OptimisticResetVmapWrapper handles both auto-reset and vectorization
-        env = OptimisticResetVmapWrapper(env, config.arch.num_envs, min(config.env.get("reset_ratio", 16), config.arch.num_envs))
+        env = OptimisticResetVmapWrapper(
+            env,
+            config.arch.num_envs,
+            min(config.env.get("reset_ratio", 16), config.arch.num_envs),
+            next_obs_in_extras=True,
+        )
     else:
         # Apply separate auto-reset and vectorization wrappers
-        
+
         # Add auto-reset functionality
         if config.env.get("use_cached_auto_reset", False):
             # Use cached auto-reset if available (more efficient)
@@ -79,10 +88,10 @@ def apply_core_wrappers(env: Environment, config: DictConfig) -> Environment:
         else:
             # Use standard auto-reset
             env = AutoResetWrapper(env, next_obs_in_extras=True)
-        
+
         # Add vectorization wrapper
         env = VmapWrapper(env)
-    
+
     return env
 
 
@@ -153,7 +162,8 @@ def make_jumanji_env(
     eval_env = JumanjiToStoa(eval_env)
     eval_env = ObservationExtractWrapper(eval_env, config.env.observation_attribute)
 
-    # If the environment has a multi-discrete action space, we convert it to a single discrete action space.
+    # If the environment has a multi-discrete action space,
+    # we convert it to a single discrete action space.
     # This is the case for multi-agent jumanji environments.
     if isinstance(env.action_space(), MultiDiscreteSpace):
         env = MultiDiscreteToDiscreteWrapper(env)
@@ -409,7 +419,7 @@ def make_kinetix_env(scenario_name: str, config: DictConfig) -> Tuple[Environmen
 
     env = _make_env(reset_fn=reset_fn_train, static_env_params=static_env_params_train)
     eval_env = _make_env(reset_fn=reset_fn_eval, static_env_params=static_env_params_eval)
-    
+
     # Add wrapper to ensure all extras field objects
     # are consistent for JAX scanning/while loops.
     # env = ConsistentExtrasWrapper(env)
@@ -575,6 +585,56 @@ def make_navix_env(scenario_name: str, config: DictConfig) -> Tuple[Environment,
     return env, eval_env
 
 
+def make_playground_env(scenario_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
+    """
+    Create Playground environments for training and evaluation.
+
+    Args:
+        scenario_name (str): The name of the environment to create.
+        config (Dict): The configuration of the environment.
+
+    Returns:
+        A tuple of the environments.
+    """
+
+    # Create the MuJoCo Playground environments.
+    env_cfg = mujoco_playground.registry.get_default_config(scenario_name)
+    env = mujoco_playground.registry.load(
+        scenario_name, config=env_cfg, config_overrides=config.env.kwargs
+    )
+    eval_env = mujoco_playground.registry.load(
+        scenario_name, config=env_cfg, config_overrides=config.env.kwargs
+    )
+
+    # If the environment uses a default domain randomizer,
+    # we retrieve it from the registry.
+    if config.env.get("use_default_domain_randomizer", False):
+        domain_randomizer_fn = mujoco_playground.registry.get_domain_randomizer(scenario_name)
+    else:
+        domain_randomizer_fn = None
+
+    # Convert MuJoCo Playground environments to Stoa interface.
+    env = MuJoCoPlaygroundToStoa(env, domain_randomizer_fn=domain_randomizer_fn)
+    eval_env = MuJoCoPlaygroundToStoa(eval_env, domain_randomizer_fn=domain_randomizer_fn)
+
+    # 1000 steps is the default for brax and thus we use it here as well.
+    env = EpisodeStepLimitWrapper(env, config.env.get("max_episode_steps", 1000))
+    eval_env = EpisodeStepLimitWrapper(eval_env, config.env.get("max_episode_steps", 1000))
+
+    # Add wrapper to ensure all extras field objects
+    # are consistent for JAX scanning/while loops.
+    env = ConsistentExtrasWrapper(env)
+    eval_env = ConsistentExtrasWrapper(eval_env)
+
+    # Apply any additional wrappers specified in the config.
+    env, eval_env = apply_optional_wrappers((env, eval_env), config)
+
+    # Add wrappers for auto-resetting and recording episode metrics.
+    env = apply_core_wrappers(env, config)
+
+    return env, eval_env
+
+
 def make_gymnasium_factory(
     scenario_name: str, config: DictConfig, apply_wrapper_fn: Callable
 ) -> GymnasiumFactory:
@@ -652,11 +712,14 @@ def make(config: DictConfig) -> Tuple[Environment, Environment]:
         envs = make_popgym_arcade_env(scenario_name, config)
     elif "kinetix" in scenario_name.lower():
         envs = make_kinetix_env(scenario_name, config)
+    elif scenario_name in PLAYGROUND_REGISTRY:
+        envs = make_playground_env(scenario_name, config)
     else:
         raise ValueError(f"{scenario_name} is not a supported environment.")
 
     print(
-        f"{Fore.YELLOW}{Style.BRIGHT}Created environments for Suite:{suite_name} - Scenario:{scenario_name}{Style.RESET_ALL}"
+        f"{Fore.YELLOW}{Style.BRIGHT}Created environments for Suite:{suite_name} -"
+        f" Scenario:{scenario_name}{Style.RESET_ALL}"
     )
     return envs
 

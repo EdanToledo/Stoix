@@ -1,16 +1,12 @@
 # ---Environment Configs---
-env_name: craftax
+env_name: dm_control # Used for logging purposes and selection of the corresponding wrapper.
 
 scenario:
-  name: Craftax-Classic-Symbolic-v1
-  task_name: classic_symbolic
+  name: HopperHop
+  task_name: HopperHop # For logging purposes.
 
 kwargs: {}
 
 # Defines the metric that will be used to evaluate the performance of the agent.
 # This metric is returned at the end of an experiment and can be used for hyperparameter tuning.
 eval_metric: episode_return
-
-# Defines whether the optimistic reset wrapper should be used.
-use_optimistic_reset: True
-reset_ratio: 16

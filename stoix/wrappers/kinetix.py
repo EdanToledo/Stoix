@@ -3,13 +3,14 @@ from typing import Tuple
 import chex
 import jax
 import jax.numpy as jnp
-from stoa.env_types import TimeStep
 from kinetix.util.saving import load_evaluation_levels
 from omegaconf import DictConfig
+from stoa.env_types import TimeStep
 from stoa.environment import Environment
 
 from stoix.base_types import EvalResetFn, State
 from stoix.evaluator import make_random_initial_eval_reset_fn
+
 
 def make_kinetix_eval_reset_fn(config: DictConfig, env: Environment) -> EvalResetFn:
     """Creates a reset function that resets the environment to each of the specific evaluation levels.

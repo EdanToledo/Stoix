@@ -136,7 +136,7 @@ def get_ff_evaluator_fn(
             )
 
             # Step environment.
-            env_state, timestep = env.step(env_state, action.squeeze())
+            env_state, timestep = env.step(env_state, action.squeeze(0))
 
             # Log episode metrics.
             episode_return += timestep.reward

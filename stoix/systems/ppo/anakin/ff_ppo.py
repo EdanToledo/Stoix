@@ -101,7 +101,7 @@ def get_learner_fn(
             value = critic_apply_fn(params.critic_params, observation)
             action = actor_policy.sample(seed=policy_key)
             log_prob = actor_policy.log_prob(action)
-
+            print("act", action.shape)
             # STEP ENVIRONMENT
             env_state, timestep = env.step(env_state, action)
 
