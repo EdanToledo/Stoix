@@ -1,9 +1,9 @@
 # ---Environment Configs---
-env_name: locomotion # Used for logging purposes and selection of the corresponding wrapper.
+env_name: manipulation # Used for logging purposes and selection of the corresponding wrapper.
 
 scenario:
-  name: Go1JoystickFlatTerrain
-  task_name: Go1JoystickFlatTerrain # For logging purposes.
+  name: PandaPickCubeOrientation
+  task_name: PandaPickCubeOrientation # For logging purposes.
 
 kwargs: {}
 
@@ -16,6 +16,6 @@ use_default_domain_randomizer: False # Whether to use the default domain randomi
 
 # Optional wrapper to extract the state from the observation.
 # This is useful for environments where the observation space is complex and we want to simplify it.
-wrapper:
-  _target_: stoa.ObservationExtractWrapper
-  observation_attribute: state
+# wrapper:
+#   _target_: stoa.ObservationExtractWrapper
+#   observation_attribute: state
