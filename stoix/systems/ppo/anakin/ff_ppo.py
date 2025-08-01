@@ -21,7 +21,6 @@ from stoix.base_types import (
     ActorCriticParams,
     AnakinExperimentOutput,
     CriticApply,
-    EvalFn,
     LearnerFn,
     OnPolicyLearnerState,
 )
@@ -423,42 +422,51 @@ def _collect_obs_norm_rollouts(
     )
     return all_observations
 
-def compile_learner_fn(learner_fn: LearnerFn[OnPolicyLearnerState], init_learner_state: OnPolicyLearnerState) -> LearnerFn[OnPolicyLearnerState]:
-    """Compile the learner function ahead of time to avoid compilation during training and to measure compilation time."""
+
+def compile_learner_fn(learner_fn: Any, init_learner_state: OnPolicyLearnerState) -> Any:
+    """Compile the learner function ahead of time to avoid compilation during
+    training and to measure compilation time."""
     start = time.time()
     traced_learn = learner_fn.trace(init_learner_state)
     lowered_learn = traced_learn.lower()
     compiled_learn = lowered_learn.compile()
     elapsed = time.time() - start
-    flops_estimate = compiled_learn.cost_analysis()['flops']
+    flops_estimate = compiled_learn.cost_analysis()["flops"]
     print(
-        f"{Fore.GREEN}{Style.BRIGHT}PPO learner function compiled in {elapsed:.2f} seconds.{Style.RESET_ALL}"
+        f"{Fore.GREEN}{Style.BRIGHT}Learner function compiled in "
+        f"{elapsed:.2f} seconds.{Style.RESET_ALL}"
     )
     print(
-        f"{Fore.GREEN}{Style.BRIGHT}Estimated Learner function FLOPs: {flops_estimate / 1e9:.3f} GFlops.{Style.RESET_ALL}"
+        f"{Fore.GREEN}{Style.BRIGHT}Learner function FLOPs: "
+        f"{flops_estimate / 1e9:.3f} GFlops.{Style.RESET_ALL}"
     )
     return compiled_learn
 
+
 def compile_evaluator_fn(
-    evaluator_fn: EvalFn,
+    evaluator_fn: Any,
     params: ActorCriticParams,
     eval_keys: chex.PRNGKey,
     running_statistics: FrozenDict[str, chex.Array] | None = None,
-) -> EvalFn:
-    """Compile the evaluator function ahead of time to avoid compilation during evaluation and to measure compilation time."""
+) -> Any:
+    """Compile the evaluator function ahead of time to avoid compilation during
+    evaluation and to measure compilation time."""
     start = time.time()
     traced_eval = evaluator_fn.trace(params, eval_keys, running_statistics)
     lowered_eval = traced_eval.lower()
     compiled_eval = lowered_eval.compile()
     elapsed = time.time() - start
-    flops_estimate = compiled_eval.cost_analysis()['flops']
+    flops_estimate = compiled_eval.cost_analysis()["flops"]
     print(
-        f"{Fore.GREEN}{Style.BRIGHT}PPO evaluator function compiled in {elapsed:.2f} seconds.{Style.RESET_ALL}"
+        f"{Fore.GREEN}{Style.BRIGHT}Evaluator function compiled in "
+        f"{elapsed:.2f} seconds.{Style.RESET_ALL}"
     )
     print(
-        f"{Fore.GREEN}{Style.BRIGHT}Estimated Evaluator function FLOPs: {flops_estimate / 1e9:.3f} GFlops.{Style.RESET_ALL}"
+        f"{Fore.GREEN}{Style.BRIGHT}Evaluator function FLOPs: "
+        f"{flops_estimate / 1e9:.3f} GFlops.{Style.RESET_ALL}"
     )
     return compiled_eval
+
 
 def learner_setup(
     env: Environment, keys: chex.Array, config: DictConfig
@@ -586,11 +594,11 @@ def learner_setup(
         init_learner_state = create_with_running_statistics(
             state=init_learner_state, running_statistics=running_statistics
         )
-    
+
     # Compile the learner function.
     # This is done to avoid compilation during training and to measure compilation time.
     compiled_learn_fn = compile_learner_fn(learn, init_learner_state)
-    
+
     return compiled_learn_fn, actor_network, init_learner_state
 
 
@@ -766,8 +774,7 @@ def hydra_entry_point(cfg: DictConfig) -> float:
     """Experiment entry point."""
     # Allow dynamic attributes.
     OmegaConf.set_struct(cfg, False)
-    print(f"Hydra config finished loading...")
-    
+
     # Run experiment.
     eval_performance = run_experiment(cfg)
 

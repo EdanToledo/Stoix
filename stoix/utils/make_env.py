@@ -611,7 +611,8 @@ def make_playground_env(scenario_name: str, config: DictConfig) -> Tuple[Environ
     if config.env.get("use_default_domain_randomizer", False):
         domain_randomizer_fn = mujoco_playground.registry.get_domain_randomizer(scenario_name)
         print(
-            f"{Fore.YELLOW}{Style.BRIGHT}Using default domain randomizer for environment '{scenario_name}': {domain_randomizer_fn.__name__}.{Style.RESET_ALL}"
+            f"{Fore.YELLOW}{Style.BRIGHT}Using default domain randomizer for environment "
+            f"'{scenario_name}': {domain_randomizer_fn.__name__}.{Style.RESET_ALL}"
         )
     else:
         domain_randomizer_fn = None

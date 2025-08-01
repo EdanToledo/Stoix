@@ -409,6 +409,51 @@ def _collect_obs_norm_rollouts(
     return all_observations
 
 
+def compile_learner_fn(learner_fn: Any, init_learner_state: OnPolicyLearnerState) -> Any:
+    """Compile the learner function ahead of time to avoid compilation during
+    training and to measure compilation time."""
+    start = time.time()
+    traced_learn = learner_fn.trace(init_learner_state)
+    lowered_learn = traced_learn.lower()
+    compiled_learn = lowered_learn.compile()
+    elapsed = time.time() - start
+    flops_estimate = compiled_learn.cost_analysis()["flops"]
+    print(
+        f"{Fore.GREEN}{Style.BRIGHT}Learner function compiled in "
+        f"{elapsed:.2f} seconds.{Style.RESET_ALL}"
+    )
+    print(
+        f"{Fore.GREEN}{Style.BRIGHT}Learner function FLOPs: "
+        f"{flops_estimate / 1e9:.3f} GFlops.{Style.RESET_ALL}"
+    )
+    return compiled_learn
+
+
+def compile_evaluator_fn(
+    evaluator_fn: Any,
+    params: ActorCriticParams,
+    eval_keys: chex.PRNGKey,
+    running_statistics: FrozenDict[str, chex.Array] | None = None,
+) -> Any:
+    """Compile the evaluator function ahead of time to avoid compilation during
+    evaluation and to measure compilation time."""
+    start = time.time()
+    traced_eval = evaluator_fn.trace(params, eval_keys, running_statistics)
+    lowered_eval = traced_eval.lower()
+    compiled_eval = lowered_eval.compile()
+    elapsed = time.time() - start
+    flops_estimate = compiled_eval.cost_analysis()["flops"]
+    print(
+        f"{Fore.GREEN}{Style.BRIGHT}Evaluator function compiled in "
+        f"{elapsed:.2f} seconds.{Style.RESET_ALL}"
+    )
+    print(
+        f"{Fore.GREEN}{Style.BRIGHT}Evaluator function FLOPs: "
+        f"{flops_estimate / 1e9:.3f} GFlops.{Style.RESET_ALL}"
+    )
+    return compiled_eval
+
+
 def learner_setup(
     env: Environment, keys: chex.Array, config: DictConfig
 ) -> Tuple[LearnerFn[OnPolicyLearnerState], Actor, OnPolicyLearnerState]:
@@ -535,7 +580,11 @@ def learner_setup(
             state=init_learner_state, running_statistics=running_statistics
         )
 
-    return learn, actor_network, init_learner_state
+    # Compile the learner function.
+    # This is done to avoid compilation during training and to measure compilation time.
+    compiled_learn_fn = compile_learner_fn(learn, init_learner_state)
+
+    return compiled_learn_fn, actor_network, init_learner_state
 
 
 def run_experiment(_config: DictConfig) -> float:
@@ -572,8 +621,14 @@ def run_experiment(_config: DictConfig) -> float:
         config=config,
     )
 
-    # Calculate number of updates per evaluation.
-    config.arch.num_updates_per_eval = config.arch.num_updates // config.arch.num_evaluation
+    # Compile evaluator function ahead of time.
+    # This is done to avoid compilation during evaluation and to measure compilation time.
+    running_statistics = getattr(learner_state, "running_statistics", None)
+    if running_statistics is not None:
+        running_statistics = unreplicate_batch_dim(running_statistics)
+    evaluator = compile_evaluator_fn(evaluator, trained_params, eval_keys, running_statistics)
+
+    # Calculate environment steps per evaluation.
     steps_per_rollout = (
         n_devices
         * config.arch.num_updates_per_eval
