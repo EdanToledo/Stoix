@@ -21,6 +21,7 @@ from stoix.base_types import (
     ActorCriticParams,
     AnakinExperimentOutput,
     CriticApply,
+    EvalFn,
     LearnerFn,
     OnPolicyLearnerState,
 )
@@ -101,7 +102,7 @@ def get_learner_fn(
             value = critic_apply_fn(params.critic_params, observation)
             action = actor_policy.sample(seed=policy_key)
             log_prob = actor_policy.log_prob(action)
-            print("act", action.shape)
+
             # STEP ENVIRONMENT
             env_state, timestep = env.step(env_state, action)
 
@@ -422,6 +423,42 @@ def _collect_obs_norm_rollouts(
     )
     return all_observations
 
+def compile_learner_fn(learner_fn: LearnerFn[OnPolicyLearnerState], init_learner_state: OnPolicyLearnerState) -> LearnerFn[OnPolicyLearnerState]:
+    """Compile the learner function ahead of time to avoid compilation during training and to measure compilation time."""
+    start = time.time()
+    traced_learn = learner_fn.trace(init_learner_state)
+    lowered_learn = traced_learn.lower()
+    compiled_learn = lowered_learn.compile()
+    elapsed = time.time() - start
+    flops_estimate = compiled_learn.cost_analysis()['flops']
+    print(
+        f"{Fore.GREEN}{Style.BRIGHT}PPO learner function compiled in {elapsed:.2f} seconds.{Style.RESET_ALL}"
+    )
+    print(
+        f"{Fore.GREEN}{Style.BRIGHT}Estimated Learner function FLOPs: {flops_estimate / 1e9:.3f} GFlops.{Style.RESET_ALL}"
+    )
+    return compiled_learn
+
+def compile_evaluator_fn(
+    evaluator_fn: EvalFn,
+    params: ActorCriticParams,
+    eval_keys: chex.PRNGKey,
+    running_statistics: FrozenDict[str, chex.Array] | None = None,
+) -> EvalFn:
+    """Compile the evaluator function ahead of time to avoid compilation during evaluation and to measure compilation time."""
+    start = time.time()
+    traced_eval = evaluator_fn.trace(params, eval_keys, running_statistics)
+    lowered_eval = traced_eval.lower()
+    compiled_eval = lowered_eval.compile()
+    elapsed = time.time() - start
+    flops_estimate = compiled_eval.cost_analysis()['flops']
+    print(
+        f"{Fore.GREEN}{Style.BRIGHT}PPO evaluator function compiled in {elapsed:.2f} seconds.{Style.RESET_ALL}"
+    )
+    print(
+        f"{Fore.GREEN}{Style.BRIGHT}Estimated Evaluator function FLOPs: {flops_estimate / 1e9:.3f} GFlops.{Style.RESET_ALL}"
+    )
+    return compiled_eval
 
 def learner_setup(
     env: Environment, keys: chex.Array, config: DictConfig
@@ -549,8 +586,12 @@ def learner_setup(
         init_learner_state = create_with_running_statistics(
             state=init_learner_state, running_statistics=running_statistics
         )
-
-    return learn, actor_network, init_learner_state
+    
+    # Compile the learner function.
+    # This is done to avoid compilation during training and to measure compilation time.
+    compiled_learn_fn = compile_learner_fn(learn, init_learner_state)
+    
+    return compiled_learn_fn, actor_network, init_learner_state
 
 
 def run_experiment(_config: DictConfig) -> float:
@@ -587,8 +628,14 @@ def run_experiment(_config: DictConfig) -> float:
         config=config,
     )
 
-    # Calculate number of updates per evaluation.
-    config.arch.num_updates_per_eval = config.arch.num_updates // config.arch.num_evaluation
+    # Compile evaluator function ahead of time.
+    # This is done to avoid compilation during evaluation and to measure compilation time.
+    running_statistics = getattr(learner_state, "running_statistics", None)
+    if running_statistics is not None:
+        running_statistics = unreplicate_batch_dim(running_statistics)
+    evaluator = compile_evaluator_fn(evaluator, trained_params, eval_keys, running_statistics)
+
+    # Calculate environment steps per evaluation.
     steps_per_rollout = (
         n_devices
         * config.arch.num_updates_per_eval
@@ -719,7 +766,8 @@ def hydra_entry_point(cfg: DictConfig) -> float:
     """Experiment entry point."""
     # Allow dynamic attributes.
     OmegaConf.set_struct(cfg, False)
-
+    print(f"Hydra config finished loading...")
+    
     # Run experiment.
     eval_performance = run_experiment(cfg)
 
