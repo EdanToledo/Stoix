@@ -45,7 +45,7 @@ from stoa.core_wrappers.optimistic_auto_reset import OptimisticResetVmapWrapper
 from stoa.core_wrappers.vmap import VmapWrapper
 from stoa.core_wrappers.wrapper import AddRNGKey
 from stoa.env_wrappers.kinetix import KinetixToStoa
-from stoa.utility_wrappers.consistent_extras import ConsistentExtrasWrapper
+from stoa.utility_wrappers.extras_transforms import NoExtrasWrapper
 from xminigrid.registration import _REGISTRY as XMINIGRID_REGISTRY
 
 from stoix.utils.debug_env import DEBUG_ENVIRONMENTS
@@ -80,8 +80,7 @@ def apply_core_wrappers(env: Environment, config: DictConfig) -> Environment:
         )
     else:
         # Apply separate auto-reset and vectorization wrappers
-
-        # Add auto-reset functionality
+        # First, add auto-reset functionality
         if config.env.get("use_cached_auto_reset", False):
             # Use cached auto-reset if available (more efficient)
             env = CachedAutoResetWrapper(env, next_obs_in_extras=True)
@@ -226,10 +225,11 @@ def make_gymnax_env(scenario_name: str, config: DictConfig) -> Tuple[Environment
     env = GymnaxToStoa(env, env_params)
     eval_env = GymnaxToStoa(eval_env, eval_env_params)
 
-    # Add wrapper to ensure all extras field objects
-    # are consistent for JAX scanning/while loops.
-    env = ConsistentExtrasWrapper(env)
-    eval_env = ConsistentExtrasWrapper(eval_env)
+    # Add a wrapper to remove all extra objects that
+    # the base environment returns so that JAX scanning
+    # and while loops work when carrying the timestep object.
+    env = NoExtrasWrapper(env)
+    eval_env = NoExtrasWrapper(eval_env)
 
     # Apply any additional wrappers specified in the config.
     env, eval_env = apply_optional_wrappers((env, eval_env), config)
@@ -266,10 +266,11 @@ def make_popgym_arcade_env(
     env = GymnaxToStoa(env, env_params)
     eval_env = GymnaxToStoa(eval_env, eval_env_params)
 
-    # Add wrapper to ensure all extras field objects
-    # are consistent for JAX scanning/while loops.
-    env = ConsistentExtrasWrapper(env)
-    eval_env = ConsistentExtrasWrapper(eval_env)
+    # Add a wrapper to remove all extra objects that
+    # the base environment returns so that JAX scanning
+    # and while loops work when carrying the timestep object.
+    env = NoExtrasWrapper(env)
+    eval_env = NoExtrasWrapper(eval_env)
 
     # Apply any additional wrappers specified in the config.
     env, eval_env = apply_optional_wrappers((env, eval_env), config)
@@ -302,10 +303,11 @@ def make_xland_minigrid_env(
     env = XMiniGridToStoa(env, env_params)
     eval_env = XMiniGridToStoa(eval_env, eval_env_params)
 
-    # Add wrapper to ensure all extras field objects
-    # are consistent for JAX scanning/while loops.
-    env = ConsistentExtrasWrapper(env)
-    eval_env = ConsistentExtrasWrapper(eval_env)
+    # Add a wrapper to remove all extra objects that
+    # the base environment returns so that JAX scanning
+    # and while loops work when carrying the timestep object.
+    env = NoExtrasWrapper(env)
+    eval_env = NoExtrasWrapper(eval_env)
 
     # Apply any additional wrappers specified in the config.
     env, eval_env = apply_optional_wrappers((env, eval_env), config)
@@ -336,10 +338,11 @@ def make_brax_env(scenario_name: str, config: DictConfig) -> Tuple[Environment, 
     env = BraxToStoa(env)
     eval_env = BraxToStoa(eval_env)
 
-    # Add wrapper to ensure all extras field objects
-    # are consistent for JAX scanning/while loops.
-    env = ConsistentExtrasWrapper(env)
-    eval_env = ConsistentExtrasWrapper(eval_env)
+    # Add a wrapper to remove all extra objects that
+    # the base environment returns so that JAX scanning
+    # and while loops work when carrying the timestep object.
+    env = NoExtrasWrapper(env)
+    eval_env = NoExtrasWrapper(eval_env)
 
     # Apply any additional wrappers specified in the config.
     env, eval_env = apply_optional_wrappers((env, eval_env), config)
@@ -420,10 +423,11 @@ def make_kinetix_env(scenario_name: str, config: DictConfig) -> Tuple[Environmen
     env = _make_env(reset_fn=reset_fn_train, static_env_params=static_env_params_train)
     eval_env = _make_env(reset_fn=reset_fn_eval, static_env_params=static_env_params_eval)
 
-    # Add wrapper to ensure all extras field objects
-    # are consistent for JAX scanning/while loops.
-    # env = ConsistentExtrasWrapper(env)
-    # eval_env = ConsistentExtrasWrapper(eval_env)
+    # Add a wrapper to remove all extra objects that
+    # the base environment returns so that JAX scanning
+    # and while loops work when carrying the timestep object.
+    env = NoExtrasWrapper(env)
+    eval_env = NoExtrasWrapper(eval_env)
 
     # Apply any additional wrappers specified in the config.
     env, eval_env = apply_optional_wrappers((env, eval_env), config)
@@ -445,22 +449,28 @@ def make_craftax_env(scenario_name: str, config: DictConfig) -> Tuple[Environmen
     Returns:
         A tuple of the environments.
     """
-    # We put the imports here so as to avoid the loading and processing of craftax
-    # environments which happen in the imports
-    from craftax.craftax.envs.craftax_pixels_env import CraftaxPixelsEnv
-    from craftax.craftax.envs.craftax_symbolic_env import CraftaxSymbolicEnv
-    from craftax.craftax_classic.envs.craftax_pixels_env import CraftaxClassicPixelsEnv
-    from craftax.craftax_classic.envs.craftax_symbolic_env import (
-        CraftaxClassicSymbolicEnv,
-    )
 
     # Set up the environment mapping.
-    craftax_environments = {
-        "Craftax-Classic-Symbolic-v1": CraftaxClassicSymbolicEnv,
-        "Craftax-Classic-Pixels-v1": CraftaxClassicPixelsEnv,
-        "Craftax-Symbolic-v1": CraftaxSymbolicEnv,
-        "Craftax-Pixels-v1": CraftaxPixelsEnv,
-    }
+    craftax_environments = {}
+
+    # We put the imports here so as to avoid the loading and processing of craftax
+    # environments which happen in the imports
+    if "classic" not in scenario_name.lower():
+        from craftax.craftax.envs.craftax_pixels_env import CraftaxPixelsEnv
+        from craftax.craftax.envs.craftax_symbolic_env import CraftaxSymbolicEnv
+
+        craftax_environments["Craftax-Symbolic-v1"] = CraftaxSymbolicEnv
+        craftax_environments["Craftax-Pixels-v1"] = CraftaxPixelsEnv
+    else:
+        from craftax.craftax_classic.envs.craftax_pixels_env import (
+            CraftaxClassicPixelsEnv,
+        )
+        from craftax.craftax_classic.envs.craftax_symbolic_env import (
+            CraftaxClassicSymbolicEnv,
+        )
+
+        craftax_environments["Craftax-Classic-Symbolic-v1"] = CraftaxClassicSymbolicEnv
+        craftax_environments["Craftax-Classic-Pixels-v1"] = CraftaxClassicPixelsEnv
 
     # Create envs.
     env = craftax_environments[scenario_name](**config.env.kwargs)
@@ -473,10 +483,11 @@ def make_craftax_env(scenario_name: str, config: DictConfig) -> Tuple[Environmen
     env = GymnaxToStoa(env, env_params)
     eval_env = GymnaxToStoa(eval_env, eval_env_params)
 
-    # Add wrapper to ensure all extras field objects
-    # are consistent for JAX scanning/while loops.
-    env = ConsistentExtrasWrapper(env)
-    eval_env = ConsistentExtrasWrapper(eval_env)
+    # Add a wrapper to remove all extra objects that
+    # the base environment returns so that JAX scanning
+    # and while loops work when carrying the timestep object.
+    env = NoExtrasWrapper(env)
+    eval_env = NoExtrasWrapper(eval_env)
 
     # Apply any additional wrappers specified in the config.
     env, eval_env = apply_optional_wrappers((env, eval_env), config)
@@ -533,10 +544,11 @@ def make_popjym_env(scenario_name: str, config: DictConfig) -> Tuple[Environment
     env = GymnaxToStoa(env, env_params)
     eval_env = GymnaxToStoa(eval_env, eval_env_params)
 
-    # Add wrapper to ensure all extras field objects
-    # are consistent for JAX scanning/while loops.
-    env = ConsistentExtrasWrapper(env)
-    eval_env = ConsistentExtrasWrapper(eval_env)
+    # Add a wrapper to remove all extra objects that
+    # the base environment returns so that JAX scanning
+    # and while loops work when carrying the timestep object.
+    env = NoExtrasWrapper(env)
+    eval_env = NoExtrasWrapper(eval_env)
 
     # Add wrappers for adding start flag and previous action.
     env = AddStartFlagAndPrevAction(env)
@@ -571,10 +583,11 @@ def make_navix_env(scenario_name: str, config: DictConfig) -> Tuple[Environment,
     env = NavixToStoa(env)
     eval_env = NavixToStoa(eval_env)
 
-    # Add wrapper to ensure all extras field objects
-    # are consistent for JAX scanning/while loops.
-    env = ConsistentExtrasWrapper(env)
-    eval_env = ConsistentExtrasWrapper(eval_env)
+    # Add a wrapper to remove all extra objects that
+    # the base environment returns so that JAX scanning
+    # and while loops work when carrying the timestep object.
+    env = NoExtrasWrapper(env)
+    eval_env = NoExtrasWrapper(eval_env)
 
     # Apply any additional wrappers specified in the config.
     env, eval_env = apply_optional_wrappers((env, eval_env), config)
@@ -625,10 +638,11 @@ def make_playground_env(scenario_name: str, config: DictConfig) -> Tuple[Environ
     env = EpisodeStepLimitWrapper(env, config.env.get("max_episode_steps", 1000))
     eval_env = EpisodeStepLimitWrapper(eval_env, config.env.get("max_episode_steps", 1000))
 
-    # Add wrapper to ensure all extras field objects
-    # are consistent for JAX scanning/while loops.
-    env = ConsistentExtrasWrapper(env)
-    eval_env = ConsistentExtrasWrapper(eval_env)
+    # Add a wrapper to remove all extra objects that
+    # the base environment returns so that JAX scanning
+    # and while loops work when carrying the timestep object.
+    env = NoExtrasWrapper(env)
+    eval_env = NoExtrasWrapper(eval_env)
 
     # Apply any additional wrappers specified in the config.
     env, eval_env = apply_optional_wrappers((env, eval_env), config)
