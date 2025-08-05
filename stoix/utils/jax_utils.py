@@ -1,7 +1,12 @@
+import time
+from typing import Any
+
 import chex
 import jax
 import jax.numpy as jnp
 import numpy as np
+from colorama import Fore, Style
+from jax._src.pjit import JitWrapped
 
 
 def scale_gradient(g: chex.Array, scale: float = 1) -> chex.Array:
@@ -58,3 +63,53 @@ def unreplicate_batch_dim(x: chex.ArrayTree) -> chex.ArrayTree:
     We simply take element 0 as the params are identical across this dimension.
     """
     return jax.tree_util.tree_map(lambda x: x[:, 0, ...], x)  # type: ignore
+
+
+def aot_compile(
+    fn_to_compile: JitWrapped,
+    fn_name: str,
+    *args: Any,
+    **kwargs: Any,
+) -> Any:
+    """
+    Compiles a JAX function ahead-of-time and prints benchmarking information.
+
+    This function generalizes the process of tracing, lowering, and compiling
+    a JAX function, making it reusable for different functions like learners,
+    evaluators, etc.
+
+    Args:
+        fn_to_compile: The jitted or pmapped JAX function to be compiled.
+        fn_name: A descriptive name for the function (e.g., "Learner", "Evaluator")
+                 used for printing logs.
+        *args: Positional arguments to be passed to the function for tracing.
+        **kwargs: Keyword arguments to be passed to the function for tracing.
+
+    Returns:
+        The compiled function artifact.
+    """
+    print(f"{Fore.YELLOW}Compiling {fn_name} function ahead of time...{Style.RESET_ALL}")
+    start_time = time.time()
+
+    # Use the provided args and kwargs to trace the function
+    traced_fn = fn_to_compile.trace(*args, **kwargs)
+    lowered_fn = traced_fn.lower()
+    compiled_fn = lowered_fn.compile()
+
+    elapsed = time.time() - start_time
+
+    # Extract cost analysis safely
+    cost_analysis = compiled_fn.cost_analysis()
+    flops_estimate = cost_analysis.get("flops", 0)
+
+    print(
+        f"{Fore.GREEN}{Style.BRIGHT}{fn_name} function compiled in "
+        f"{elapsed:.2f} seconds.{Style.RESET_ALL}"
+    )
+    if flops_estimate > 0:
+        print(
+            f"{Fore.GREEN}{Style.BRIGHT}{fn_name} function FLOPs: "
+            f"{flops_estimate / 1e9:.3f} GFlops.{Style.RESET_ALL}"
+        )
+
+    return compiled_fn
