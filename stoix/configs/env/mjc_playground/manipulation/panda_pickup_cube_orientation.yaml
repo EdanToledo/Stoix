@@ -1,5 +1,5 @@
 # ---Environment Configs---
-env_name: manipulation # Used for logging purposes and selection of the corresponding wrapper.
+env_name: mujoco_playground # Used for logging purposes and selection of the corresponding wrapper.
 
 scenario:
   name: PandaPickCubeOrientation

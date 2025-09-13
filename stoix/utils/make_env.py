@@ -378,7 +378,7 @@ ENV_MAKERS = {
     "brax": make_brax_env,
     "craftax": make_craftax_env,
     "popgym_arcade": make_popgym_arcade_env,
-    "xminigrid": make_xland_minigrid_env,
+    "xland_minigrid": make_xland_minigrid_env,
     "popjym": make_popjym_env,
     "navix": make_navix_env,
     "kinetix": make_kinetix_env,
