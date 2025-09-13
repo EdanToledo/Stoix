@@ -19,8 +19,7 @@ from flax.core.frozen_dict import FrozenDict
 from jumanji.types import TimeStep
 from omegaconf import DictConfig, OmegaConf
 from rich.pretty import pprint
-from stoa.core_wrappers.episode_metrics import get_final_step_metrics
-from stoa.environment import Environment
+from stoa import Environment, WrapperState, get_final_step_metrics
 from tensorflow_probability.substrates.jax.distributions import Distribution
 
 from stoix.base_types import (
@@ -29,7 +28,6 @@ from stoix.base_types import (
     AnakinExperimentOutput,
     CriticApply,
     LearnerFn,
-    LogEnvState,
     OffPolicyLearnerState,
     OnlineAndTarget,
 )
@@ -1030,17 +1028,20 @@ def get_warmup_fn(
     _, _, root_fn, search_apply_fn = apply_fns
 
     def warmup(
-        env_states: LogEnvState, timesteps: TimeStep, buffer_states: BufferState, keys: chex.PRNGKey
-    ) -> Tuple[LogEnvState, TimeStep, BufferState, chex.PRNGKey]:
+        env_states: WrapperState,
+        timesteps: TimeStep,
+        buffer_states: BufferState,
+        keys: chex.PRNGKey,
+    ) -> Tuple[WrapperState, TimeStep, BufferState, chex.PRNGKey]:
         def _env_step(
-            carry: Tuple[LogEnvState, TimeStep, chex.PRNGKey], _: Any
-        ) -> Tuple[Tuple[LogEnvState, TimeStep, chex.PRNGKey], SPOTransition]:
+            carry: Tuple[WrapperState, TimeStep, chex.PRNGKey], _: Any
+        ) -> Tuple[Tuple[WrapperState, TimeStep, chex.PRNGKey], SPOTransition]:
             """Execute a single environment step during policy rollout."""
 
             env_state, last_timestep, key = carry
             # SELECT ACTION
             key, root_key, policy_key = jax.random.split(key, num=3)
-            root = root_fn(params, last_timestep.observation, env_state.env_state, root_key)
+            root = root_fn(params, last_timestep.observation, env_state.unwrapped_state, root_key)
             search_output = search_apply_fn(params, policy_key, root)
             action = search_output.action
             search_policy = search_output.sampled_action_weights
@@ -1161,7 +1162,7 @@ def get_learner_fn(
 
             # SELECT ACTION
             key, root_key, policy_key = jax.random.split(key, num=3)
-            root = root_fn(params, last_timestep.observation, env_state.env_state, root_key)
+            root = root_fn(params, last_timestep.observation, env_state.unwrapped_state, root_key)
             search_output = search_apply_fn(params, policy_key, root)
             action = search_output.action
             search_policy = search_output.sampled_action_weights

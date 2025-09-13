@@ -1,15 +1,15 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.10"
 resolution-markers = [
-    "python_full_version < '3.11' and sys_platform != 'linux'",
-    "python_full_version < '3.11' and sys_platform == 'linux'",
-    "python_full_version == '3.11.*' and sys_platform != 'linux'",
-    "python_full_version == '3.11.*' and sys_platform == 'linux'",
-    "python_full_version == '3.12.*' and sys_platform != 'linux'",
+    "python_full_version >= '3.13' and sys_platform == 'linux'",
     "python_full_version == '3.12.*' and sys_platform == 'linux'",
     "python_full_version >= '3.13' and sys_platform != 'linux'",
-    "python_full_version >= '3.13' and sys_platform == 'linux'",
+    "python_full_version == '3.12.*' and sys_platform != 'linux'",
+    "python_full_version == '3.11.*' and sys_platform == 'linux'",
+    "python_full_version == '3.11.*' and sys_platform != 'linux'",
+    "python_full_version < '3.11' and sys_platform == 'linux'",
+    "python_full_version < '3.11' and sys_platform != 'linux'",
 ]
 
 [[package]]
@@ -746,7 +746,7 @@ wheels = [
 [[package]]
 name = "distrax"
 version = "0.1.5"
-source = { git = "https://github.com/google-deepmind/distrax#c902a5bd0403ea3e1bed309e6f5b73de1ff8dfb4" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "absl-py" },
     { name = "chex" },
@@ -755,6 +755,10 @@ dependencies = [
     { name = "numpy" },
     { name = "setuptools", marker = "python_full_version >= '3.12'" },
     { name = "tensorflow-probability" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/81/a7/d87f5c5caf2ae9e28a9f506274870c25eb7e38c1ce0a1b7b3696afc73ac9/distrax-0.1.5.tar.gz", hash = "sha256:ec41522d389af69efedc8d475a7e6d8f229429c00f2140dcd641feacf7e21948", size = 190162, upload-time = "2023-11-22T12:53:44.836Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d8/42/efa7985eefd516f273bc5557550539ebd687cc6a3a2a176d5e1f5b0398ca/distrax-0.1.5-py3-none-any.whl", hash = "sha256:5020f4b53a9a480d019c12e44292fbacb7de857cce478bc594dacf29519c61b7", size = 319716, upload-time = "2023-11-22T12:53:42.449Z" },
 ]
 
 [[package]]
@@ -773,12 +777,24 @@ wheels = [
 ]
 
 [[package]]
+name = "dm-pix"
+version = "0.4.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "chex" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f0/8b/7d8d4b4646be35aa5a218335f9c0c1c7e3461e3fd997ecd10c03b3d5f27f/dm_pix-0.4.4.tar.gz", hash = "sha256:6139e3154feac8109dbc0859380f8e3a9f9465d3006a7b8c347e70ed875de1f7", size = 48566, upload-time = "2025-02-17T11:34:24.369Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/01/8e/c3b962cc1f350fdb77531715362da2a915cd688a49b8c22959b43988d117/dm_pix-0.4.4-py3-none-any.whl", hash = "sha256:afd492b9d27a77a55522ce504f5360e2efde1bd9b70fd43b3f9a42219c1c4f23", size = 56747, upload-time = "2025-02-17T11:34:23.143Z" },
+]
+
+[[package]]
 name = "dm-tree"
 version = "0.1.8"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
-    "python_full_version >= '3.13' and sys_platform != 'linux'",
     "python_full_version >= '3.13' and sys_platform == 'linux'",
+    "python_full_version >= '3.13' and sys_platform != 'linux'",
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/f8/6d/f1997aac42e0f550c1e952a0b920eaa0bfc4d27d0421499881b934b969fc/dm-tree-0.1.8.tar.gz", hash = "sha256:0fcaabbb14e7980377439e7140bd05552739ca5e515ecb3119f234acee4b9430", size = 35384, upload-time = "2022-12-18T09:46:55.953Z" }
 wheels = [
@@ -812,12 +828,12 @@ name = "dm-tree"
 version = "0.1.9"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
-    "python_full_version < '3.11' and sys_platform != 'linux'",
-    "python_full_version < '3.11' and sys_platform == 'linux'",
-    "python_full_version == '3.11.*' and sys_platform != 'linux'",
-    "python_full_version == '3.11.*' and sys_platform == 'linux'",
-    "python_full_version == '3.12.*' and sys_platform != 'linux'",
     "python_full_version == '3.12.*' and sys_platform == 'linux'",
+    "python_full_version == '3.12.*' and sys_platform != 'linux'",
+    "python_full_version == '3.11.*' and sys_platform == 'linux'",
+    "python_full_version == '3.11.*' and sys_platform != 'linux'",
+    "python_full_version < '3.11' and sys_platform == 'linux'",
+    "python_full_version < '3.11' and sys_platform != 'linux'",
 ]
 dependencies = [
     { name = "absl-py", marker = "python_full_version < '3.13'" },
@@ -870,15 +886,6 @@ wheels = [
 ]
 
 [[package]]
-name = "dotmap"
-version = "1.3.30"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/bc/68/c186606e4f2bf731abd18044ea201e70c3c244bf468f41368820d197fca5/dotmap-1.3.30.tar.gz", hash = "sha256:5821a7933f075fb47563417c0e92e0b7c031158b4c9a6a7e56163479b658b368", size = 12391, upload-time = "2022-04-06T16:26:49.211Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/4d/f9/976d6813c160d6c89196d81e9466dca1503d20e609d8751f3536daf37ec6/dotmap-1.3.30-py3-none-any.whl", hash = "sha256:bd9fa15286ea2ad899a4d1dc2445ed85a1ae884a42effb87c89a6ecce71243c6", size = 11464, upload-time = "2022-04-06T16:26:47.103Z" },
-]
-
-[[package]]
 name = "editorconfig"
 version = "0.17.0"
 source = { registry = "https://pypi.org/simple" }
@@ -892,14 +899,14 @@ name = "envpool"
 version = "0.8.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "dm-env", marker = "sys_platform == 'linux'" },
-    { name = "gym", marker = "sys_platform == 'linux'" },
-    { name = "gymnasium", marker = "sys_platform == 'linux'" },
-    { name = "numpy", marker = "sys_platform == 'linux'" },
-    { name = "optree", marker = "sys_platform == 'linux'" },
-    { name = "packaging", marker = "sys_platform == 'linux'" },
-    { name = "types-protobuf", marker = "sys_platform == 'linux'" },
-    { name = "typing-extensions", marker = "sys_platform == 'linux'" },
+    { name = "dm-env" },
+    { name = "gym" },
+    { name = "gymnasium" },
+    { name = "numpy" },
+    { name = "optree" },
+    { name = "packaging" },
+    { name = "types-protobuf" },
+    { name = "typing-extensions" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/cd/60/c5857bff5d51f5591cda645943ce657dc17abb2b1e00e5de90c56acded65/envpool-0.8.4-cp310-cp310-manylinux_2_24_x86_64.whl", hash = "sha256:9c6a1af66c8a18d798b3069e8eee4cde2e5942af22b25d058189714f2630b024", size = 74882046, upload-time = "2023-10-30T20:11:10.031Z" },
@@ -927,28 +934,15 @@ epy = [
 ]
 
 [[package]]
-name = "evosax"
-version = "0.2.0"
+name = "exceptiongroup"
+version = "1.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "dotmap" },
-    { name = "flax" },
-    { name = "jax" },
-    { name = "matplotlib" },
-    { name = "numpy" },
+    { name = "typing-extensions", marker = "python_full_version < '3.11'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/61/1f/93fc7c5db0f71f7fc7b47586c83ad6d865528c5a98f36707796fb3ebf2d9/evosax-0.2.0.tar.gz", hash = "sha256:7fefc9be3ea3f18a8346bd473a34d722723644a6096609b6ec9030e9fa4ebdd6", size = 170689, upload-time = "2025-03-11T10:38:37.284Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/0b/9f/a65090624ecf468cdca03533906e7c69ed7588582240cfe7cc9e770b50eb/exceptiongroup-1.3.0.tar.gz", hash = "sha256:b241f5885f560bc56a59ee63ca4c6a8bfa46ae4ad651af316d4e81817bb9fd88", size = 29749, upload-time = "2025-05-10T17:42:51.123Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/79/90/1bc31c864bcc1ecd22c035bffd7e6a0752e69f3bb3cdc5a41f3030c15fca/evosax-0.2.0-py3-none-any.whl", hash = "sha256:4e4aa4426ca1eb139b3783466c8b67a2e1a1060a75ee3013e54a7cd2a2c1cd14", size = 214037, upload-time = "2025-03-11T10:38:35.579Z" },
-]
-
-[[package]]
-name = "exceptiongroup"
-version = "1.2.2"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/09/35/2495c4ac46b980e4ca1f6ad6db102322ef3ad2410b79fdde159a4b0f3b92/exceptiongroup-1.2.2.tar.gz", hash = "sha256:47c2edf7c6738fafb49fd34290706d1a1a2f4d1c6df275526b62cbb4aa5393cc", size = 28883, upload-time = "2024-07-12T22:26:00.161Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/02/cc/b7e31358aac6ed1ef2bb790a9746ac2c69bcb3c8588b41616914eb106eaf/exceptiongroup-1.2.2-py3-none-any.whl", hash = "sha256:3111b9d131c238bec2f8f516e123e14ba243563fb135d3fe885990585aa7795b", size = 16453, upload-time = "2024-07-12T22:25:58.476Z" },
+    { url = "https://files.pythonhosted.org/packages/36/f4/c6e662dade71f56cd2f3735141b265c3c79293c109549c1e6933b0651ffc/exceptiongroup-1.3.0-py3-none-any.whl", hash = "sha256:4d111e6e0c13d0644cad6ddaa7ed0261a0b36971f6d23e7ec9b4b9097da78a10", size = 16674, upload-time = "2025-05-10T17:42:49.33Z" },
 ]
 
 [[package]]
@@ -1013,7 +1007,7 @@ wheels = [
 [[package]]
 name = "flashbax"
 version = "0.1.3"
-source = { git = "https://github.com/instadeepai/flashbax#68614feabeca115caee430f669c04811bdb4295c" }
+source = { git = "https://github.com/instadeepai/flashbax?rev=main#f518aa8a795ca0c3341816e9f0268b6deb853de6" }
 dependencies = [
     { name = "chex" },
     { name = "flax" },
@@ -1341,7 +1335,7 @@ wheels = [
 [[package]]
 name = "id-marl-eval"
 version = "0.0.4"
-source = { git = "https://github.com/EdanToledo/marl-eval#52127eb26088e75db5c5540835ea87c45cb93665" }
+source = { git = "https://github.com/EdanToledo/marl-eval?rev=main#52127eb26088e75db5c5540835ea87c45cb93665" }
 dependencies = [
     { name = "colorama" },
     { name = "colorcet" },
@@ -1596,34 +1590,6 @@ wheels = [
 ]
 
 [[package]]
-name = "jaxmarl"
-version = "0.0.2"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "brax" },
-    { name = "chex" },
-    { name = "distrax" },
-    { name = "dotmap" },
-    { name = "evosax" },
-    { name = "flax" },
-    { name = "gymnax" },
-    { name = "hydra-core" },
-    { name = "jax" },
-    { name = "matplotlib" },
-    { name = "numpy" },
-    { name = "omegaconf" },
-    { name = "optax" },
-    { name = "pillow" },
-    { name = "safetensors" },
-    { name = "typing-extensions" },
-    { name = "wandb" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/56/a9/e31166e488dc6020b30e29391d6075ed17d42e81e2902dfb6fa8d844951f/jaxmarl-0.0.2.tar.gz", hash = "sha256:3287374057fd6860e42c03d1099e93ec7691d7df29445d42ed8be95e6d8e37e2", size = 138352, upload-time = "2023-11-16T15:14:04.502Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/9a/f9/611a76db5f39333bbde81aa0b75fdb7f8a2fbf2120308a175261bdb5c399/jaxmarl-0.0.2-py3-none-any.whl", hash = "sha256:320077365f5bf505c40a5ca1e27efa69b0fb20297e097dc870559691894bbd72", size = 130760, upload-time = "2023-11-16T15:14:02.619Z" },
-]
-
-[[package]]
 name = "jaxopt"
 version = "0.8.3"
 source = { registry = "https://pypi.org/simple" }
@@ -1636,6 +1602,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/f9/af/73f7514ea14d6aba0a851e03afbdd532a7af896577c708c6ce405917ce80/jaxopt-0.8.3.tar.gz", hash = "sha256:4b06dfa6f915a4f3291699606245af6069371a48dc5c92d4c507840d62990646", size = 121236, upload-time = "2024-01-10T12:04:13.487Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/64/a4/fc292a90a9c51d1b633cdffe2df30c702e1e0b3e0b568c7b81004cac0a06/jaxopt-0.8.3-py3-none-any.whl", hash = "sha256:4be2f82798393682529c9ca5046e5397ac6c8657b8acb6bf275e773b28df15b6", size = 172264, upload-time = "2024-01-10T12:04:11.354Z" },
+]
+
+[[package]]
+name = "jaxtyping"
+version = "0.3.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "wadler-lindig" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/88/a8/416bd7ea110ec6b68e8868b0f99c985c735adcf7badc491d3c343937260a/jaxtyping-0.3.2.tar.gz", hash = "sha256:f30483fac4b42e915db8ad2414a85c3b63284aa7d3c100b96b59f755cf4a86ad", size = 44989, upload-time = "2025-04-23T09:48:16.907Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c9/b9/281e10e2d967ea5e481683eaec99f55ac5a61085ee60551c36942ef32bef/jaxtyping-0.3.2-py3-none-any.whl", hash = "sha256:6a020fd276226ddb5ac4f5725323843dd65e3c7e85c64fd62431e5f738c74e04", size = 55409, upload-time = "2025-04-23T09:48:15.924Z" },
 ]
 
 [[package]]
@@ -2333,8 +2311,8 @@ name = "ml-dtypes"
 version = "0.4.1"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
-    "python_full_version >= '3.13' and sys_platform != 'linux'",
     "python_full_version >= '3.13' and sys_platform == 'linux'",
+    "python_full_version >= '3.13' and sys_platform != 'linux'",
 ]
 dependencies = [
     { name = "numpy", marker = "python_full_version >= '3.13'" },
@@ -2360,12 +2338,12 @@ name = "ml-dtypes"
 version = "0.5.1"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
-    "python_full_version < '3.11' and sys_platform != 'linux'",
-    "python_full_version < '3.11' and sys_platform == 'linux'",
-    "python_full_version == '3.11.*' and sys_platform != 'linux'",
-    "python_full_version == '3.11.*' and sys_platform == 'linux'",
-    "python_full_version == '3.12.*' and sys_platform != 'linux'",
     "python_full_version == '3.12.*' and sys_platform == 'linux'",
+    "python_full_version == '3.12.*' and sys_platform != 'linux'",
+    "python_full_version == '3.11.*' and sys_platform == 'linux'",
+    "python_full_version == '3.11.*' and sys_platform != 'linux'",
+    "python_full_version < '3.11' and sys_platform == 'linux'",
+    "python_full_version < '3.11' and sys_platform != 'linux'",
 ]
 dependencies = [
     { name = "numpy", marker = "python_full_version < '3.13'" },
@@ -2805,8 +2783,8 @@ wheels = [
 
 [[package]]
 name = "optax"
-version = "0.2.5.dev0"
-source = { git = "https://github.com/google-deepmind/optax.git#1a235498a7bfa2b9bb173d7530e6e18e9c5adfcf" }
+version = "0.2.6.dev0"
+source = { git = "https://github.com/google-deepmind/optax.git?rev=main#46411b54ccfcd08b258c22bb35166e72b53d32eb" }
 dependencies = [
     { name = "absl-py" },
     { name = "chex" },
@@ -2820,7 +2798,7 @@ name = "optree"
 version = "0.14.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "typing-extensions", marker = "sys_platform == 'linux'" },
+    { name = "typing-extensions" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/c7/67/fdacb738f92e46db53cd501ccf6bc8699a243d5e8398bb7f5ae8f5cbb726/optree-0.14.1.tar.gz", hash = "sha256:c011c6124d6dcbfceade2d7c4f836eab66ed8cf9ab12f94535b41a71dd734637", size = 163095, upload-time = "2025-03-01T22:46:10.388Z" }
 wheels = [
@@ -3130,9 +3108,20 @@ wheels = [
 ]
 
 [[package]]
+name = "popgym-arcade"
+version = "0.0.4"
+source = { git = "https://github.com/bolt-research/popgym-arcade.git?rev=main#4874003d787aa1f22a35bdf5fb1c0a7b56d1a491" }
+dependencies = [
+    { name = "dm-pix" },
+    { name = "gymnax" },
+    { name = "jaxtyping" },
+    { name = "pygame" },
+]
+
+[[package]]
 name = "popjym"
 version = "0.0.1"
-source = { git = "https://github.com/FLAIROx/popjym.git#d7b23ba2ba663628c168897a914f1a0998643265" }
+source = { git = "https://github.com/FLAIROx/popjym.git?rev=main#d7b23ba2ba663628c168897a914f1a0998643265" }
 dependencies = [
     { name = "flax" },
     { name = "gymnax" },
@@ -4387,6 +4376,18 @@ wheels = [
 ]
 
 [[package]]
+name = "stoa-env"
+version = "0.1.1"
+source = { git = "https://github.com/EdanToledo/Stoa.git?rev=main#643598789da0ead72e1d03ec610d182dee94fcf4" }
+dependencies = [
+    { name = "chex" },
+    { name = "flax" },
+    { name = "jax" },
+    { name = "jaxlib" },
+    { name = "numpy" },
+]
+
+[[package]]
 name = "stoix"
 source = { editable = "." }
 dependencies = [
@@ -4405,7 +4406,6 @@ dependencies = [
     { name = "id-marl-eval" },
     { name = "jax" },
     { name = "jaxlib" },
-    { name = "jaxmarl" },
     { name = "jumanji" },
     { name = "kinetix-env" },
     { name = "mctx" },
@@ -4415,9 +4415,11 @@ dependencies = [
     { name = "omegaconf" },
     { name = "optax" },
     { name = "pgx" },
+    { name = "popgym-arcade" },
     { name = "popjym" },
     { name = "protobuf" },
     { name = "rlax" },
+    { name = "stoa-env" },
     { name = "tensorboard-logger" },
     { name = "tensorflow-probability" },
     { name = "tqdm" },
@@ -4425,7 +4427,7 @@ dependencies = [
     { name = "xminigrid" },
 ]
 
-[package.dev-dependencies]
+[package.optional-dependencies]
 dev = [
     { name = "black" },
     { name = "coverage" },
@@ -4456,69 +4458,67 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "black", marker = "extra == 'dev'" },
     { name = "brax", specifier = ">=0.9.0" },
     { name = "chex", specifier = ">=0.1.89" },
     { name = "colorama", specifier = ">=0.4.6" },
+    { name = "coverage", marker = "extra == 'dev'" },
     { name = "craftax", specifier = ">=1.4.5" },
-    { name = "distrax", git = "https://github.com/google-deepmind/distrax" },
+    { name = "distrax" },
     { name = "envpool", marker = "sys_platform == 'linux'", specifier = ">=0.8.4" },
-    { name = "flashbax", git = "https://github.com/instadeepai/flashbax" },
+    { name = "flake8", marker = "extra == 'dev'" },
+    { name = "flashbax", git = "https://github.com/instadeepai/flashbax?rev=main" },
     { name = "flax", specifier = ">=0.10.5" },
     { name = "gymnasium", specifier = ">=1.1.1" },
     { name = "gymnax", git = "https://github.com/RobertTLange/gymnax.git?rev=main" },
     { name = "huggingface-hub", specifier = ">=0.30.1" },
-    { name = "hydra-core", specifier = "==1.3.2" },
-    { name = "id-marl-eval", git = "https://github.com/EdanToledo/marl-eval" },
-    { name = "jax", specifier = ">=0.4.25,<0.6.0" },
+    { name = "hydra-core", specifier = ">=1.3.2" },
+    { name = "id-marl-eval", git = "https://github.com/EdanToledo/marl-eval?rev=main" },
+    { name = "importlib-metadata", marker = "extra == 'dev'" },
+    { name = "isort", marker = "extra == 'dev'" },
+    { name = "jax", specifier = ">=0.4.25" },
     { name = "jaxlib", specifier = ">=0.5.3" },
-    { name = "jaxmarl", specifier = ">=0.0.2" },
-    { name = "jumanji", specifier = "==1.0.0" },
+    { name = "jumanji", specifier = ">=1.0.0" },
     { name = "kinetix-env", specifier = ">=1.0.6" },
+    { name = "livereload", marker = "extra == 'dev'" },
     { name = "mctx", specifier = ">=0.0.5" },
+    { name = "mkdocs", marker = "extra == 'dev'" },
+    { name = "mkdocs-git-revision-date-plugin", marker = "extra == 'dev'" },
+    { name = "mkdocs-include-markdown-plugin", marker = "extra == 'dev'" },
+    { name = "mkdocs-material", marker = "extra == 'dev'" },
+    { name = "mkdocs-mermaid2-plugin", marker = "extra == 'dev'" },
+    { name = "mkdocstrings", marker = "extra == 'dev'" },
+    { name = "mknotebooks", marker = "extra == 'dev'" },
+    { name = "mypy", marker = "extra == 'dev'" },
     { name = "navix", specifier = ">=0.7.0" },
+    { name = "nbmake", marker = "extra == 'dev'" },
     { name = "neptune", specifier = ">=1.13.0" },
     { name = "numpy", specifier = ">=1.26.4" },
     { name = "omegaconf", specifier = ">=2.3.0" },
-    { name = "optax", git = "https://github.com/google-deepmind/optax.git" },
+    { name = "optax", git = "https://github.com/google-deepmind/optax.git?rev=main" },
     { name = "pgx", specifier = ">=2.6.0" },
-    { name = "popjym", git = "https://github.com/FLAIROx/popjym.git" },
-    { name = "protobuf", specifier = "==3.20.2" },
+    { name = "popgym-arcade", git = "https://github.com/bolt-research/popgym-arcade.git?rev=main" },
+    { name = "popjym", git = "https://github.com/FLAIROx/popjym.git?rev=main" },
+    { name = "pre-commit", marker = "extra == 'dev'" },
+    { name = "promise", marker = "extra == 'dev'" },
+    { name = "protobuf", specifier = ">=3.20.2" },
+    { name = "pymdown-extensions", marker = "extra == 'dev'" },
+    { name = "pytest", marker = "extra == 'dev'" },
+    { name = "pytest-cov", marker = "extra == 'dev'" },
+    { name = "pytest-mock", marker = "extra == 'dev'" },
+    { name = "pytest-parallel", marker = "extra == 'dev'" },
+    { name = "pytest-xdist", marker = "extra == 'dev'" },
+    { name = "pytype", marker = "extra == 'dev'" },
     { name = "rlax", specifier = ">=0.1.6" },
+    { name = "stoa-env", git = "https://github.com/EdanToledo/Stoa.git?rev=main" },
     { name = "tensorboard-logger", specifier = ">=0.1.0" },
     { name = "tensorflow-probability", specifier = ">=0.25.0" },
+    { name = "testfixtures", marker = "extra == 'dev'" },
     { name = "tqdm", specifier = ">=4.67.1" },
     { name = "wandb", specifier = ">=0.19.8" },
     { name = "xminigrid", git = "https://github.com/corl-team/xland-minigrid.git?rev=main" },
 ]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "black", specifier = "==25.1.0" },
-    { name = "coverage" },
-    { name = "flake8", specifier = "==7.1.1" },
-    { name = "importlib-metadata", specifier = ">=6.0" },
-    { name = "isort", specifier = "==5.13.2" },
-    { name = "livereload" },
-    { name = "mkdocs", specifier = "==1.6.1" },
-    { name = "mkdocs-git-revision-date-plugin" },
-    { name = "mkdocs-include-markdown-plugin" },
-    { name = "mkdocs-material", specifier = "==9.5.39" },
-    { name = "mkdocs-mermaid2-plugin", specifier = ">=0.6.0" },
-    { name = "mkdocstrings", specifier = "==0.26.1" },
-    { name = "mknotebooks", specifier = ">=0.7.1" },
-    { name = "mypy", specifier = "==1.13.0" },
-    { name = "nbmake" },
-    { name = "pre-commit", specifier = "==4.0.1" },
-    { name = "promise" },
-    { name = "pymdown-extensions" },
-    { name = "pytest", specifier = "==8.4.0" },
-    { name = "pytest-cov" },
-    { name = "pytest-mock" },
-    { name = "pytest-parallel" },
-    { name = "pytest-xdist" },
-    { name = "pytype" },
-    { name = "testfixtures" },
-]
+provides-extras = ["dev"]
 
 [[package]]
 name = "svgwrite"
@@ -4900,6 +4900,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/38/e0/633e369b91bbc664df47dcb5454b6c7cf441e8f5b9d0c250ce9f0546401e/virtualenv-20.30.0.tar.gz", hash = "sha256:800863162bcaa5450a6e4d721049730e7f2dae07720e0902b0e4040bd6f9ada8", size = 4346945, upload-time = "2025-03-31T16:33:29.185Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/4c/ed/3cfeb48175f0671ec430ede81f628f9fb2b1084c9064ca67ebe8c0ed6a05/virtualenv-20.30.0-py3-none-any.whl", hash = "sha256:e34302959180fca3af42d1800df014b35019490b119eba981af27f2fa486e5d6", size = 4329461, upload-time = "2025-03-31T16:33:26.758Z" },
+]
+
+[[package]]
+name = "wadler-lindig"
+version = "0.1.7"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/1e/67/cbae4bf7683a64755c2c1778c418fea96d00e34395bb91743f08bd951571/wadler_lindig-0.1.7.tar.gz", hash = "sha256:81d14d3fe77d441acf3ebd7f4aefac20c74128bf460e84b512806dccf7b2cd55", size = 15842, upload-time = "2025-06-18T07:00:42.843Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8d/96/04e7b441807b26b794da5b11e59ed7f83b2cf8af202bd7eba8ad2fa6046e/wadler_lindig-0.1.7-py3-none-any.whl", hash = "sha256:e3ec83835570fd0a9509f969162aeb9c65618f998b1f42918cfc8d45122fe953", size = 20516, upload-time = "2025-06-18T07:00:41.684Z" },
 ]
 
 [[package]]

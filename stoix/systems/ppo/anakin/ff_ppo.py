@@ -12,8 +12,7 @@ from colorama import Fore, Style
 from flax.core.frozen_dict import FrozenDict
 from omegaconf import DictConfig, OmegaConf
 from rich.pretty import pprint
-from stoa.core_wrappers.episode_metrics import get_final_step_metrics
-from stoa.environment import Environment
+from stoa import Environment, get_final_step_metrics
 
 from stoix.base_types import (
     ActorApply,
@@ -356,7 +355,7 @@ def get_learner_fn(
                 - params (ActorCriticParams): The initial model parameters.
                 - opt_states (OptStates): The initial optimizer state.
                 - key (chex.PRNGKey): The random number generator state.
-                - env_state (LogEnvState): The environment state.
+                - env_state (WrapperState): The environment state.
                 - timesteps (TimeStep): The initial timestep in the initial trajectory.
         """
 

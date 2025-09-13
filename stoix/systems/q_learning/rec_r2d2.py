@@ -18,14 +18,12 @@ from jumanji.types import TimeStep
 from omegaconf import DictConfig, OmegaConf
 from rich.pretty import pprint
 from rlax import SIGNED_HYPERBOLIC_PAIR, TxPair
-from stoa.core_wrappers.episode_metrics import get_final_step_metrics
-from stoa.environment import Environment
+from stoa import Environment, WrapperState, get_final_step_metrics
 
 from stoix.base_types import (
     ActorApply,
     AnakinExperimentOutput,
     LearnerFn,
-    LogEnvState,
     OnlineAndTarget,
     RNNOffPolicyLearnerState,
 )
@@ -50,7 +48,7 @@ def get_warmup_fn(
     """Get the warmup function for initializing the replay buffer."""
 
     def warmup(
-        env_states: LogEnvState,
+        env_states: WrapperState,
         timesteps: TimeStep,
         keys: chex.PRNGKey,
         buffer_states: BufferState,
@@ -58,13 +56,13 @@ def get_warmup_fn(
         dones: chex.Array,
         truncateds: chex.Array,
     ) -> Tuple[
-        LogEnvState, TimeStep, BufferState, chex.PRNGKey, chex.Array, chex.Array, chex.Array
+        WrapperState, TimeStep, BufferState, chex.PRNGKey, chex.Array, chex.Array, chex.Array
     ]:
         def _env_step(
-            carry: Tuple[chex.PRNGKey, LogEnvState, TimeStep, chex.Array, chex.Array, chex.Array],
+            carry: Tuple[chex.PRNGKey, WrapperState, TimeStep, chex.Array, chex.Array, chex.Array],
             _: Any,
         ) -> Tuple[
-            Tuple[chex.PRNGKey, LogEnvState, TimeStep, chex.Array, chex.Array, chex.Array],
+            Tuple[chex.PRNGKey, WrapperState, TimeStep, chex.Array, chex.Array, chex.Array],
             RNNTransition,
         ]:
             """Step the environment."""

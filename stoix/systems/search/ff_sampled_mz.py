@@ -18,8 +18,7 @@ from flashbax.buffers.trajectory_buffer import BufferState
 from jumanji.types import TimeStep
 from omegaconf import DictConfig, OmegaConf
 from rich.pretty import pprint
-from stoa.core_wrappers.episode_metrics import get_final_step_metrics
-from stoa.environment import Environment
+from stoa import Environment, WrapperState, get_final_step_metrics
 
 from stoix.base_types import (
     ActorApply,
@@ -28,7 +27,6 @@ from stoix.base_types import (
     CriticApply,
     DistributionCriticApply,
     LearnerFn,
-    LogEnvState,
 )
 from stoix.networks.base import FeedForwardActor as Actor
 from stoix.networks.base import FeedForwardCritic as Critic
@@ -249,17 +247,20 @@ def get_warmup_fn(
     _, _, _, _, root_fn, search_apply_fn = apply_fns
 
     def warmup(
-        env_states: LogEnvState, timesteps: TimeStep, buffer_states: BufferState, keys: chex.PRNGKey
-    ) -> Tuple[LogEnvState, TimeStep, BufferState, chex.PRNGKey]:
+        env_states: WrapperState,
+        timesteps: TimeStep,
+        buffer_states: BufferState,
+        keys: chex.PRNGKey,
+    ) -> Tuple[WrapperState, TimeStep, BufferState, chex.PRNGKey]:
         def _env_step(
-            carry: Tuple[LogEnvState, TimeStep, chex.PRNGKey], _: Any
-        ) -> Tuple[Tuple[LogEnvState, TimeStep, chex.PRNGKey], SampledExItTransition]:
+            carry: Tuple[WrapperState, TimeStep, chex.PRNGKey], _: Any
+        ) -> Tuple[Tuple[WrapperState, TimeStep, chex.PRNGKey], SampledExItTransition]:
             """Step the environment."""
 
             env_state, last_timestep, key = carry
             # SELECT ACTION
             key, root_key, policy_key = jax.random.split(key, num=3)
-            root = root_fn(params, last_timestep.observation, env_state.env_state, root_key)
+            root = root_fn(params, last_timestep.observation, env_state.unwrapped_state, root_key)
             search_output = search_apply_fn(params, policy_key, root)
             action = search_output.action
             search_policy = search_output.action_weights
@@ -345,7 +346,7 @@ def get_learner_fn(
 
             # SELECT ACTION
             key, root_key, policy_key = jax.random.split(key, num=3)
-            root = root_fn(params, last_timestep.observation, env_state.env_state, root_key)
+            root = root_fn(params, last_timestep.observation, env_state.unwrapped_state, root_key)
             search_output = search_apply_fn(params, policy_key, root)
             action = search_output.action
             search_policy = search_output.action_weights
@@ -643,7 +644,7 @@ def learner_setup(
 
     # Initialise observation
     init_x = env.observation_space().generate_value()
-    init_a = env.action_spec().generate_value()
+    init_a = env.action_space().generate_value()
     init_x = jax.tree_util.tree_map(lambda x: x[None, ...], init_x)
     init_a = jax.tree_util.tree_map(lambda x: x[None, ...], init_a)
 

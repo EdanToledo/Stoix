@@ -103,7 +103,7 @@ class JaxToStateful:
         return self.env.observation_spec()
 
     def action_spec(self) -> Spec:
-        return self.env.action_spec()
+        return self.env.action_space()
 
     def close(self) -> None:
         pass

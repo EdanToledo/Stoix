@@ -15,14 +15,12 @@ from flax.core.frozen_dict import FrozenDict
 from jumanji.types import TimeStep
 from omegaconf import DictConfig, OmegaConf
 from rich.pretty import pprint
-from stoa.core_wrappers.episode_metrics import get_final_step_metrics
-from stoa.environment import Environment
+from stoa import Environment, WrapperState, get_final_step_metrics
 
 from stoix.base_types import (
     ActorApply,
     AnakinExperimentOutput,
     LearnerFn,
-    LogEnvState,
     OffPolicyLearnerState,
     OnlineAndTarget,
 )
@@ -46,11 +44,14 @@ def get_warmup_fn(
     config: DictConfig,
 ) -> Callable:
     def warmup(
-        env_states: LogEnvState, timesteps: TimeStep, buffer_states: BufferState, keys: chex.PRNGKey
-    ) -> Tuple[LogEnvState, TimeStep, BufferState, chex.PRNGKey]:
+        env_states: WrapperState,
+        timesteps: TimeStep,
+        buffer_states: BufferState,
+        keys: chex.PRNGKey,
+    ) -> Tuple[WrapperState, TimeStep, BufferState, chex.PRNGKey]:
         def _env_step(
-            carry: Tuple[LogEnvState, TimeStep, chex.PRNGKey], _: Any
-        ) -> Tuple[Tuple[LogEnvState, TimeStep, chex.PRNGKey], Transition]:
+            carry: Tuple[WrapperState, TimeStep, chex.PRNGKey], _: Any
+        ) -> Tuple[Tuple[WrapperState, TimeStep, chex.PRNGKey], Transition]:
             """Step the environment."""
 
             env_state, last_timestep, key = carry

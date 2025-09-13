@@ -95,7 +95,7 @@ Stoix currently offers the following building blocks for Single-Agent RL researc
 ### Environment Wrappers 🍬
 Stoix offers wrappers for:
 
-- **JAX environments:** [Gymnax][gymnax], [Jumanji][jumanji], [Brax][brax], [XMinigrid][xminigrid], [Craftax][craftax], [POPJym][popjym], [Navix][navix] and even [JAXMarl][jaxmarl] (although using Centralised Controllers).
+- **JAX environments:** [Gymnax][gymnax], [Jumanji][jumanji], [Brax][brax], [XMinigrid][xminigrid], [Craftax][craftax], [POPJym][popjym], [Navix][navix] and more.
 - **Non-JAX environments:** [Envpool][envpool] and [Gymnasium][gymnasium].
 
 ### Statistically Robust Evaluation 🧪
@@ -251,7 +251,6 @@ We would like to thank the authors and developers of [Mava][mava] as this was es
 - 😎 [Matrax](https://github.com/instadeepai/matrax): a collection of matrix games in JAX.
 - 🔦 [Flashbax](https://github.com/instadeepai/flashbax): accelerated replay buffers in JAX.
 - 📈 [MARL-eval](https://github.com/instadeepai/marl-eval): standardised experiment data aggregation and visualisation for MARL.
-- 🦊 [JaxMARL](https://github.com/flairox/jaxmarl): accelerated MARL environments with baselines in JAX.
 - 🌀 [DeepMind Anakin][anakin_paper] for the Anakin podracer architecture to train RL agents at scale.
 - ♟️ [Pgx](https://github.com/sotetsuk/pgx): JAX implementations of classic board games, such as Chess, Go and Shogi.
 - 🔼 [Minimax](https://github.com/facebookresearch/minimax/): JAX implementations of autocurricula baselines for RL.
@@ -261,7 +260,6 @@ We would like to thank the authors and developers of [Mava][mava] as this was es
 [purejaxrl]: https://github.com/luchris429/purejaxrl
 [anakin_paper]: https://arxiv.org/abs/2104.06272
 [mava]: https://github.com/instadeepai/Mava
-[jaxmarl]: https://github.com/flairox/jaxmarl
 [toward_standard_eval]: https://arxiv.org/pdf/2209.10485.pdf
 [marl_eval]: https://github.com/instadeepai/marl-eval
 [gymnax]: https://github.com/RobertTLange/gymnax/

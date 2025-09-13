@@ -1,30 +1,14 @@
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Callable,
-    Dict,
-    Generic,
-    List,
-    Optional,
-    Tuple,
-    TypeVar,
-)
+from typing import Any, Callable, Dict, Generic, List, Optional, Tuple, TypeVar
 
 import chex
 from distrax import DistributionLike
 from flashbax.buffers.trajectory_buffer import BufferState
 from flax.core.frozen_dict import FrozenDict
-from jumanji.types import TimeStep
 from optax import OptState
+from stoa import TimeStep, WrapperState
 from typing_extensions import NamedTuple, Protocol, TypeAlias, runtime_checkable
 
 from stoix.utils.running_statistics import RunningStatisticsState
-
-if TYPE_CHECKING:  # https://github.com/python/mypy/issues/6239
-    from dataclasses import dataclass
-else:
-    from flax.struct import dataclass
-
 
 Action: TypeAlias = chex.Array
 Value: TypeAlias = chex.Array
@@ -65,18 +49,6 @@ class ObservationGlobalState(NamedTuple):
     action_mask: chex.Array
     global_state: chex.Array
     step_count: chex.Array
-
-
-@dataclass
-class LogEnvState:
-    """State of the `LogWrapper`."""
-
-    env_state: State
-    episode_returns: chex.Numeric
-    episode_lengths: chex.Numeric
-    # Information about the episode return and length for logging purposes.
-    episode_return_info: chex.Numeric
-    episode_length_info: chex.Numeric
 
 
 class EvalState(NamedTuple):
@@ -137,7 +109,7 @@ class OnPolicyLearnerState(NamedTuple):
     params: Parameters
     opt_states: OptStates
     key: chex.PRNGKey
-    env_state: LogEnvState
+    env_state: WrapperState
     timestep: TimeStep
 
 
@@ -147,7 +119,7 @@ class RNNLearnerState(NamedTuple):
     params: Parameters
     opt_states: OptStates
     key: chex.PRNGKey
-    env_state: LogEnvState
+    env_state: WrapperState
     timestep: TimeStep
     done: Done
     truncated: Truncated
@@ -159,7 +131,7 @@ class OffPolicyLearnerState(NamedTuple):
     opt_states: OptStates
     buffer_state: BufferState
     key: chex.PRNGKey
-    env_state: LogEnvState
+    env_state: WrapperState
     timestep: TimeStep
 
 
@@ -168,7 +140,7 @@ class RNNOffPolicyLearnerState(NamedTuple):
     opt_states: OptStates
     buffer_state: BufferState
     key: chex.PRNGKey
-    env_state: LogEnvState
+    env_state: WrapperState
     timestep: TimeStep
     dones: Done
     truncated: Truncated

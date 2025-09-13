@@ -36,10 +36,10 @@ from stoix.base_types import (
     ActorApply,
     AnakinExperimentOutput,
     LearnerFn,
-    LogEnvState,
     Observation,
     OffPolicyLearnerState,
     OnlineAndTarget,
+    WrapperState,
 )
 from stoix.evaluator import evaluator_setup, get_distribution_act_fn
 from stoix.networks.base import FeedForwardActor as Actor
@@ -56,11 +56,14 @@ def get_warmup_fn(
     config: DictConfig,
 ) -> Callable:
     def warmup(
-        env_states: LogEnvState, timesteps: TimeStep, buffer_states: BufferState, keys: chex.PRNGKey
-    ) -> Tuple[LogEnvState, TimeStep, BufferState, chex.PRNGKey]:
+        env_states: WrapperState,
+        timesteps: TimeStep,
+        buffer_states: BufferState,
+        keys: chex.PRNGKey,
+    ) -> Tuple[WrapperState, TimeStep, BufferState, chex.PRNGKey]:
         def _env_step(
-            carry: Tuple[LogEnvState, TimeStep, chex.PRNGKey], _: Any
-        ) -> Tuple[Tuple[LogEnvState, TimeStep, chex.PRNGKey], Transition]:
+            carry: Tuple[WrapperState, TimeStep, chex.PRNGKey], _: Any
+        ) -> Tuple[Tuple[WrapperState, TimeStep, chex.PRNGKey], Transition]:
             """Step the environment."""
 
             env_state, last_timestep, key = carry
