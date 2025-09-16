@@ -33,7 +33,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install the project
-        run: uv sync --all-extras --dev
+        run: pip install -e .
 
       - name: Make Bash Script Executable
         run: chmod +x bash_scripts/run-algorithms.sh
