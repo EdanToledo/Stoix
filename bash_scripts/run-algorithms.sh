@@ -1,6 +1,5 @@
 #!/bin/bash
 
-# Improved script to run various algorithms - used for testing purposes
 # Script will exit immediately if any command fails
 
 set -e  # Exit immediately if a command exits with a non-zero status
@@ -55,36 +54,36 @@ echo "=========================================="
 # Test core algorithms
 print_status "Testing Core Algorithms..."
 
-# run_algorithm "python stoix/systems/ppo/anakin/ff_ppo.py $COMMON_PARAMS" "PPO (Discrete)"
-# run_algorithm "python stoix/systems/ppo/anakin/ff_ppo_continuous.py $COMMON_PARAMS" "PPO (Continuous)"
-# run_algorithm "python stoix/systems/q_learning/ff_dqn.py $COMMON_PARAMS" "DQN"
-# run_algorithm "python stoix/systems/q_learning/ff_ddqn.py $COMMON_PARAMS" "Double DQN"
-# run_algorithm "python stoix/systems/q_learning/ff_mdqn.py $COMMON_PARAMS" "Multi-step DQN"
-# run_algorithm "python stoix/systems/q_learning/ff_c51.py $COMMON_PARAMS" "C51"
-# run_algorithm "python stoix/systems/q_learning/ff_qr_dqn.py $COMMON_PARAMS" "QR-DQN"
-# run_algorithm "python stoix/systems/q_learning/rec_r2d2.py $COMMON_PARAMS system.period=4 system.burn_in_length=4 system.total_buffer_size=10000 system.total_batch_size=32" "R2D2"
-# run_algorithm "python stoix/systems/sac/ff_sac.py $COMMON_PARAMS" "SAC"
-# run_algorithm "python stoix/systems/ddpg/ff_ddpg.py $COMMON_PARAMS" "DDPG"
-# run_algorithm "python stoix/systems/ddpg/ff_td3.py $COMMON_PARAMS" "TD3"
-# run_algorithm "python stoix/systems/vpg/ff_reinforce.py $COMMON_PARAMS" "REINFORCE"
-# run_algorithm "python stoix/systems/awr/ff_awr.py $COMMON_PARAMS" "AWR"
-# run_algorithm "python stoix/systems/mpo/ff_mpo.py $COMMON_PARAMS" "MPO"
-# run_algorithm "python stoix/systems/mpo/ff_vmpo.py $COMMON_PARAMS" "V-MPO"
-# run_algorithm "python stoix/systems/search/ff_az.py $COMMON_PARAMS" "AlphaZero"
-# run_algorithm "python stoix/systems/search/ff_sampled_az.py $COMMON_PARAMS" "Sampled AlphaZero"
-# run_algorithm "python stoix/systems/search/ff_mz.py $COMMON_PARAMS" "MuZero"
-# run_algorithm "python stoix/systems/search/ff_sampled_mz.py $COMMON_PARAMS" "Sampled MuZero"
-# run_algorithm "python stoix/systems/spo/ff_spo.py $COMMON_PARAMS" "SPO (Discrete)"
-# run_algorithm "python stoix/systems/spo/ff_spo_continuous.py $COMMON_PARAMS" "SPO (Continuous)"
+run_algorithm "python stoix/systems/ppo/anakin/ff_ppo.py $COMMON_PARAMS" "PPO (Discrete)"
+run_algorithm "python stoix/systems/ppo/anakin/ff_ppo_continuous.py $COMMON_PARAMS" "PPO (Continuous)"
+run_algorithm "python stoix/systems/q_learning/ff_dqn.py $COMMON_PARAMS" "DQN"
+run_algorithm "python stoix/systems/q_learning/ff_ddqn.py $COMMON_PARAMS" "Double DQN"
+run_algorithm "python stoix/systems/q_learning/ff_mdqn.py $COMMON_PARAMS" "Multi-step DQN"
+run_algorithm "python stoix/systems/q_learning/ff_c51.py $COMMON_PARAMS" "C51"
+run_algorithm "python stoix/systems/q_learning/ff_qr_dqn.py $COMMON_PARAMS" "QR-DQN"
+run_algorithm "python stoix/systems/q_learning/rec_r2d2.py $COMMON_PARAMS system.period=4 system.burn_in_length=4 system.total_buffer_size=10000 system.total_batch_size=32" "R2D2"
+run_algorithm "python stoix/systems/sac/ff_sac.py $COMMON_PARAMS" "SAC"
+run_algorithm "python stoix/systems/ddpg/ff_ddpg.py $COMMON_PARAMS" "DDPG"
+run_algorithm "python stoix/systems/ddpg/ff_td3.py $COMMON_PARAMS" "TD3"
+run_algorithm "python stoix/systems/vpg/ff_reinforce.py $COMMON_PARAMS" "REINFORCE"
+run_algorithm "python stoix/systems/awr/ff_awr.py $COMMON_PARAMS" "AWR"
+run_algorithm "python stoix/systems/mpo/ff_mpo.py $COMMON_PARAMS" "MPO"
+run_algorithm "python stoix/systems/mpo/ff_vmpo.py $COMMON_PARAMS" "V-MPO"
+run_algorithm "python stoix/systems/search/ff_az.py $COMMON_PARAMS" "AlphaZero"
+run_algorithm "python stoix/systems/search/ff_sampled_az.py $COMMON_PARAMS" "Sampled AlphaZero"
+run_algorithm "python stoix/systems/search/ff_mz.py $COMMON_PARAMS" "MuZero"
+run_algorithm "python stoix/systems/search/ff_sampled_mz.py $COMMON_PARAMS" "Sampled MuZero"
+run_algorithm "python stoix/systems/spo/ff_spo.py $COMMON_PARAMS" "SPO (Discrete)"
+run_algorithm "python stoix/systems/spo/ff_spo_continuous.py $COMMON_PARAMS" "SPO (Continuous)"
 
 # Test different network architectures
-# print_status "Testing Network Architectures..."
+print_status "Testing Network Architectures..."
 
-# run_algorithm "python stoix/systems/ppo/anakin/ff_ppo.py $COMMON_PARAMS env=gymnax/breakout env.wrapper=null network=cnn network.actor_network.pre_torso.channel_first=False network.critic_network.pre_torso.channel_first=False" "PPO with CNN (Breakout)"
-# run_algorithm "python stoix/systems/ppo/anakin/ff_ppo.py $COMMON_PARAMS env=gymnax/breakout env.wrapper=null network=visual_resnet network.actor_network.pre_torso.channel_first=False network.critic_network.pre_torso.channel_first=False" "PPO with Visual ResNet (Breakout)"
-# run_algorithm "python stoix/systems/ppo/anakin/ff_ppo.py $COMMON_PARAMS network=mlp_resnet" "PPO with MLP ResNet"
-# run_algorithm "python stoix/systems/q_learning/ff_dqn.py $COMMON_PARAMS network=mlp_dueling_dqn" "DQN with Dueling Network"
-# run_algorithm "python stoix/systems/q_learning/ff_c51.py $COMMON_PARAMS network=mlp_dueling_c51" "C51 with Dueling Network"
+run_algorithm "python stoix/systems/ppo/anakin/ff_ppo.py $COMMON_PARAMS env=gymnax/breakout env.wrapper=null network=cnn network.actor_network.pre_torso.channel_first=False network.critic_network.pre_torso.channel_first=False" "PPO with CNN (Breakout)"
+run_algorithm "python stoix/systems/ppo/anakin/ff_ppo.py $COMMON_PARAMS env=gymnax/breakout env.wrapper=null network=visual_resnet network.actor_network.pre_torso.channel_first=False network.critic_network.pre_torso.channel_first=False" "PPO with Visual ResNet (Breakout)"
+run_algorithm "python stoix/systems/ppo/anakin/ff_ppo.py $COMMON_PARAMS network=mlp_resnet" "PPO with MLP ResNet"
+run_algorithm "python stoix/systems/q_learning/ff_dqn.py $COMMON_PARAMS network=mlp_dueling_dqn" "DQN with Dueling Network"
+run_algorithm "python stoix/systems/q_learning/ff_c51.py $COMMON_PARAMS network=mlp_dueling_c51" "C51 with Dueling Network"
 
 # Test Sebulba algorithms (distributed)
 print_status "Testing Sebulba (Distributed) Algorithms..."
