@@ -134,7 +134,7 @@ dependencies = [
     "gymnax @ git+https://github.com/RobertTLange/gymnax.git@main",
     "popjym @ git+https://github.com/FLAIROx/popjym.git@main",
     "popgym-arcade @ git+https://github.com/bolt-research/popgym-arcade.git@main",
-    "stoa-env @ git+https://github.com/EdanToledo/Stoa.git@main",
+    "stoa-env[all] @ git+https://github.com/EdanToledo/Stoa.git@main",
     "envpool>=0.8.4 ; sys_platform == 'linux'",
     "flax>=0.10.5",
     "gymnasium>=1.1.1",

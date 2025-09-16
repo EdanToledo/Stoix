@@ -30,9 +30,15 @@ jobs:
           cache-dependency-path: |
             pyproject.toml
 
+      - name: Upgrade pip, setuptools, and wheel
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
 
       - name: Install the project (editable)
         run: pip install -e .
+
+      - name: Install Warp and MuJoCo
+        run: pip install playground --extra-index-url=https://py.mujoco.org --extra-index-url=https://pypi.nvidia.com/warp-lang/
 
       - name: Make Bash Script Executable
         run: chmod +x bash_scripts/run-algorithms.sh
