@@ -2,15 +2,10 @@ name: Check Algorithms 🧪
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
-    branches:
-      - main
+    branches: [main]
   workflow_dispatch:
-
-env:
-  UV_SYSTEM_PYTHON: 1
 
 jobs:
   test-algorithms:
@@ -24,15 +19,19 @@ jobs:
         os: [ubuntu-latest]
 
     steps:
-      - name: Checkout stoix
-        uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Install uv and set the python version
-        uses: astral-sh/setup-uv@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+          cache-dependency-path: |
+            pyproject.toml
 
-      - name: Install the project
+
+      - name: Install the project (editable)
         run: pip install -e .
 
       - name: Make Bash Script Executable
