@@ -486,7 +486,7 @@ def learner_setup(
     update_fns = (actor_optim.update, critic_optim.update)
 
     # Get batched iterated update and replicate it to pmap it over cores.
-    learn = chex.assert_max_traces(get_learner_fn(env, apply_fns, update_fns, config), n=1)
+    learn = get_learner_fn(env, apply_fns, update_fns, config)
     learn = jax.pmap(learn, axis_name="device")
 
     # Initialise environment states and timesteps: across devices and batches.
