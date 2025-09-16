@@ -98,7 +98,7 @@ xminigrid = { git = "https://github.com/corl-team/xland-minigrid.git", rev = "ma
 gymnax = { git = " https://github.com/RobertTLange/gymnax.git", rev = "main" }
 popjym = { git = "https://github.com/FLAIROx/popjym.git", rev = "main" }
 popgym-arcade = { git = "https://github.com/bolt-research/popgym-arcade.git", rev = "main" }
-stoa = { git = " https://github.com/EdanToledo/Stoa.git", rev = "main"}
+stoa-env = { git = " https://github.com/EdanToledo/Stoa.git", rev = "main"}
 
 [project]
 name = "stoix"
