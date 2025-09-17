@@ -82,7 +82,7 @@ run_algorithm "python stoix/systems/mpo/ff_vmpo_continuous.py $COMMON_PARAMS" "V
 run_algorithm "python stoix/systems/ppo/anakin/ff_dpo_continuous.py $COMMON_PARAMS" "DPO (Continuous)"
 run_algorithm "python stoix/systems/ppo/anakin/ff_ppo_penalty.py $COMMON_PARAMS" "PPO Penalty"
 run_algorithm "python stoix/systems/ppo/anakin/ff_ppo_penalty_continuous.py $COMMON_PARAMS" "PPO Penalty (Continuous)"
-run_algorithm "python stoix/systems/ppo/anakin/rec_ppo.py $COMMON_PARAMS" "Recurrent PPO"
+run_algorithm "python stoix/systems/ppo/anakin/rec_ppo.py $COMMON_PARAMS system.num_minibatches=1" "Recurrent PPO"
 run_algorithm "python stoix/systems/q_learning/ff_dqn_reg.py $COMMON_PARAMS" "DQN Reg"
 run_algorithm "python stoix/systems/q_learning/ff_pqn.py $COMMON_PARAMS" "PQN"
 run_algorithm "python stoix/systems/q_learning/ff_rainbow.py $COMMON_PARAMS" "Rainbow DQN"
