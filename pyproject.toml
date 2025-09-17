@@ -95,10 +95,11 @@ flashbax = { git = "https://github.com/instadeepai/flashbax", rev = "main" }
 id-marl-eval = { git = "https://github.com/EdanToledo/marl-eval", rev = "main" }
 optax = { git = "https://github.com/google-deepmind/optax.git", rev = "main" }
 xminigrid = { git = "https://github.com/corl-team/xland-minigrid.git", rev = "main" }
-gymnax = { git = " https://github.com/RobertTLange/gymnax.git", rev = "main" }
 popjym = { git = "https://github.com/FLAIROx/popjym.git", rev = "main" }
 popgym-arcade = { git = "https://github.com/bolt-research/popgym-arcade.git", rev = "main" }
-stoa-env = { git = " https://github.com/EdanToledo/Stoa.git", rev = "main"}
+gymnax = { git = "https://github.com/RobertTLange/gymnax.git", rev = "main" }
+stoa-env = { git = "https://github.com/EdanToledo/Stoa.git", rev = "main" }
+
 
 [project]
 name = "stoix"
@@ -159,33 +160,14 @@ dependencies = [
     "playground>=0.0.5",
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
-    "black",
-    "coverage",
-    "flake8",
-    "importlib-metadata",
-    "isort",
-    "livereload",
-    "mkdocs",
-    "mkdocs-git-revision-date-plugin",
-    "mkdocs-include-markdown-plugin",
-    "mkdocs-material",
-    "mkdocs-mermaid2-plugin",
-    "mkdocstrings",
-    "mknotebooks",
-    "mypy",
-    "nbmake",
-    "pre-commit",
-    "promise",
-    "pymdown-extensions",
-    "pytest",
-    "pytest-cov",
-    "pytest-mock",
-    "pytest-parallel",
-    "pytest-xdist",
-    "pytype",
-    "testfixtures",
+  "black", "coverage", "flake8", "importlib-metadata", "isort", "livereload",
+  "mkdocs", "mkdocs-git-revision-date-plugin", "mkdocs-include-markdown-plugin",
+  "mkdocs-material", "mkdocs-mermaid2-plugin", "mkdocstrings", "mknotebooks",
+  "mypy", "nbmake", "pre-commit", "promise", "pymdown-extensions", "pytest",
+  "pytest-cov", "pytest-mock", "pytest-parallel", "pytest-xdist", "pytype",
+  "testfixtures",
 ]
 
 [project.urls]
