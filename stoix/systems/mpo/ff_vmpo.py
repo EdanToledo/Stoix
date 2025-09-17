@@ -11,9 +11,9 @@ import optax
 import rlax
 from colorama import Fore, Style
 from flax.core.frozen_dict import FrozenDict
-from jumanji.env import Environment
 from omegaconf import DictConfig, OmegaConf
 from rich.pretty import pprint
+from stoa import Environment, get_final_step_metrics
 
 from stoix.base_types import (
     ActorApply,
@@ -51,7 +51,6 @@ from stoix.utils.multistep import (
 )
 from stoix.utils.total_timestep_checker import check_total_timesteps
 from stoix.utils.training import make_learning_rate
-from stoix.wrappers.episode_metrics import get_final_step_metrics
 
 
 def get_learner_fn(
@@ -81,7 +80,7 @@ def get_learner_fn(
             log_prob = actor_policy.log_prob(action)
 
             # STEP ENVIRONMENT
-            env_state, timestep = jax.vmap(env.step, in_axes=(0, 0))(env_state, action)
+            env_state, timestep = env.step(env_state, action)
 
             # LOG EPISODE METRICS
             done = (timestep.discount == 0.0).reshape(-1)
@@ -334,7 +333,7 @@ def learner_setup(
     n_devices = len(jax.devices())
 
     # Get number of actions or action dimension from the environment.
-    action_dim = int(env.action_spec().num_values)
+    action_dim = int(env.action_space().num_values)
     config.system.action_dim = action_dim
 
     # PRNG keys.
@@ -363,7 +362,7 @@ def learner_setup(
     )
 
     # Initialise observation
-    init_x = env.observation_spec().generate_value()
+    init_x = env.observation_space().generate_value()
     init_x = jax.tree_util.tree_map(lambda x: x[None, ...], init_x)
 
     # Initialise actor params and optimiser state.
@@ -413,9 +412,7 @@ def learner_setup(
     key, *env_keys = jax.random.split(
         key, n_devices * config.arch.update_batch_size * config.arch.num_envs + 1
     )
-    env_states, timesteps = jax.vmap(env.reset, in_axes=(0))(
-        jnp.stack(env_keys),
-    )
+    env_states, timesteps = env.reset(jnp.stack(env_keys))
     reshape_states = lambda x: x.reshape(
         (n_devices, config.arch.update_batch_size, config.arch.num_envs) + x.shape[1:]
     )

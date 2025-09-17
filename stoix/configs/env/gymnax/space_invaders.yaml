@@ -14,4 +14,4 @@ eval_metric: episode_return
 
 # Optional wrapper to flatten the observation space.
 wrapper:
-  _target_: stoix.wrappers.transforms.FlattenObservationWrapper
+  _target_: stoa.FlattenObservationWrapper

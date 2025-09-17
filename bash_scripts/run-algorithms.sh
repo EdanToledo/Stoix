@@ -1,6 +1,5 @@
 #!/bin/bash
 
-# Improved script to run various algorithms - used for testing purposes
 # Script will exit immediately if any command fails
 
 set -e  # Exit immediately if a command exits with a non-zero status
@@ -45,7 +44,7 @@ run_algorithm() {
 }
 
 # Common parameters for easier maintenance
-COMMON_PARAMS="arch.total_timesteps=300 arch.total_num_envs=8 arch.num_evaluation=1 system.rollout_length=8"
+COMMON_PARAMS="arch.total_timesteps=256 arch.total_num_envs=8 arch.num_evaluation=1 system.rollout_length=16"
 SEBULBA_PARAMS="$COMMON_PARAMS arch.actor.device_ids=[0] arch.actor.actor_per_device=1 arch.learner.device_ids=[0] arch.evaluator_device_id=0"
 
 echo "=========================================="
@@ -71,9 +70,23 @@ run_algorithm "python stoix/systems/awr/ff_awr.py $COMMON_PARAMS" "AWR"
 run_algorithm "python stoix/systems/mpo/ff_mpo.py $COMMON_PARAMS" "MPO"
 run_algorithm "python stoix/systems/mpo/ff_vmpo.py $COMMON_PARAMS" "V-MPO"
 run_algorithm "python stoix/systems/search/ff_az.py $COMMON_PARAMS" "AlphaZero"
+run_algorithm "python stoix/systems/search/ff_sampled_az.py $COMMON_PARAMS" "Sampled AlphaZero"
 run_algorithm "python stoix/systems/search/ff_mz.py $COMMON_PARAMS" "MuZero"
+run_algorithm "python stoix/systems/search/ff_sampled_mz.py $COMMON_PARAMS" "Sampled MuZero"
 run_algorithm "python stoix/systems/spo/ff_spo.py $COMMON_PARAMS" "SPO (Discrete)"
 run_algorithm "python stoix/systems/spo/ff_spo_continuous.py $COMMON_PARAMS" "SPO (Continuous)"
+run_algorithm "python stoix/systems/awr/ff_awr_continuous.py $COMMON_PARAMS" "AWR (Continuous)"
+run_algorithm "python stoix/systems/ddpg/ff_d4pg.py $COMMON_PARAMS" "D4PG"
+run_algorithm "python stoix/systems/mpo/ff_mpo_continuous.py $COMMON_PARAMS" "MPO (Continuous)"
+run_algorithm "python stoix/systems/mpo/ff_vmpo_continuous.py $COMMON_PARAMS" "V-MPO (Continuous)"
+run_algorithm "python stoix/systems/ppo/anakin/ff_dpo_continuous.py $COMMON_PARAMS" "DPO (Continuous)"
+run_algorithm "python stoix/systems/ppo/anakin/ff_ppo_penalty.py $COMMON_PARAMS" "PPO Penalty"
+run_algorithm "python stoix/systems/ppo/anakin/ff_ppo_penalty_continuous.py $COMMON_PARAMS" "PPO Penalty (Continuous)"
+run_algorithm "python stoix/systems/ppo/anakin/rec_ppo.py $COMMON_PARAMS system.num_minibatches=1" "Recurrent PPO"
+run_algorithm "python stoix/systems/q_learning/ff_dqn_reg.py $COMMON_PARAMS" "DQN Reg"
+run_algorithm "python stoix/systems/q_learning/ff_pqn.py $COMMON_PARAMS" "PQN"
+run_algorithm "python stoix/systems/q_learning/ff_rainbow.py $COMMON_PARAMS" "Rainbow DQN"
+run_algorithm "python stoix/systems/vpg/ff_reinforce_continuous.py $COMMON_PARAMS" "REINFORCE (Continuous)"
 
 # Test different network architectures
 print_status "Testing Network Architectures..."
@@ -89,6 +102,7 @@ print_status "Testing Sebulba (Distributed) Algorithms..."
 
 run_algorithm "python stoix/systems/ppo/sebulba/ff_ppo.py $SEBULBA_PARAMS" "Sebulba PPO"
 run_algorithm "python stoix/systems/impala/sebulba/ff_impala.py $SEBULBA_PARAMS" "Sebulba IMPALA"
+run_algorithm "python stoix/systems/impala/sebulba/ff_impala_shared_torso.py $SEBULBA_PARAMS" "Sebulba IMPALA (Shared Torso)"
 
 echo "=========================================="
 print_status "All algorithms completed successfully!"

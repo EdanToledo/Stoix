@@ -2,8 +2,8 @@
 env_name: brax
 
 scenario:
-  name : halfcheetah
-  task_name: halfcheetah
+  name: hopper
+  task_name: hopper
 
 kwargs: {
   backend: spring

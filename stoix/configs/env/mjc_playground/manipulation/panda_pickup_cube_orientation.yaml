@@ -1,0 +1,21 @@
+# ---Environment Configs---
+env_name: mujoco_playground # Used for logging purposes and selection of the corresponding wrapper.
+
+scenario:
+  name: PandaPickCubeOrientation
+  task_name: PandaPickCubeOrientation # For logging purposes.
+
+kwargs: {}
+
+# Defines the metric that will be used to evaluate the performance of the agent.
+# This metric is returned at the end of an experiment and can be used for hyperparameter tuning.
+eval_metric: episode_return
+
+
+use_default_domain_randomizer: False # Whether to use the default domain randomizer provided by mujoco playground.
+
+# Optional wrapper to extract the state from the observation.
+# This is useful for environments where the observation space is complex and we want to simplify it.
+# wrapper:
+#   _target_: stoa.ObservationExtractWrapper
+#   observation_attribute: state

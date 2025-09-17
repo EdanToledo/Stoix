@@ -1,13 +1,12 @@
 from typing import Any, Dict, Optional
 
 import numpy as np
-from jumanji.specs import Array, DiscreteArray, Spec
-from jumanji.types import StepType, TimeStep
 from numpy.typing import NDArray
+from stoa import ArraySpace, DiscreteSpace, Space, StepType, TimeStep
 
 
-class EnvPoolToJumanji:
-    """Converts from the Gymnasium envpool API to Jumanji's API."""
+class EnvPoolToStoa:
+    """Converts from envpool API to Stoa's API."""
 
     def __init__(self, env: Any):
         self.env = env
@@ -141,10 +140,11 @@ class EnvPoolToJumanji:
     def _create_timestep(
         self, obs: NDArray, ep_done: NDArray, terminated: NDArray, rewards: NDArray, info: Dict
     ) -> TimeStep:
-        step_type = np.where(ep_done, StepType.LAST, StepType.MID)
+        step_type = np.where(ep_done, StepType.TERMINATED, StepType.MID)
         truncated = info["elapsed_step"] >= self.max_episode_steps
         discount = 1.0 - terminated
         discount = np.where(truncated, 1.0, discount)
+        step_type = np.where(truncated, StepType.TRUNCATED, step_type)
 
         return TimeStep(
             step_type=step_type,
@@ -154,11 +154,11 @@ class EnvPoolToJumanji:
             extras=info,
         )
 
-    def observation_spec(self) -> Spec:
-        return Array(shape=self.obs_shape, dtype=float)
+    def observation_space(self) -> Space:
+        return ArraySpace(shape=self.obs_shape, dtype=float)
 
-    def action_spec(self) -> Spec:
-        return DiscreteArray(num_values=self.num_actions)
+    def action_space(self) -> Space:
+        return DiscreteSpace(num_values=self.num_actions)
 
     def close(self) -> None:
         self.env.close()

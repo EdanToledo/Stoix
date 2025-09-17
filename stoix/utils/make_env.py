@@ -2,259 +2,224 @@ import copy
 import dataclasses
 from typing import Callable, Tuple
 
-import gymnax
 import hydra
 import jax
-import jax.numpy as jnp
-import jaxmarl
-import jumanji
-import navix
-import pgx
-import popjym
-import xminigrid
-from brax.envs import _envs as brax_environments
-from brax.envs import create as brax_make
-from gymnax import registered_envs as gymnax_environments
+from colorama import Fore, Style
 from gymnax.environments.environment import Environment as GymnaxEnvironment
 from gymnax.environments.environment import EnvParams as GymnaxEnvParams
-from jaxmarl.environments.smax import map_name_to_scenario
-from jaxmarl.registration import registered_envs as jaxmarl_environments
-from jumanji.env import Environment
-from jumanji.registration import _REGISTRY as JUMANJI_REGISTRY
-from jumanji.specs import BoundedArray, MultiDiscreteArray
-from jumanji.wrappers import AutoResetWrapper, MultiToSingleWrapper
-from navix import registry as navix_registry
 from omegaconf import DictConfig
-from popjym.registration import REGISTERED_ENVS as POPJYM_REGISTRY
-from xminigrid.registration import _REGISTRY as XMINIGRID_REGISTRY
-
-from stoix.utils.debug_env import IdentityGame, SequenceGame
-from stoix.utils.env_factory import EnvFactory, EnvPoolFactory, GymnasiumFactory
-from stoix.wrappers import GymnaxWrapper, JumanjiWrapper, RecordEpisodeMetrics
-from stoix.wrappers.brax import BraxJumanjiWrapper
-from stoix.wrappers.jax_to_factory import JaxEnvFactory
-from stoix.wrappers.jaxmarl import JaxMarlWrapper, MabraxWrapper, SmaxWrapper
-from stoix.wrappers.navix import NavixWrapper
-from stoix.wrappers.pgx import PGXWrapper
-from stoix.wrappers.transforms import (
+from stoa import (
     AddStartFlagAndPrevAction,
-    MultiBoundedToBounded,
-    MultiDiscreteToDiscrete,
+    AutoResetWrapper,
+    BraxToStoa,
+    Environment,
+    EpisodeStepLimitWrapper,
+    GymnaxToStoa,
+    JumanjiToStoa,
+    KinetixToStoa,
+    MuJoCoPlaygroundToStoa,
+    MultiDiscreteSpace,
+    MultiDiscreteToDiscreteWrapper,
+    NavixToStoa,
+    ObservationExtractWrapper,
+    RecordEpisodeMetrics,
+    XMiniGridToStoa,
 )
-from stoix.wrappers.xminigrid import XMiniGridWrapper
+from stoa.core_wrappers.auto_reset import CachedAutoResetWrapper
+from stoa.core_wrappers.optimistic_auto_reset import OptimisticResetVmapWrapper
+from stoa.core_wrappers.vmap import VmapWrapper
+from stoa.core_wrappers.wrapper import AddRNGKey
+from stoa.utility_wrappers.extras_transforms import NoExtrasWrapper
+
+from stoix.utils.env_factory import EnvFactory
+from stoix.wrappers.jax_to_factory import JaxEnvFactory
 
 
-def make_jumanji_env(
-    env_name: str,
-    config: DictConfig,
-) -> Tuple[Environment, Environment]:
-    """
-    Create a Jumanji environments for training and evaluation.
+def apply_core_wrappers(env: Environment, config: DictConfig) -> Environment:
+    """Applies core wrappers for JAX-based environments.
+
+    This includes wrappers for:
+    - Adding an RNG key to the environment state.
+    - Automatically resetting episodes upon termination.
+    - Recording episode metrics (return, length, etc.).
+    - Vectorizing the environment for batched execution.
 
     Args:
-        env_name (str): The name of the environment to create.
-        config (Dict): The configuration of the environment.
+        env: The environment to wrap.
+        config: The system configuration.
 
     Returns:
-        A tuple of the environments.
+        The wrapped environment.
     """
-    # Config generator and select the wrapper.
+    env = AddRNGKey(env)
+    env = RecordEpisodeMetrics(env)
 
-    # Create envs.
+    if config.env.get("use_optimistic_reset", False):
+        env = OptimisticResetVmapWrapper(
+            env,
+            config.arch.num_envs,
+            min(config.env.get("reset_ratio", 16), config.arch.num_envs),
+            next_obs_in_extras=True,
+        )
+    else:
+        if config.env.get("use_cached_auto_reset", False):
+            env = CachedAutoResetWrapper(env, next_obs_in_extras=True)
+        else:
+            env = AutoResetWrapper(env, next_obs_in_extras=True)
+        env = VmapWrapper(env)
+    return env
+
+
+def apply_optional_wrappers(
+    envs: Tuple[Environment, Environment], config: DictConfig
+) -> Tuple[Environment, Environment]:
+    """Applies any user-defined optional wrappers from the configuration.
+
+    Args:
+        envs: A tuple containing the training and evaluation environments.
+        config: The system configuration.
+
+    Returns:
+        A tuple of the potentially wrapped environments.
+    """
+    train_env, eval_env = envs
+    if "wrapper" in config.env and config.env.wrapper is not None:
+        wrapper_fn = hydra.utils.instantiate(config.env.wrapper, _partial_=True)
+        train_env = wrapper_fn(train_env)
+        eval_env = wrapper_fn(eval_env)
+    return train_env, eval_env
+
+
+def make_jumanji_env(scenario_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
+    """Creates and wraps a Jumanji environment."""
+    import jumanji
+    import jumanji.wrappers as jumanji_wrappers
+
     env_kwargs = dict(copy.deepcopy(config.env.kwargs))
     if "generator" in env_kwargs:
         generator = env_kwargs.pop("generator")
         generator = hydra.utils.instantiate(generator)
         env_kwargs["generator"] = generator
-    env = jumanji.make(env_name, **env_kwargs)
-    eval_env = jumanji.make(env_name, **env_kwargs)
-    env, eval_env = JumanjiWrapper(
-        env, config.env.observation_attribute, config.env.multi_agent
-    ), JumanjiWrapper(
-        eval_env,
-        config.env.observation_attribute,
-        config.env.multi_agent,
-    )
 
-    env = AutoResetWrapper(env, next_obs_in_extras=True)
-    env = RecordEpisodeMetrics(env)
+    env = jumanji.make(scenario_name, **env_kwargs)
+    eval_env = jumanji.make(scenario_name, **env_kwargs)
 
+    if config.env.multi_agent:
+        env = jumanji_wrappers.MultiToSingleWrapper(env)
+        eval_env = jumanji_wrappers.MultiToSingleWrapper(eval_env)
+
+    env = JumanjiToStoa(env)
+    env = ObservationExtractWrapper(env, config.env.observation_attribute)
+    eval_env = JumanjiToStoa(eval_env)
+    eval_env = ObservationExtractWrapper(eval_env, config.env.observation_attribute)
+
+    if isinstance(env.action_space(), MultiDiscreteSpace):
+        env = MultiDiscreteToDiscreteWrapper(env)
+        eval_env = MultiDiscreteToDiscreteWrapper(eval_env)
+
+    env, eval_env = apply_optional_wrappers((env, eval_env), config)
+    env = apply_core_wrappers(env, config)
     return env, eval_env
 
 
 def _create_gymnax_env_instance(
-    env_name: str, env_kwargs: dict
+    scenario_name: str,
+    env_kwargs: dict,
+    env_make_fn: Callable[[str], Tuple[GymnaxEnvironment, GymnaxEnvParams]],
 ) -> Tuple[GymnaxEnvironment, GymnaxEnvParams]:
-    """Helper function to create a single Gymnax env instance with proper kwarg handling.
-
-    This is due to gymnax having both environment init arguments and environment
-    parameters in the EnvParams object."""
-    # Get default params to identify which kwargs are for init and which are for params
-    _, default_params = gymnax.make(env_name)
+    """Instantiates a Gymnax-like environment, handling init and param kwargs."""
+    _, default_params = env_make_fn(scenario_name)
     param_fields = {f.name for f in dataclasses.fields(default_params)}
 
     init_kwargs = {k: v for k, v in env_kwargs.items() if k not in param_fields}
     params_kwargs = {k: v for k, v in env_kwargs.items() if k in param_fields}
 
-    # Create env, passing only potential init_kwargs
-    env, env_params = gymnax.make(env_name, **init_kwargs)
-
-    # Update params with params_kwargs
+    env, env_params = env_make_fn(scenario_name, **init_kwargs)
     if params_kwargs:
         env_params = dataclasses.replace(env_params, **params_kwargs)
-
     return env, env_params
 
 
-def make_gymnax_env(env_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
-    """
-    Create a Gymnax environments for training and evaluation.
+def make_gymnax_env(scenario_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
+    """Creates and wraps a Gymnax environment."""
+    import gymnax
 
-    Args:
-        env_name (str): The name of the environment to create.
-        config (Dict): The configuration of the environment.
-
-    Returns:
-        A tuple of the environments.
-    """
     env_kwargs = dict(copy.deepcopy(config.env.kwargs))
+    env, env_params = _create_gymnax_env_instance(scenario_name, env_kwargs, gymnax.make)
+    eval_env, eval_env_params = _create_gymnax_env_instance(scenario_name, env_kwargs, gymnax.make)
 
-    # Create envs using the helper function
-    env, env_params = _create_gymnax_env_instance(env_name, env_kwargs)
-    eval_env, eval_env_params = _create_gymnax_env_instance(env_name, env_kwargs)
-
-    # Wrap environments
-    env = GymnaxWrapper(env, env_params)
-    eval_env = GymnaxWrapper(eval_env, eval_env_params)
-
-    env = AutoResetWrapper(env, next_obs_in_extras=True)
-    env = RecordEpisodeMetrics(env)
-
+    env = GymnaxToStoa(env, env_params)
+    eval_env = GymnaxToStoa(eval_env, eval_env_params)
+    env = NoExtrasWrapper(env)
+    eval_env = NoExtrasWrapper(eval_env)
+    env, eval_env = apply_optional_wrappers((env, eval_env), config)
+    env = apply_core_wrappers(env, config)
     return env, eval_env
 
 
-def make_xland_minigrid_env(env_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
-    """
-    Create a XLand Minigrid environments for training and evaluation.
-
-    Args:
-        env_name (str): The name of the environment to create.
-        config (Dict): The configuration of the environment.
-
-    Returns:
-        A tuple of the environments.
-    """
-    # Config generator and select the wrapper.
-    # Create envs.
-
-    env, env_params = xminigrid.make(env_name, **config.env.kwargs)
-
-    eval_env, eval_env_params = xminigrid.make(env_name, **config.env.kwargs)
-
-    env = XMiniGridWrapper(env, env_params)
-    eval_env = XMiniGridWrapper(eval_env, eval_env_params)
-
-    env = AutoResetWrapper(env, next_obs_in_extras=True)
-    env = RecordEpisodeMetrics(env)
-
-    return env, eval_env
-
-
-def make_brax_env(env_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
-    """
-    Create a brax environments for training and evaluation.
-
-    Args:
-        env_name (str): The name of the environment to create.
-        config (Dict): The configuration of the environment.
-
-    Returns:
-        A tuple of the environments.
-    """
-    # Config generator and select the wrapper.
-    # Create envs.
-
-    env = brax_make(env_name, auto_reset=False, **config.env.kwargs)
-
-    eval_env = brax_make(env_name, auto_reset=False, **config.env.kwargs)
-
-    env = BraxJumanjiWrapper(env)
-    eval_env = BraxJumanjiWrapper(eval_env)
-
-    env = AutoResetWrapper(env, next_obs_in_extras=True)
-    env = RecordEpisodeMetrics(env)
-
-    return env, eval_env
-
-
-def make_jaxmarl_env(
-    env_name: str,
-    config: DictConfig,
+def make_popgym_arcade_env(
+    scenario_name: str, config: DictConfig
 ) -> Tuple[Environment, Environment]:
-    """
-     Create a JAXMARL environment.
+    """Creates and wraps a PopGym Arcade environment."""
+    import popgym_arcade
 
-    Args:
-        env_name (str): The name of the environment to create.
-        config (Dict): The configuration of the environment.
-
-    Returns:
-        A JAXMARL environment.
-    """
-    _jaxmarl_wrappers = {"Smax": SmaxWrapper, "MaBrax": MabraxWrapper}
-
-    kwargs = dict(config.env.kwargs)
-    if "smax" in env_name.lower():
-        kwargs["scenario"] = map_name_to_scenario(config.env.scenario.task_name)
-
-    # Create jaxmarl envs.
-    env = _jaxmarl_wrappers.get(config.env.env_name, JaxMarlWrapper)(
-        jaxmarl.make(env_name, **kwargs),
-        config.env.add_global_state,
-        config.env.add_agent_ids_to_state,
+    env_kwargs = dict(copy.deepcopy(config.env.kwargs))
+    env, env_params = _create_gymnax_env_instance(scenario_name, env_kwargs, popgym_arcade.make)
+    eval_env, eval_env_params = _create_gymnax_env_instance(
+        scenario_name, env_kwargs, popgym_arcade.make
     )
-    eval_env = _jaxmarl_wrappers.get(config.env.env_name, JaxMarlWrapper)(
-        jaxmarl.make(env_name, **kwargs),
-        config.env.add_global_state,
-        config.env.add_agent_ids_to_state,
-    )
-    env = MultiToSingleWrapper(env, reward_aggregator=jnp.mean)
-    eval_env = MultiToSingleWrapper(eval_env, reward_aggregator=jnp.mean)
 
-    if isinstance(env.action_spec(), MultiDiscreteArray):
-        env = MultiDiscreteToDiscrete(env)
-        eval_env = MultiDiscreteToDiscrete(eval_env)
-    elif isinstance(env.action_spec(), BoundedArray):
-        env = MultiBoundedToBounded(env)
-        eval_env = MultiBoundedToBounded(eval_env)
-    else:
-        raise ValueError(f"Unsupported action spec for JAXMarl {env.action_spec()}.")
-
-    env = AutoResetWrapper(env, next_obs_in_extras=True)
-    env = RecordEpisodeMetrics(env)
-
+    env = GymnaxToStoa(env, env_params)
+    eval_env = GymnaxToStoa(eval_env, eval_env_params)
+    env = NoExtrasWrapper(env)
+    eval_env = NoExtrasWrapper(eval_env)
+    env, eval_env = apply_optional_wrappers((env, eval_env), config)
+    env = apply_core_wrappers(env, config)
     return env, eval_env
 
 
-def make_kinetix_env(env_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
-    """
-    Create a Kinetix environment for training and evaluation.
+def make_xland_minigrid_env(
+    scenario_name: str, config: DictConfig
+) -> Tuple[Environment, Environment]:
+    """Creates and wraps an XLand-MiniGrid environment."""
+    import xminigrid
 
-    Args:
-        env_name (str): The name of the environment to create.
-        config (Dict): The configuration of the environment.
+    env, env_params = xminigrid.make(scenario_name, **config.env.kwargs)
+    eval_env, eval_env_params = xminigrid.make(scenario_name, **config.env.kwargs)
 
-    Returns:
-        A tuple of the environments.
-    """
+    env = XMiniGridToStoa(env, env_params)
+    eval_env = XMiniGridToStoa(eval_env, eval_env_params)
+    env = NoExtrasWrapper(env)
+    eval_env = NoExtrasWrapper(eval_env)
+    env, eval_env = apply_optional_wrappers((env, eval_env), config)
+    env = apply_core_wrappers(env, config)
+    return env, eval_env
+
+
+def make_brax_env(scenario_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
+    """Creates and wraps a Brax environment."""
+    from brax.envs import create as brax_make
+
+    env = brax_make(scenario_name, auto_reset=False, **config.env.kwargs)
+    eval_env = brax_make(scenario_name, auto_reset=False, **config.env.kwargs)
+
+    env = BraxToStoa(env)
+    eval_env = BraxToStoa(eval_env)
+    env = NoExtrasWrapper(env)
+    eval_env = NoExtrasWrapper(eval_env)
+    env, eval_env = apply_optional_wrappers((env, eval_env), config)
+    env = apply_core_wrappers(env, config)
+    return env, eval_env
+
+
+def make_kinetix_env(scenario_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
+    """Creates and wraps a Kinetix environment."""
     from kinetix.environment import EnvState, StaticEnvParams, make_kinetix_env
     from kinetix.environment.env import KinetixEnv
     from kinetix.environment.ued.ued import make_reset_fn_sample_kinetix_level
     from kinetix.environment.utils import ActionType, ObservationType
     from kinetix.util.config import generate_params_from_config
     from kinetix.util.saving import load_evaluation_levels
-
-    from stoix.wrappers.kinetix import KinetixWrapper
 
     env_params, override_static_env_params = generate_params_from_config(
         dict(config.env.kinetix.env_size)
@@ -275,7 +240,6 @@ def make_kinetix_env(env_name: str, config: DictConfig) -> Tuple[Environment, En
                 rng, _rng = jax.random.split(rng)
                 level_idx = jax.random.randint(_rng, (), 0, len(levels))
                 sampled_level = jax.tree.map(lambda x: x[level_idx], levels_to_reset_to)
-
                 return sampled_level
 
         elif level_config.mode == "random":
@@ -293,7 +257,6 @@ def make_kinetix_env(env_name: str, config: DictConfig) -> Tuple[Environment, En
     reset_fn_eval, static_env_params_eval = _get_static_params_and_reset_fn(config.env.kinetix.eval)
 
     def _make_env(reset_fn: Callable, static_env_params: StaticEnvParams) -> KinetixEnv:
-
         env = make_kinetix_env(
             action_type=ActionType.from_string(config.env.scenario.action_type),
             observation_type=ObservationType.from_string(config.env.scenario.observation_type),
@@ -302,270 +265,203 @@ def make_kinetix_env(env_name: str, config: DictConfig) -> Tuple[Environment, En
             static_env_params=static_env_params,
             auto_reset=False,
         )
-
-        return KinetixWrapper(env, env_params)
+        return KinetixToStoa(env, env_params)
 
     env = _make_env(reset_fn=reset_fn_train, static_env_params=static_env_params_train)
     eval_env = _make_env(reset_fn=reset_fn_eval, static_env_params=static_env_params_eval)
-    env = AutoResetWrapper(env, next_obs_in_extras=True)
-    env = RecordEpisodeMetrics(env)
 
+    env = NoExtrasWrapper(env)
+    eval_env = NoExtrasWrapper(eval_env)
+    env, eval_env = apply_optional_wrappers((env, eval_env), config)
+    env = apply_core_wrappers(env, config)
     return env, eval_env
 
 
-def make_craftax_env(env_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
-    """
-    Create a craftax environment for training and evaluation.
+def make_craftax_env(scenario_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
+    """Creates and wraps a Crafter (Craftax) environment."""
+    from craftax.craftax_env import make_craftax_env_from_name
 
-    Args:
-        env_name (str): The name of the environment to create.
-        config (Dict): The configuration of the environment.
-
-    Returns:
-        A tuple of the environments.
-    """
-    # We put the imports here so as to avoid the loading and processing of craftax
-    # environments which happen in the imports
-    from craftax.craftax.envs.craftax_pixels_env import CraftaxPixelsEnv
-    from craftax.craftax.envs.craftax_symbolic_env import CraftaxSymbolicEnv
-    from craftax.craftax_classic.envs.craftax_pixels_env import CraftaxClassicPixelsEnv
-    from craftax.craftax_classic.envs.craftax_symbolic_env import (
-        CraftaxClassicSymbolicEnv,
-    )
-
-    # Config generator and select the wrapper.
-    craftax_environments = {
-        "Craftax-Classic-Symbolic-v1": CraftaxClassicSymbolicEnv,
-        "Craftax-Classic-Pixels-v1": CraftaxClassicPixelsEnv,
-        "Craftax-Symbolic-v1": CraftaxSymbolicEnv,
-        "Craftax-Pixels-v1": CraftaxPixelsEnv,
-    }
-
-    # Create envs.
-    env = craftax_environments[env_name](**config.env.kwargs)
-    eval_env = craftax_environments[env_name](**config.env.kwargs)
-
+    env = make_craftax_env_from_name(scenario_name, auto_reset=False)
+    eval_env = make_craftax_env_from_name(scenario_name, auto_reset=False)
     env_params = env.default_params
     eval_env_params = eval_env.default_params
 
-    env = GymnaxWrapper(env, env_params)
-    eval_env = GymnaxWrapper(eval_env, eval_env_params)
-
-    env = AutoResetWrapper(env, next_obs_in_extras=True)
-    env = RecordEpisodeMetrics(env)
-
+    env = GymnaxToStoa(env, env_params)
+    eval_env = GymnaxToStoa(eval_env, eval_env_params)
+    env = NoExtrasWrapper(env)
+    eval_env = NoExtrasWrapper(eval_env)
+    env, eval_env = apply_optional_wrappers((env, eval_env), config)
+    env = apply_core_wrappers(env, config)
     return env, eval_env
 
 
-def make_debug_env(env_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
-    """
-    Create a debug environment for training and evaluation.
+def make_debug_env(scenario_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
+    """Creates a simple debug environment for testing purposes."""
+    from stoix.utils.debug_env import DEBUG_ENVIRONMENTS
 
-    Args:
-        env_name (str): The name of the environment to create.
-        config (Dict): The configuration of the environment.
-
-    Returns:
-        A tuple of the environments.
-    """
-    if "identity" in config.env.scenario.task_name.lower():
-        env = IdentityGame(**config.env.kwargs)
-        eval_env = IdentityGame(**config.env.kwargs)
-    elif "sequence" in config.env.scenario.task_name.lower():
-        env = SequenceGame(**config.env.kwargs)
-        eval_env = SequenceGame(**config.env.kwargs)
-
-    env = AutoResetWrapper(env, next_obs_in_extras=True)
-    env = RecordEpisodeMetrics(env)
-
+    env = DEBUG_ENVIRONMENTS[scenario_name](**config.env.kwargs)
+    eval_env = DEBUG_ENVIRONMENTS[scenario_name](**config.env.kwargs)
+    env, eval_env = apply_optional_wrappers((env, eval_env), config)
+    env = apply_core_wrappers(env, config)
     return env, eval_env
 
 
-def apply_optional_wrappers(
-    envs: Tuple[Environment, Environment], config: DictConfig
-) -> Tuple[Environment, Environment]:
-    """Apply optional wrappers to the environments.
+def make_popjym_env(scenario_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
+    """Creates and wraps a POPJym environment."""
+    import popjym
 
-    Args:
-        envs (Tuple[Environment, Environment]): The training and evaluation environments to wrap.
-        config (Dict): The configuration of the environment.
+    env, env_params = popjym.make(scenario_name, **config.env.kwargs)
+    eval_env, eval_env_params = popjym.make(scenario_name, **config.env.kwargs)
 
-    Returns:
-        A tuple of the environments.
-    """
-    envs = list(envs)
-    if "wrapper" in config.env and config.env.wrapper is not None:
-        for i in range(len(envs)):
-            envs[i] = hydra.utils.instantiate(config.env.wrapper, env=envs[i])
-
-    return tuple(envs)  # type: ignore
-
-
-def make_pgx_env(env_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
-    """
-    Create a PGX environment for training and evaluation.
-
-    Args:
-        env_name (str): The name of the environment to create.
-        config (Dict): The configuration of the environment.
-
-    Returns:
-        A tuple of the environments.
-    """
-
-    # Config generator and select the wrapper.
-    # Create envs.
-    env = pgx.make(env_name, **config.env.kwargs)
-    eval_env = pgx.make(env_name, **config.env.kwargs)
-
-    env = PGXWrapper(env)
-    eval_env = PGXWrapper(eval_env)
-
-    env = AutoResetWrapper(env, next_obs_in_extras=True)
-    env = RecordEpisodeMetrics(env)
-
-    return env, eval_env
-
-
-def make_popjym_env(env_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
-    """
-    Create POPJym environments for training and evaluation.
-
-    Args:
-        env_name (str): The name of the environment to create.
-        config (Dict): The configuration of the environment.
-
-    Returns:
-        A tuple of the environments.
-    """
-
-    # Create envs.
-    env, env_params = popjym.make(env_name, **config.env.kwargs)
-    eval_env, eval_env_params = popjym.make(env_name, **config.env.kwargs)
-
-    env = GymnaxWrapper(env, env_params)
-    eval_env = GymnaxWrapper(eval_env, eval_env_params)
-
+    env = GymnaxToStoa(env, env_params)
+    eval_env = GymnaxToStoa(eval_env, eval_env_params)
+    env = NoExtrasWrapper(env)
+    eval_env = NoExtrasWrapper(eval_env)
     env = AddStartFlagAndPrevAction(env)
     eval_env = AddStartFlagAndPrevAction(eval_env)
-
-    env = AutoResetWrapper(env, next_obs_in_extras=True)
-    env = RecordEpisodeMetrics(env)
-
+    env, eval_env = apply_optional_wrappers((env, eval_env), config)
+    env = apply_core_wrappers(env, config)
     return env, eval_env
 
 
-def make_navix_env(env_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
-    """
-    Create Navix environments for training and evaluation.
+def make_navix_env(scenario_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
+    """Creates and wraps a Navix environment."""
+    import navix
 
-    Args:
-        env_name (str): The name of the environment to create.
-        config (Dict): The configuration of the environment.
+    env = navix.make(scenario_name, **config.env.kwargs)
+    eval_env = navix.make(scenario_name, **config.env.kwargs)
 
-    Returns:
-        A tuple of the environments.
-    """
-
-    # Create envs.
-    env = navix.make(env_name, **config.env.kwargs)
-    eval_env = navix.make(env_name, **config.env.kwargs)
-
-    env = NavixWrapper(env)
-    eval_env = NavixWrapper(eval_env)
-
-    env = AutoResetWrapper(env, next_obs_in_extras=True)
-    env = RecordEpisodeMetrics(env)
-
+    env = NavixToStoa(env)
+    eval_env = NavixToStoa(eval_env)
+    env = NoExtrasWrapper(env)
+    eval_env = NoExtrasWrapper(eval_env)
+    env, eval_env = apply_optional_wrappers((env, eval_env), config)
+    env = apply_core_wrappers(env, config)
     return env, eval_env
 
 
-def make_gymnasium_factory(
-    env_name: str, config: DictConfig, apply_wrapper_fn: Callable
-) -> GymnasiumFactory:
+def make_playground_env(scenario_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
+    """Creates and wraps a MuJoCo Playground environment."""
+    import mujoco_playground
 
-    env_factory = GymnasiumFactory(
-        env_name, init_seed=config.arch.seed, apply_wrapper_fn=apply_wrapper_fn, **config.env.kwargs
+    env_cfg = mujoco_playground.registry.get_default_config(scenario_name)
+    env = mujoco_playground.registry.load(
+        scenario_name, config=env_cfg, config_overrides=config.env.kwargs
+    )
+    eval_env = mujoco_playground.registry.load(
+        scenario_name, config=env_cfg, config_overrides=config.env.kwargs
     )
 
-    return env_factory
+    domain_randomizer_fn = None
+    if config.env.get("use_default_domain_randomizer", False):
+        domain_randomizer_fn = mujoco_playground.registry.get_domain_randomizer(scenario_name)
+        print(
+            f"{Fore.YELLOW}{Style.BRIGHT}Using default domain randomizer for "
+            f"'{scenario_name}': {domain_randomizer_fn.__name__}.{Style.RESET_ALL}"
+        )
+
+    env = MuJoCoPlaygroundToStoa(env, domain_randomizer_fn=domain_randomizer_fn)
+    eval_env = MuJoCoPlaygroundToStoa(eval_env, domain_randomizer_fn=domain_randomizer_fn)
+    env = EpisodeStepLimitWrapper(env, config.env.get("max_episode_steps", 1000))
+    eval_env = EpisodeStepLimitWrapper(eval_env, config.env.get("max_episode_steps", 1000))
+    env = NoExtrasWrapper(env)
+    eval_env = NoExtrasWrapper(eval_env)
+    env, eval_env = apply_optional_wrappers((env, eval_env), config)
+    env = apply_core_wrappers(env, config)
+    return env, eval_env
 
 
-def make_envpool_factory(
-    env_name: str, config: DictConfig, apply_wrapper_fn: Callable
-) -> EnvPoolFactory:
-
-    env_factory = EnvPoolFactory(
-        env_name, init_seed=config.arch.seed, apply_wrapper_fn=apply_wrapper_fn, **config.env.kwargs
-    )
-
-    return env_factory
+# A dispatcher mapping environment suite names to their respective maker functions.
+ENV_MAKERS = {
+    "jumanji": make_jumanji_env,
+    "gymnax": make_gymnax_env,
+    "brax": make_brax_env,
+    "craftax": make_craftax_env,
+    "popgym_arcade": make_popgym_arcade_env,
+    "xland_minigrid": make_xland_minigrid_env,
+    "popjym": make_popjym_env,
+    "navix": make_navix_env,
+    "kinetix": make_kinetix_env,
+    "mujoco_playground": make_playground_env,
+    "debug": make_debug_env,
+}
 
 
 def make(config: DictConfig) -> Tuple[Environment, Environment]:
-    """
-    Create environments for training and evaluation.
+    """Creates training and evaluation environments based on the provided configuration.
+
+    This function uses a dispatcher to call the correct maker function for the
+    specified environment suite (e.g., 'jumanji', 'brax'). This approach enables
+    lazy loading of heavy dependencies, improving startup time.
 
     Args:
-        config (Dict): The configuration of the environment.
+        config: The system configuration, which must specify `env.env_name`
+            and `env.scenario.name`.
 
     Returns:
-        training and evaluation environments.
+        A tuple containing the instantiated training and evaluation environments.
     """
-    env_name = config.env.scenario.name
+    suite_name = config.env.env_name
+    scenario_name = config.env.scenario.name
 
-    if env_name in gymnax_environments:
-        envs = make_gymnax_env(env_name, config)
-    elif env_name in JUMANJI_REGISTRY:
-        envs = make_jumanji_env(env_name, config)
-    elif env_name in XMINIGRID_REGISTRY:
-        envs = make_xland_minigrid_env(env_name, config)
-    elif env_name in brax_environments:
-        envs = make_brax_env(env_name, config)
-    elif env_name in jaxmarl_environments:
-        envs = make_jaxmarl_env(env_name, config)
-    elif "craftax" in env_name.lower():
-        envs = make_craftax_env(env_name, config)
-    elif "kinetix" in env_name.lower():
-        envs = make_kinetix_env(env_name, config)
-    elif "debug" in env_name.lower():
-        envs = make_debug_env(env_name, config)
-    elif env_name in pgx.available_envs():
-        envs = make_pgx_env(env_name, config)
-    elif env_name in POPJYM_REGISTRY:
-        envs = make_popjym_env(env_name, config)
-    elif env_name in navix_registry():
-        envs = make_navix_env(env_name, config)
-    else:
-        raise ValueError(f"{env_name} is not a supported environment.")
+    if suite_name not in ENV_MAKERS:
+        raise ValueError(
+            f"Unsupported environment suite '{suite_name}'. "
+            f"Available suites: {list(ENV_MAKERS.keys())}"
+        )
 
-    envs = apply_optional_wrappers(envs, config)
+    maker_function = ENV_MAKERS[suite_name]
+    envs = maker_function(scenario_name, config)
 
+    print(
+        f"{Fore.YELLOW}{Style.BRIGHT}Created environments for Suite: {suite_name} - "
+        f"Scenario: {scenario_name}{Style.RESET_ALL}"
+    )
     return envs
 
 
 def make_factory(config: DictConfig) -> EnvFactory:
-    """
-    Create a env_factory for sebulba systems.
+    """Creates a factory for generating environments.
+
+    This is used for systems that require an environment factory rather than
+    pre-instantiated environments, such as those using non-JAX environments
+    like Gymnasium or EnvPool.
 
     Args:
-        config (Dict): The configuration of the environment.
+        config: The system configuration.
 
     Returns:
-        A factory to create environments.
+        An `EnvFactory` instance.
     """
-    env_name = config.env.scenario.name
     suite_name = config.env.env_name
+    scenario_name = config.env.scenario.name
 
-    apply_wrapper_fn = lambda x: x
+    apply_wrapper_fn: Callable = lambda x: x
     if "wrapper" in config.env and config.env.wrapper is not None:
         apply_wrapper_fn = hydra.utils.instantiate(config.env.wrapper, _partial_=True)
 
-    if "envpool" in suite_name:
-        return make_envpool_factory(env_name, config, apply_wrapper_fn)
-    elif "gymnasium" in suite_name:
-        return make_gymnasium_factory(env_name, config, apply_wrapper_fn)
+    if suite_name == "envpool":
+        from stoix.utils.env_factory import EnvPoolFactory
+
+        return EnvPoolFactory(
+            scenario_name,
+            init_seed=config.arch.seed,
+            apply_wrapper_fn=apply_wrapper_fn,
+            **config.env.kwargs,
+        )
+    elif suite_name == "gymnasium":
+        from stoix.utils.env_factory import GymnasiumFactory
+
+        return GymnasiumFactory(
+            scenario_name,
+            init_seed=config.arch.seed,
+            apply_wrapper_fn=apply_wrapper_fn,
+            **config.env.kwargs,
+        )
     else:
+        # For all other JAX-based environments, create a single instance
+        # and wrap it in a JaxEnvFactory.
+        train_env = make(config)[0]
         return JaxEnvFactory(
-            make(config)[0], init_seed=config.arch.seed, apply_wrapper_fn=apply_wrapper_fn
+            train_env, init_seed=config.arch.seed, apply_wrapper_fn=apply_wrapper_fn
         )

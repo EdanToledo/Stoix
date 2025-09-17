@@ -91,13 +91,15 @@ include = ['stoix*']
 version = {attr = "stoix.__version__"}
 
 [tool.uv.sources]
-distrax = { git = "https://github.com/google-deepmind/distrax" }
-flashbax = { git = "https://github.com/instadeepai/flashbax" }
-id-marl-eval = { git = "https://github.com/EdanToledo/marl-eval" }
-optax = { git = "https://github.com/google-deepmind/optax.git" }
-popjym = { git = "https://github.com/FLAIROx/popjym.git" }
+flashbax = { git = "https://github.com/instadeepai/flashbax", rev = "main" }
+id-marl-eval = { git = "https://github.com/EdanToledo/marl-eval", rev = "main" }
+optax = { git = "https://github.com/google-deepmind/optax.git", rev = "main" }
 xminigrid = { git = "https://github.com/corl-team/xland-minigrid.git", rev = "main" }
-gymnax = { git = " git+https://github.com/RobertTLange/gymnax.git", rev = "main" }
+popjym = { git = "https://github.com/FLAIROx/popjym.git", rev = "main" }
+popgym-arcade = { git = "https://github.com/bolt-research/popgym-arcade.git", rev = "main" }
+gymnax = { git = "https://github.com/RobertTLange/gymnax.git", rev = "main" }
+stoa-env = { git = "https://github.com/EdanToledo/Stoa.git", rev = "main" }
+
 
 [project]
 name = "stoix"
@@ -126,63 +128,46 @@ dependencies = [
     "colorama>=0.4.6",
     "craftax>=1.4.5",
     "distrax",
+    "flashbax @ git+https://github.com/instadeepai/flashbax@main",
+    "id-marl-eval @ git+https://github.com/EdanToledo/marl-eval@main",
+    "optax @ git+https://github.com/google-deepmind/optax.git@main",
+    "xminigrid @ git+https://github.com/corl-team/xland-minigrid.git@main",
+    "gymnax @ git+https://github.com/RobertTLange/gymnax.git@main",
+    "popjym @ git+https://github.com/FLAIROx/popjym.git@main",
+    "popgym-arcade @ git+https://github.com/bolt-research/popgym-arcade.git@main",
+    "stoa-env[all] @ git+https://github.com/EdanToledo/Stoa.git@main",
     "envpool>=0.8.4 ; sys_platform == 'linux'",
-    "flashbax",
     "flax>=0.10.5",
     "gymnasium>=1.1.1",
-    "gymnax>=0.0.6",
     "huggingface-hub>=0.30.1",
-    "hydra-core==1.3.2",
-    "id-marl-eval",
-    "jax>=0.4.25,<0.6.0",
+    "hydra-core>=1.3.2",
+    "jax>=0.4.25",
     "jaxlib>=0.5.3",
-    "jaxmarl>=0.0.2",
-    "jumanji==1.0.0",
+    "jumanji>=1.0.0",
     "kinetix-env>=1.0.6",
     "mctx>=0.0.5",
     "navix>=0.7.0",
     "neptune>=1.13.0",
     "numpy>=1.26.4",
     "omegaconf>=2.3.0",
-    "optax",
     "pgx>=2.6.0",
-    "popjym",
-    "protobuf==3.20.2",
+    "protobuf>=3.20.2",
     "rlax>=0.1.6",
     "tensorboard-logger>=0.1.0",
     "tensorflow-probability>=0.25.0",
     "tqdm>=4.67.1",
     "wandb>=0.19.8",
-    "xminigrid",
+    "playground>=0.0.5",
 ]
 
 [dependency-groups]
 dev = [
-    "black==25.1.0",
-    "coverage",
-    "flake8==7.1.1",
-    "importlib-metadata>=6.0",
-    "isort==5.13.2",
-    "livereload",
-    "mkdocs==1.6.1",
-    "mkdocs-git-revision-date-plugin",
-    "mkdocs-include-markdown-plugin",
-    "mkdocs-material==9.5.39",
-    "mkdocs-mermaid2-plugin>=0.6.0",
-    "mkdocstrings==0.26.1",
-    "mknotebooks>=0.7.1",
-    "mypy==1.13.0",
-    "nbmake",
-    "pre-commit==4.0.1",
-    "promise",
-    "pymdown-extensions",
-    "pytest==8.4.0",
-    "pytest-cov",
-    "pytest-mock",
-    "pytest-parallel",
-    "pytest-xdist",
-    "pytype",
-    "testfixtures",
+  "black", "coverage", "flake8", "importlib-metadata", "isort", "livereload",
+  "mkdocs", "mkdocs-git-revision-date-plugin", "mkdocs-include-markdown-plugin",
+  "mkdocs-material", "mkdocs-mermaid2-plugin", "mkdocstrings", "mknotebooks",
+  "mypy", "nbmake", "pre-commit", "promise", "pymdown-extensions", "pytest",
+  "pytest-cov", "pytest-mock", "pytest-parallel", "pytest-xdist", "pytype",
+  "testfixtures",
 ]
 
 [project.urls]

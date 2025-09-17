@@ -16,10 +16,10 @@ import tensorflow_probability.substrates.jax as tfp
 from colorama import Fore, Style
 from flashbax.buffers.trajectory_buffer import BufferState
 from flax.core.frozen_dict import FrozenDict
-from jumanji.env import Environment
 from jumanji.types import TimeStep
 from omegaconf import DictConfig, OmegaConf
 from rich.pretty import pprint
+from stoa import Environment, WrapperState, get_final_step_metrics
 from tensorflow_probability.substrates.jax.distributions import Distribution
 
 from stoix.base_types import (
@@ -28,7 +28,6 @@ from stoix.base_types import (
     AnakinExperimentOutput,
     CriticApply,
     LearnerFn,
-    LogEnvState,
     OffPolicyLearnerState,
     OnlineAndTarget,
 )
@@ -68,7 +67,6 @@ from stoix.utils.logger import LogEvent, StoixLogger
 from stoix.utils.multistep import batch_truncated_generalized_advantage_estimation
 from stoix.utils.total_timestep_checker import check_total_timesteps
 from stoix.utils.training import make_learning_rate
-from stoix.wrappers.episode_metrics import get_final_step_metrics
 
 tfd = tfp.distributions
 
@@ -1030,17 +1028,20 @@ def get_warmup_fn(
     _, _, root_fn, search_apply_fn = apply_fns
 
     def warmup(
-        env_states: LogEnvState, timesteps: TimeStep, buffer_states: BufferState, keys: chex.PRNGKey
-    ) -> Tuple[LogEnvState, TimeStep, BufferState, chex.PRNGKey]:
+        env_states: WrapperState,
+        timesteps: TimeStep,
+        buffer_states: BufferState,
+        keys: chex.PRNGKey,
+    ) -> Tuple[WrapperState, TimeStep, BufferState, chex.PRNGKey]:
         def _env_step(
-            carry: Tuple[LogEnvState, TimeStep, chex.PRNGKey], _: Any
-        ) -> Tuple[Tuple[LogEnvState, TimeStep, chex.PRNGKey], SPOTransition]:
+            carry: Tuple[WrapperState, TimeStep, chex.PRNGKey], _: Any
+        ) -> Tuple[Tuple[WrapperState, TimeStep, chex.PRNGKey], SPOTransition]:
             """Execute a single environment step during policy rollout."""
 
             env_state, last_timestep, key = carry
             # SELECT ACTION
             key, root_key, policy_key = jax.random.split(key, num=3)
-            root = root_fn(params, last_timestep.observation, env_state.env_state, root_key)
+            root = root_fn(params, last_timestep.observation, env_state.unwrapped_state, root_key)
             search_output = search_apply_fn(params, policy_key, root)
             action = search_output.action
             search_policy = search_output.sampled_action_weights
@@ -1048,7 +1049,7 @@ def get_warmup_fn(
             sampled_actions = search_output.sampled_actions
 
             # STEP ENVIRONMENT
-            env_state, timestep = jax.vmap(env.step, in_axes=(0, 0))(env_state, action)
+            env_state, timestep = env.step(env_state, action)
 
             # LOG EPISODE METRICS
             done = (timestep.discount == 0.0).reshape(-1)
@@ -1161,7 +1162,7 @@ def get_learner_fn(
 
             # SELECT ACTION
             key, root_key, policy_key = jax.random.split(key, num=3)
-            root = root_fn(params, last_timestep.observation, env_state.env_state, root_key)
+            root = root_fn(params, last_timestep.observation, env_state.unwrapped_state, root_key)
             search_output = search_apply_fn(params, policy_key, root)
             action = search_output.action
             search_policy = search_output.sampled_action_weights
@@ -1169,7 +1170,7 @@ def get_learner_fn(
             sampled_actions = search_output.sampled_actions
 
             # STEP ENVIRONMENT
-            env_state, timestep = jax.vmap(env.step, in_axes=(0, 0))(env_state, action)
+            env_state, timestep = env.step(env_state, action)
 
             # LOG EPISODE METRICS
             done = (timestep.discount == 0.0).reshape(-1)
@@ -1574,10 +1575,10 @@ def learner_setup(
     n_devices = len(jax.devices())
 
     # Get number/dimension of actions.
-    action_dim = int(env.action_spec().shape[-1])
+    action_dim = int(env.action_space().shape[-1])
     config.system.action_dim = action_dim
-    config.system.action_minimum = float(env.action_spec().minimum)
-    config.system.action_maximum = float(env.action_spec().maximum)
+    config.system.action_minimum = float(env.action_space().minimum)
+    config.system.action_maximum = float(env.action_space().maximum)
 
     # PRNG keys.
     key, actor_net_key, critic_net_key = keys
@@ -1617,7 +1618,7 @@ def learner_setup(
     )
 
     # Initialise observation
-    init_x = env.observation_spec().generate_value()
+    init_x = env.observation_space().generate_value()
     init_x = jax.tree_util.tree_map(lambda x: x[None, ...], init_x)
 
     # Initialise actor params and optimiser state.
@@ -1741,9 +1742,7 @@ def learner_setup(
     key, *env_keys = jax.random.split(
         key, n_devices * config.arch.update_batch_size * config.arch.num_envs + 1
     )
-    env_states, timesteps = jax.vmap(env.reset, in_axes=(0))(
-        jnp.stack(env_keys),
-    )
+    env_states, timesteps = env.reset(jnp.stack(env_keys))
     reshape_states = lambda x: x.reshape(
         (n_devices, config.arch.update_batch_size, config.arch.num_envs) + x.shape[1:]
     )

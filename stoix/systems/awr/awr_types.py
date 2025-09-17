@@ -9,8 +9,8 @@ from stoix.base_types import (
     ActorCriticOptStates,
     ActorCriticParams,
     Done,
-    LogEnvState,
     Truncated,
+    WrapperState,
 )
 
 
@@ -19,7 +19,7 @@ class AWRLearnerState(NamedTuple):
     opt_states: ActorCriticOptStates
     buffer_state: BufferState
     key: chex.PRNGKey
-    env_state: LogEnvState
+    env_state: WrapperState
     timestep: TimeStep
 
 

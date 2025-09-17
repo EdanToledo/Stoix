@@ -1,16 +1,23 @@
+import warnings
 from typing import Dict, Optional
 
 import gymnasium
 import numpy as np
-from jumanji.specs import Array, DiscreteArray, Spec
-from jumanji.types import StepType, TimeStep
 from numpy.typing import NDArray
+from stoa import ArraySpace, DiscreteSpace, Space, StepType, TimeStep
+
+# WARNING: I think newer versions of gymnasium follow a different autoreset API - we need to check this.
 
 
-class VecGymToJumanji:
-    """Converts from a Vectorised Gymnasium environment to Jumanji's API."""
+class VecGymToStoa:
+    """Converts from a Vectorised Gymnasium environment to Stoa's API."""
 
     def __init__(self, env: gymnasium.vector.AsyncVectorEnv):
+        warnings.warn(
+            "The Gymnasium wrapper is experimental and has not been tested."
+            "The EnvPool wrapper is recommended.",
+            stacklevel=2,
+        )
         self.env = env
         self.num_envs = int(self.env.num_envs)
         if isinstance(self.env.single_action_space, gymnasium.spaces.Discrete):
@@ -93,7 +100,7 @@ class VecGymToJumanji:
         self, obs: NDArray, ep_done: NDArray, terminated: NDArray, rewards: NDArray, info: Dict
     ) -> TimeStep:
         extras = {"metrics": info["metrics"]}
-        step_type = np.where(ep_done, StepType.LAST, StepType.MID)
+        step_type = np.where(ep_done, StepType.TERMINATED, StepType.MID)
 
         return TimeStep(
             step_type=step_type,
@@ -103,14 +110,14 @@ class VecGymToJumanji:
             extras=extras,
         )
 
-    def observation_spec(self) -> Spec:
-        return Array(shape=self.obs_shape, dtype=float)
+    def observation_space(self) -> Space:
+        return ArraySpace(shape=self.obs_shape, dtype=float)
 
-    def action_spec(self) -> Spec:
+    def action_space(self) -> Space:
         if self.discrete:
-            return DiscreteArray(num_values=self.num_actions)
+            return DiscreteSpace(num_values=self.num_actions)
         else:
-            return Array(shape=(self.num_actions,), dtype=float)
+            return ArraySpace(shape=(self.num_actions,), dtype=float)
 
     def close(self) -> None:
         self.env.close()

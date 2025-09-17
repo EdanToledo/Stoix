@@ -2,13 +2,14 @@ import copy
 import time
 from typing import TYPE_CHECKING, Any, Callable, Dict, Tuple
 
+from stoa.core_wrappers.episode_metrics import get_final_step_metrics
+
 from stoix.systems.q_learning.dqn_types import Transition
 from stoix.utils.checkpointing import Checkpointer
 from stoix.utils.jax_utils import unreplicate_batch_dim, unreplicate_n_dims
 from stoix.utils.loss import categorical_double_q_learning  # noqa: F401
 from stoix.utils.multistep import batch_discounted_returns
 from stoix.utils.training import make_learning_rate
-from stoix.wrappers.episode_metrics import get_final_step_metrics
 
 if TYPE_CHECKING:
     from dataclasses import dataclass
@@ -26,19 +27,19 @@ import optax
 from colorama import Fore, Style
 from flashbax.buffers.trajectory_buffer import BufferState
 from flax.core.frozen_dict import FrozenDict
-from jumanji.env import Environment
 from jumanji.types import TimeStep
 from omegaconf import DictConfig, OmegaConf
 from rich.pretty import pprint
+from stoa.environment import Environment
 
 from stoix.base_types import (
     ActorApply,
     AnakinExperimentOutput,
     LearnerFn,
-    LogEnvState,
     Observation,
     OffPolicyLearnerState,
     OnlineAndTarget,
+    WrapperState,
 )
 from stoix.evaluator import evaluator_setup, get_distribution_act_fn
 from stoix.networks.base import FeedForwardActor as Actor
@@ -55,11 +56,14 @@ def get_warmup_fn(
     config: DictConfig,
 ) -> Callable:
     def warmup(
-        env_states: LogEnvState, timesteps: TimeStep, buffer_states: BufferState, keys: chex.PRNGKey
-    ) -> Tuple[LogEnvState, TimeStep, BufferState, chex.PRNGKey]:
+        env_states: WrapperState,
+        timesteps: TimeStep,
+        buffer_states: BufferState,
+        keys: chex.PRNGKey,
+    ) -> Tuple[WrapperState, TimeStep, BufferState, chex.PRNGKey]:
         def _env_step(
-            carry: Tuple[LogEnvState, TimeStep, chex.PRNGKey], _: Any
-        ) -> Tuple[Tuple[LogEnvState, TimeStep, chex.PRNGKey], Transition]:
+            carry: Tuple[WrapperState, TimeStep, chex.PRNGKey], _: Any
+        ) -> Tuple[Tuple[WrapperState, TimeStep, chex.PRNGKey], Transition]:
             """Step the environment."""
 
             env_state, last_timestep, key = carry
@@ -71,7 +75,7 @@ def get_warmup_fn(
             action = actor_policy.sample(seed=policy_key)
 
             # STEP ENVIRONMENT
-            env_state, timestep = jax.vmap(env.step, in_axes=(0, 0))(env_state, action)
+            env_state, timestep = env.step(env_state, action)
 
             # LOG EPISODE METRICS
             done = timestep.last().reshape(-1)
@@ -132,7 +136,7 @@ def get_learner_fn(
             action = actor_policy.sample(seed=policy_key)
 
             # STEP ENVIRONMENT
-            env_state, timestep = jax.vmap(env.step, in_axes=(0, 0))(env_state, action)
+            env_state, timestep = env.step(env_state, action)
 
             # LOG EPISODE METRICS
             done = timestep.last().reshape(-1)
@@ -344,7 +348,7 @@ def learner_setup(
     n_devices = len(jax.devices())
 
     # Get number of actions.
-    action_dim = int(env.action_spec().num_values)
+    action_dim = int(env.action_space().num_values)
     config.system.action_dim = action_dim
 
     # PRNG keys.
@@ -384,7 +388,7 @@ def learner_setup(
     )
 
     # Initialise observation
-    init_x = env.observation_spec().generate_value()
+    init_x = env.observation_space().generate_value()
     init_x = jax.tree_util.tree_map(lambda x: x[None, ...], init_x)
 
     # Initialise q params and optimiser state.
@@ -452,9 +456,7 @@ def learner_setup(
     key, *env_keys = jax.random.split(
         key, n_devices * config.arch.update_batch_size * config.arch.num_envs + 1
     )
-    env_states, timesteps = jax.vmap(env.reset, in_axes=(0))(
-        jnp.stack(env_keys),
-    )
+    env_states, timesteps = env.reset(jnp.stack(env_keys))
 
     def reshape_states(x: chex.Array) -> chex.Array:
         return x.reshape(

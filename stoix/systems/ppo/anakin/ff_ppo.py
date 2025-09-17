@@ -10,9 +10,9 @@ import jax.numpy as jnp
 import optax
 from colorama import Fore, Style
 from flax.core.frozen_dict import FrozenDict
-from jumanji.env import Environment
 from omegaconf import DictConfig, OmegaConf
 from rich.pretty import pprint
+from stoa import Environment, get_final_step_metrics
 
 from stoix.base_types import (
     ActorApply,
@@ -45,7 +45,6 @@ from stoix.utils.running_statistics import (
 )
 from stoix.utils.total_timestep_checker import check_total_timesteps
 from stoix.utils.training import make_learning_rate
-from stoix.wrappers.episode_metrics import get_final_step_metrics
 
 
 def get_learner_fn(
@@ -103,7 +102,7 @@ def get_learner_fn(
             log_prob = actor_policy.log_prob(action)
 
             # STEP ENVIRONMENT
-            env_state, timestep = jax.vmap(env.step, in_axes=(0, 0))(env_state, action)
+            env_state, timestep = env.step(env_state, action)
 
             # LOG EPISODE METRICS
             done = (timestep.discount == 0.0).reshape(-1)
@@ -356,7 +355,7 @@ def get_learner_fn(
                 - params (ActorCriticParams): The initial model parameters.
                 - opt_states (OptStates): The initial optimizer state.
                 - key (chex.PRNGKey): The random number generator state.
-                - env_state (LogEnvState): The environment state.
+                - env_state (WrapperState): The environment state.
                 - timesteps (TimeStep): The initial timestep in the initial trajectory.
         """
 
@@ -395,12 +394,12 @@ def _collect_obs_norm_rollouts(
         action = jax.random.randint(
             step_key, (config.arch.total_num_envs,), 0, config.system.action_dim
         )
-        env_state, timestep = jax.vmap(env.step, in_axes=(0, 0))(env_state, action)
+        env_state, timestep = env.step(env_state, action)
         return env_state, timestep.observation
 
     # Initialize environments for data collection
     key, *env_keys = jax.random.split(key, config.arch.total_num_envs + 1)
-    env_states, initial_timesteps = jax.vmap(env.reset, in_axes=(0))(jnp.stack(env_keys))
+    env_states, initial_timesteps = env.reset(jnp.stack(env_keys))
 
     # Collect warmup observations through random actions
     step_keys = jax.random.split(key, config.system.obs_norm_warmup_steps)
@@ -431,7 +430,7 @@ def learner_setup(
     n_devices = len(jax.devices())
 
     # Get number/dimension of actions.
-    num_actions = int(env.action_spec().num_values)
+    num_actions = int(env.action_space().num_values)
     config.system.action_dim = num_actions
 
     # PRNG keys.
@@ -465,7 +464,7 @@ def learner_setup(
     )
 
     # Initialise observation
-    init_x = env.observation_spec().generate_value()
+    init_x = env.observation_space().generate_value()
     init_x = jax.tree_util.tree_map(lambda x: x[None, ...], init_x)
 
     # Initialise actor params and optimiser state.
@@ -494,9 +493,7 @@ def learner_setup(
     key, *env_keys = jax.random.split(
         key, n_devices * config.arch.update_batch_size * config.arch.num_envs + 1
     )
-    env_states, timesteps = jax.vmap(env.reset, in_axes=(0))(
-        jnp.stack(env_keys),
-    )
+    env_states, timesteps = env.reset(jnp.stack(env_keys))
     reshape_states = lambda x: x.reshape(
         (n_devices, config.arch.update_batch_size, config.arch.num_envs) + x.shape[1:]
     )
@@ -589,8 +586,7 @@ def run_experiment(_config: DictConfig) -> float:
         config=config,
     )
 
-    # Calculate number of updates per evaluation.
-    config.arch.num_updates_per_eval = config.arch.num_updates // config.arch.num_evaluation
+    # Calculate environment steps per evaluation.
     steps_per_rollout = (
         n_devices
         * config.arch.num_updates_per_eval
@@ -723,9 +719,13 @@ def hydra_entry_point(cfg: DictConfig) -> float:
     OmegaConf.set_struct(cfg, False)
 
     # Run experiment.
+    t0 = time.time()
     eval_performance = run_experiment(cfg)
 
-    print(f"{Fore.CYAN}{Style.BRIGHT}PPO experiment completed{Style.RESET_ALL}")
+    print(
+        f"{Fore.CYAN}{Style.BRIGHT}PPO experiment completed in "
+        f"{time.time() - t0:.2f} seconds.{Style.RESET_ALL}"
+    )
     return eval_performance
 
 

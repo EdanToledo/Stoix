@@ -6,6 +6,7 @@ from distrax import DistributionLike
 from flax.core.frozen_dict import FrozenDict
 from jumanji.types import TimeStep
 from optax import OptState
+from stoa import WrapperState
 from typing_extensions import NamedTuple
 
 from stoix.base_types import Action, ActorCriticParams, Done, Observation, Value
@@ -49,5 +50,5 @@ class ZLearnerState(NamedTuple):
     opt_states: OptState
     buffer_state: chex.ArrayTree
     key: chex.PRNGKey
-    env_state: TimeStep
+    env_state: WrapperState
     timestep: TimeStep

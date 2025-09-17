@@ -103,13 +103,18 @@ def _calculate_updates_from_timesteps_anakin(config: DictConfig) -> None:
 
 def _calculate_actual_timesteps_anakin(config: DictConfig) -> None:
     """Calculate the actual number of timesteps that will be run and warn about discrepancies."""
-    # Calculate updates per evaluation
-    num_updates_per_eval = config.arch.num_updates // config.arch.num_evaluation
+    # Calculate number of updates per evaluation.
+    config.arch.num_updates_per_eval = config.arch.num_updates // config.arch.num_evaluation
+
+    print(
+        f"{Fore.YELLOW}{Style.BRIGHT}Number of updates per evaluation: "
+        f"{config.arch.num_updates_per_eval:,}{Style.RESET_ALL}"
+    )
 
     # Calculate timesteps per rollout
     steps_per_rollout = (
         config.num_devices
-        * num_updates_per_eval
+        * config.arch.num_updates_per_eval
         * config.system.rollout_length
         * config.arch.update_batch_size
         * config.arch.num_envs

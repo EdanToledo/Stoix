@@ -10,9 +10,9 @@ import jax.numpy as jnp
 import optax
 from colorama import Fore, Style
 from flax.core.frozen_dict import FrozenDict
-from jumanji.env import Environment
 from omegaconf import DictConfig, OmegaConf
 from rich.pretty import pprint
+from stoa import Environment, get_final_step_metrics
 
 from stoix.base_types import (
     ActorCriticOptStates,
@@ -34,7 +34,6 @@ from stoix.utils.loss import clipped_value_loss, ppo_clip_loss
 from stoix.utils.multistep import batch_truncated_generalized_advantage_estimation
 from stoix.utils.total_timestep_checker import check_total_timesteps
 from stoix.utils.training import make_learning_rate
-from stoix.wrappers.episode_metrics import get_final_step_metrics
 
 
 def get_learner_fn(
@@ -113,7 +112,7 @@ def get_learner_fn(
             )
 
             # Step the environment.
-            env_state, timestep = jax.vmap(env.step, in_axes=(0, 0))(env_state, action)
+            env_state, timestep = env.step(env_state, action)
 
             # log episode return and length
             done = (timestep.discount == 0.0).reshape(-1)
@@ -411,7 +410,7 @@ def get_learner_fn(
                 - params (ActorCriticParams): The initial model parameters.
                 - opt_states (OptStates): The initial optimizer states.
                 - key (chex.PRNGKey): The random number generator state.
-                - env_state (LogEnvState): The environment state.
+                - env_state (WrapperState): The environment state.
                 - timesteps (TimeStep): The initial timestep in the initial trajectory.
                 - dones (bool): Whether the initial timestep was a terminal state.
                 - hstateS (ActorCriticHiddenStates): The initial hidden states of the RNN.
@@ -439,7 +438,7 @@ def learner_setup(
     n_devices = len(jax.devices())
 
     # Get number/dimension of actions.
-    num_actions = int(env.action_spec().num_values)
+    num_actions = int(env.action_space().num_values)
     config.system.action_dim = num_actions
 
     # PRNG keys.
@@ -495,7 +494,7 @@ def learner_setup(
     )
 
     # Initialise observation
-    init_obs = env.observation_spec().generate_value()
+    init_obs = env.observation_space().generate_value()
     init_obs = jax.tree_util.tree_map(
         lambda x: jnp.repeat(x[jnp.newaxis, ...], config.arch.num_envs, axis=0),
         init_obs,
@@ -545,9 +544,7 @@ def learner_setup(
     key, *env_keys = jax.random.split(
         key, n_devices * config.arch.update_batch_size * config.arch.num_envs + 1
     )
-    env_states, timesteps = jax.vmap(env.reset, in_axes=(0))(
-        jnp.stack(env_keys),
-    )
+    env_states, timesteps = env.reset(jnp.stack(env_keys))
     reshape_states = lambda x: x.reshape(
         (n_devices, config.arch.update_batch_size, config.arch.num_envs) + x.shape[1:]
     )

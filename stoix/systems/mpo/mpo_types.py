@@ -7,7 +7,7 @@ from flax.core.frozen_dict import FrozenDict
 from jumanji.types import TimeStep
 from typing_extensions import NamedTuple
 
-from stoix.base_types import Action, Done, LogEnvState, OnlineAndTarget, Truncated
+from stoix.base_types import Action, Done, OnlineAndTarget, Truncated, WrapperState
 
 
 class SequenceStep(NamedTuple):
@@ -48,7 +48,7 @@ class MPOLearnerState(NamedTuple):
     opt_states: MPOOptStates
     buffer_state: BufferState
     key: chex.PRNGKey
-    env_state: LogEnvState
+    env_state: WrapperState
     timestep: TimeStep
 
 
@@ -68,6 +68,6 @@ class VMPOLearnerState(NamedTuple):
     params: VMPOParams
     opt_states: VMPOOptStates
     key: chex.PRNGKey
-    env_state: LogEnvState
+    env_state: WrapperState
     timestep: TimeStep
     learner_step_count: int

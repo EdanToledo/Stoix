@@ -15,10 +15,10 @@ import rlax
 import tensorflow_probability.substrates.jax as tfp
 from colorama import Fore, Style
 from flashbax.buffers.trajectory_buffer import BufferState
-from jumanji.env import Environment
 from jumanji.types import TimeStep
 from omegaconf import DictConfig, OmegaConf
 from rich.pretty import pprint
+from stoa import Environment, WrapperState, get_final_step_metrics
 
 from stoix.base_types import (
     ActorApply,
@@ -27,11 +27,10 @@ from stoix.base_types import (
     CriticApply,
     DistributionCriticApply,
     LearnerFn,
-    LogEnvState,
 )
 from stoix.networks.base import FeedForwardActor as Actor
 from stoix.networks.base import FeedForwardCritic as Critic
-from stoix.networks.inputs import EmbeddingInput
+from stoix.networks.inputs import ArrayInput
 from stoix.systems.search.evaluator import search_evaluator_setup
 from stoix.systems.search.search_types import (
     DynamicsApply,
@@ -53,7 +52,6 @@ from stoix.utils.logger import LogEvent, StoixLogger
 from stoix.utils.multistep import batch_n_step_bootstrapped_returns
 from stoix.utils.total_timestep_checker import check_total_timesteps
 from stoix.utils.training import make_learning_rate
-from stoix.wrappers.episode_metrics import get_final_step_metrics
 
 tfd = tfp.distributions
 
@@ -138,24 +136,27 @@ def get_warmup_fn(
     _, _, _, _, root_fn, search_apply_fn = apply_fns
 
     def warmup(
-        env_states: LogEnvState, timesteps: TimeStep, buffer_states: BufferState, keys: chex.PRNGKey
-    ) -> Tuple[LogEnvState, TimeStep, BufferState, chex.PRNGKey]:
+        env_states: WrapperState,
+        timesteps: TimeStep,
+        buffer_states: BufferState,
+        keys: chex.PRNGKey,
+    ) -> Tuple[WrapperState, TimeStep, BufferState, chex.PRNGKey]:
         def _env_step(
-            carry: Tuple[LogEnvState, TimeStep, chex.PRNGKey], _: Any
-        ) -> Tuple[Tuple[LogEnvState, TimeStep, chex.PRNGKey], ExItTransition]:
+            carry: Tuple[WrapperState, TimeStep, chex.PRNGKey], _: Any
+        ) -> Tuple[Tuple[WrapperState, TimeStep, chex.PRNGKey], ExItTransition]:
             """Step the environment."""
 
             env_state, last_timestep, key = carry
             # SELECT ACTION
             key, root_key, policy_key = jax.random.split(key, num=3)
-            root = root_fn(params, last_timestep.observation, env_state.env_state, root_key)
+            root = root_fn(params, last_timestep.observation, env_state.unwrapped_state, root_key)
             search_output = search_apply_fn(params, policy_key, root)
             action = search_output.action
             search_policy = search_output.action_weights
             search_value = search_output.search_tree.node_values[:, mctx.Tree.ROOT_INDEX]
 
             # STEP ENVIRONMENT
-            env_state, timestep = jax.vmap(env.step, in_axes=(0, 0))(env_state, action)
+            env_state, timestep = env.step(env_state, action)
 
             # LOG EPISODE METRICS
             done = timestep.last().reshape(-1)
@@ -230,14 +231,14 @@ def get_learner_fn(
 
             # SELECT ACTION
             key, root_key, policy_key = jax.random.split(key, num=3)
-            root = root_fn(params, last_timestep.observation, env_state.env_state, root_key)
+            root = root_fn(params, last_timestep.observation, env_state.unwrapped_state, root_key)
             search_output = search_apply_fn(params, policy_key, root)
             action = search_output.action
             search_policy = search_output.action_weights
             search_value = search_output.search_tree.node_values[:, mctx.Tree.ROOT_INDEX]
 
             # STEP ENVIRONMENT
-            env_state, timestep = jax.vmap(env.step, in_axes=(0, 0))(env_state, action)
+            env_state, timestep = env.step(env_state, action)
 
             # LOG EPISODE METRICS
             done = timestep.last().reshape(-1)
@@ -469,7 +470,7 @@ def learner_setup(
     n_devices = len(jax.devices())
 
     # Get number/dimension of actions.
-    num_actions = int(env.action_spec().num_values)
+    num_actions = int(env.action_space().num_values)
     config.system.action_dim = num_actions
 
     # PRNG keys.
@@ -486,11 +487,9 @@ def learner_setup(
     )
 
     actor_network = Actor(
-        torso=actor_torso, action_head=actor_action_head, input_layer=EmbeddingInput()
+        torso=actor_torso, action_head=actor_action_head, input_layer=ArrayInput()
     )
-    critic_network = Critic(
-        torso=critic_torso, critic_head=critic_head, input_layer=EmbeddingInput()
-    )
+    critic_network = Critic(torso=critic_torso, critic_head=critic_head, input_layer=ArrayInput())
 
     wm_network = hydra.utils.instantiate(
         config.network.wm_network, action_dim=config.system.action_dim
@@ -508,8 +507,8 @@ def learner_setup(
     )
 
     # Initialise observation
-    init_x = env.observation_spec().generate_value()
-    init_a = env.action_spec().generate_value()
+    init_x = env.observation_space().generate_value()
+    init_a = env.action_space().generate_value()
     init_x = jax.tree_util.tree_map(lambda x: x[None, ...], init_x)
     init_a = jax.tree_util.tree_map(lambda x: x[None, ...], init_a)
 
@@ -632,9 +631,7 @@ def learner_setup(
     key, *env_keys = jax.random.split(
         key, n_devices * config.arch.update_batch_size * config.arch.num_envs + 1
     )
-    env_states, timesteps = jax.vmap(env.reset, in_axes=(0))(
-        jnp.stack(env_keys),
-    )
+    env_states, timesteps = env.reset(jnp.stack(env_keys))
     reshape_states = lambda x: x.reshape(
         (n_devices, config.arch.update_batch_size, config.arch.num_envs) + x.shape[1:]
     )

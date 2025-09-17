@@ -16,7 +16,7 @@ jobs:
   test-algorithms:
     name: "Python ${{ matrix.python-version }} on ${{ matrix.os }}"
     runs-on: "${{ matrix.os }}"
-    timeout-minutes: 120
+    timeout-minutes: 180
 
     strategy:
       matrix:
@@ -25,7 +25,7 @@ jobs:
 
     steps:
       - name: Checkout stoix
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Install uv and set the python version
         uses: astral-sh/setup-uv@v5
@@ -33,7 +33,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install the project
-        run: uv sync --all-extras --dev
+        run: uv sync --dev
 
       - name: Make Bash Script Executable
         run: chmod +x bash_scripts/run-algorithms.sh

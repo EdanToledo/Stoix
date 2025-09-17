@@ -16,8 +16,8 @@ except ImportError:
 
 import gymnasium
 
-from stoix.wrappers.envpool import EnvPoolToJumanji
-from stoix.wrappers.gymnasium import VecGymToJumanji
+from stoix.wrappers.envpool import EnvPoolToStoa
+from stoix.wrappers.gymnasium import VecGymToStoa
 
 
 class EnvFactory(abc.ABC):
@@ -55,7 +55,7 @@ class EnvPoolFactory(EnvFactory):
             seed = self.seed
             self.seed += num_envs
             return self.apply_wrapper_fn(
-                EnvPoolToJumanji(
+                EnvPoolToStoa(
                     envpool.make(
                         task_id=self.task_id,
                         env_type="gymnasium",
@@ -82,4 +82,4 @@ class GymnasiumFactory(EnvFactory):
                 vector_kwargs={"autoreset_mode": gymnasium.vector.AutoresetMode.SAME_STEP},
                 **self.kwargs,
             )
-            return self.apply_wrapper_fn(VecGymToJumanji(vec_env))
+            return self.apply_wrapper_fn(VecGymToStoa(vec_env))
