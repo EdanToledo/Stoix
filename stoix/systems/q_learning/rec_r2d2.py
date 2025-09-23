@@ -685,7 +685,7 @@ def learner_setup(
             model_name=config.system.system_name,
             **config.logger.checkpointing.load_args,
         )
-        restored_params, _ = loaded_checkpoint.restore_params(TParams=OnlineAndTarget)
+        restored_params, _ = loaded_checkpoint.restore_params(input_params=params)
         params = restored_params
 
     # SETUP REPLICATED STATES

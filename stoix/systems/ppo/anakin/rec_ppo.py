@@ -534,7 +534,9 @@ def learner_setup(
             **config.logger.checkpointing.load_args,  # Other checkpoint args
         )
         # Restore the learner state from the checkpoint
-        restored_params, restored_hstates = loaded_checkpoint.restore_params(restore_hstates=True)
+        restored_params, restored_hstates = loaded_checkpoint.restore_params(
+            input_params=params, restore_hstates=True
+        )
         # Update the params and hstates
         params = restored_params
         hstates = restored_hstates if restored_hstates else hstates
