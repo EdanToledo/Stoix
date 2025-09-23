@@ -156,9 +156,9 @@ def get_ff_evaluator_fn(
             "episode_return": final_state.episode_return,
             "episode_length": final_state.step_count,
         }
-        # Log solve episode if solve rate is required.
+        # Log solved episode if solve rate is required.
         if log_solve_rate:
-            eval_metrics["solve_episode"] = jnp.all(
+            eval_metrics["solved_episode"] = jnp.all(
                 final_state.episode_return >= config.env.solved_return_threshold
             ).astype(int)
 
@@ -283,9 +283,9 @@ def get_rnn_evaluator_fn(
             "episode_return": final_state.episode_return,
             "episode_length": final_state.step_count,
         }
-        # Log solve episode if solve rate is required.
+        # Log solved episode if solve rate is required.
         if log_solve_rate:
-            eval_metrics["solve_episode"] = jnp.all(
+            eval_metrics["solved_episode"] = jnp.all(
                 final_state.episode_return >= config.env.solved_return_threshold
             ).astype(int)
         return eval_metrics

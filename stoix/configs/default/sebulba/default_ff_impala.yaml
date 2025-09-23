@@ -1,5 +1,5 @@
 defaults:
-  - logger: base_logger
+  - logger: logger
   - arch: sebulba
   - system: impala/ff_impala
   - network: visual_resnet

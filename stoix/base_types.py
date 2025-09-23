@@ -23,6 +23,8 @@ State: TypeAlias = Any
 Parameters: TypeAlias = Any
 OptStates: TypeAlias = Any
 HiddenStates: TypeAlias = Any
+Metrics: TypeAlias = chex.ArrayTree
+
 
 EvalResetFn = Callable[[chex.PRNGKey, int], Tuple[State, TimeStep]]
 

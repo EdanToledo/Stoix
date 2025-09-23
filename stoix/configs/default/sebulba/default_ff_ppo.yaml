@@ -1,5 +1,5 @@
 defaults:
-  - logger: base_logger
+  - logger: logger
   - arch: sebulba
   - system: ppo/ff_ppo
   - network: visual_resnet

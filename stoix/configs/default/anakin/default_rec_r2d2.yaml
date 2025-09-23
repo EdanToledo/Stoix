@@ -1,5 +1,5 @@
 defaults:
-  - logger: base_logger
+  - logger: logger
   - arch: anakin
   - system: q_learning/rec_r2d2
   - network: rnn_dueling_dqn

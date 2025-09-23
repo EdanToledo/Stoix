@@ -281,7 +281,7 @@ class AsyncEvaluatorBase(threading.Thread, ABC):
 
         # Evaluation queue and tracking
         self.eval_queue: queue.Queue = queue.Queue()
-        self.max_episode_return = jnp.float32(-1e7)
+        self.max_episode_return = -jnp.inf
         self.best_params = None
         self.eval_step = 0
 

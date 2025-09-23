@@ -1,5 +1,5 @@
 defaults:
-  - logger: base_logger
+  - logger: logger
   - arch: anakin
   - system: awr/ff_awr
   - network: mlp
