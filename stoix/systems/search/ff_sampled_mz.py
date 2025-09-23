@@ -15,9 +15,8 @@ import rlax
 import tensorflow_probability.substrates.jax as tfp
 from colorama import Fore, Style
 from flashbax.buffers.trajectory_buffer import BufferState
-from jumanji.types import TimeStep
 from omegaconf import DictConfig, OmegaConf
-from stoa import Environment, WrapperState, get_final_step_metrics
+from stoa import Environment, TimeStep, WrapperState, get_final_step_metrics
 
 from stoix.base_types import (
     ActorApply,

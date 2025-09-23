@@ -14,10 +14,9 @@ import rlax
 from colorama import Fore, Style
 from flashbax.buffers.trajectory_buffer import BufferState
 from flax.core.frozen_dict import FrozenDict
-from jumanji.types import TimeStep
 from omegaconf import DictConfig, OmegaConf
 from rlax import SIGNED_HYPERBOLIC_PAIR, TxPair
-from stoa import Environment, WrapperState, get_final_step_metrics
+from stoa import Environment, TimeStep, WrapperState, get_final_step_metrics
 
 from stoix.base_types import (
     ActorApply,

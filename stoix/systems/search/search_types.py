@@ -4,9 +4,8 @@ import chex
 import mctx
 from distrax import DistributionLike
 from flax.core.frozen_dict import FrozenDict
-from jumanji.types import TimeStep
 from optax import OptState
-from stoa import WrapperState
+from stoa import TimeStep, WrapperState
 from typing_extensions import NamedTuple
 
 from stoix.base_types import Action, ActorCriticParams, Done, Observation, Value

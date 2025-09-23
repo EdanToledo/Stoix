@@ -3,9 +3,7 @@ from typing import Callable, Optional
 
 import jax
 import numpy as np
-from jumanji.specs import Spec
-from jumanji.types import TimeStep
-from stoa.environment import Environment
+from stoa import Environment, Space, TimeStep
 
 from stoix.utils.env_factory import EnvFactory
 
@@ -99,10 +97,10 @@ class JaxToStateful:
 
         return timestep
 
-    def observation_spec(self) -> Spec:
-        return self.env.observation_spec()
+    def observation_space(self) -> Space:
+        return self.env.observation_space()
 
-    def action_spec(self) -> Spec:
+    def action_space(self) -> Space:
         return self.env.action_space()
 
     def close(self) -> None:

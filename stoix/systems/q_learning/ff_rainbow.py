@@ -27,8 +27,8 @@ import optax
 from colorama import Fore, Style
 from flashbax.buffers.trajectory_buffer import BufferState
 from flax.core.frozen_dict import FrozenDict
-from jumanji.types import TimeStep
 from omegaconf import DictConfig, OmegaConf
+from stoa import TimeStep
 from stoa.environment import Environment
 
 from stoix.base_types import (
