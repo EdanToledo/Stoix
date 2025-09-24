@@ -16,7 +16,6 @@ from colorama import Fore, Style
 from etils.epath import Path
 from jax import tree
 from jax.typing import ArrayLike
-from marl_eval.json_tools import JsonLogger as MarlEvalJsonLogger
 from neptune.utils import stringify_unsupported
 from omegaconf import DictConfig, OmegaConf
 from pandas.io.json._normalize import _simple_json_normalize as flatten_dict
@@ -349,6 +348,8 @@ class JsonLogger(BaseLogger):
             env_name: Name of the environment.
             seed: Random seed used in the experiment.
         """
+        from marl_eval.json_tools import JsonLogger as MarlEvalJsonLogger
+
         json_exp_path = get_logger_path(system_name, "json")
         json_logs_path = Path(base_exp_path, json_exp_path, unique_token)
         # if a custom path is specified, use that instead

@@ -1,12 +1,10 @@
 import copy
 import dataclasses
-from typing import Callable, Tuple
+from typing import Any, Callable, Tuple
 
 import hydra
 import jax
 from colorama import Fore, Style
-from gymnax.environments.environment import Environment as GymnaxEnvironment
-from gymnax.environments.environment import EnvParams as GymnaxEnvParams
 from omegaconf import DictConfig
 from stoa import (
     AddStartFlagAndPrevAction,
@@ -119,8 +117,8 @@ def make_jumanji_env(scenario_name: str, config: DictConfig) -> Tuple[Environmen
 def _create_gymnax_env_instance(
     scenario_name: str,
     env_kwargs: dict,
-    env_make_fn: Callable[[str], Tuple[GymnaxEnvironment, GymnaxEnvParams]],
-) -> Tuple[GymnaxEnvironment, GymnaxEnvParams]:
+    env_make_fn: Callable[[str], Tuple[Any, Any]],
+) -> Tuple[Any, Any]:
     """Instantiates a Gymnax-like environment, handling init and param kwargs."""
     _, default_params = env_make_fn(scenario_name)
     param_fields = {f.name for f in dataclasses.fields(default_params)}
