@@ -14,11 +14,9 @@ import rlax
 from colorama import Fore, Style
 from flashbax.buffers.trajectory_buffer import BufferState
 from flax.core.frozen_dict import FrozenDict
-from jumanji.types import TimeStep
 from omegaconf import DictConfig, OmegaConf
-from rich.pretty import pprint
 from rlax import SIGNED_HYPERBOLIC_PAIR, TxPair
-from stoa import Environment, WrapperState, get_final_step_metrics
+from stoa import Environment, TimeStep, WrapperState, get_final_step_metrics
 
 from stoix.base_types import (
     ActorApply,
@@ -686,7 +684,7 @@ def learner_setup(
             model_name=config.system.system_name,
             **config.logger.checkpointing.load_args,
         )
-        restored_params, _ = loaded_checkpoint.restore_params(TParams=OnlineAndTarget)
+        restored_params, _ = loaded_checkpoint.restore_params(input_params=params)
         params = restored_params
 
     # SETUP REPLICATED STATES
@@ -775,9 +773,8 @@ def run_experiment(_config: DictConfig) -> float:
 
     # Logger setup
     logger = StoixLogger(config)
-    cfg: Dict = OmegaConf.to_container(config, resolve=True)
-    cfg["arch"]["devices"] = jax.devices()
-    pprint(cfg)
+    logger.log_config(OmegaConf.to_container(config, resolve=True))
+    print(f"{Fore.YELLOW}{Style.BRIGHT}JAX Global Devices {jax.devices()}{Style.RESET_ALL}")
 
     # Set up checkpointer
     save_checkpoint = config.logger.checkpointing.save_model
@@ -789,7 +786,7 @@ def run_experiment(_config: DictConfig) -> float:
         )
 
     # Run experiment for a total number of evaluations.
-    max_episode_return = jnp.float32(-1e6)
+    max_episode_return = -jnp.inf
     best_params = unreplicate_batch_dim(learner_state.params.online)
     for eval_step in range(config.arch.num_evaluation):
         # Train.

@@ -2,7 +2,7 @@ from typing import Dict
 
 import chex
 from flashbax.buffers.trajectory_buffer import BufferState
-from jumanji.types import TimeStep
+from stoa import TimeStep
 from typing_extensions import NamedTuple
 
 from stoix.base_types import (

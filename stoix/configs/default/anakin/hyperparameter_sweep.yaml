@@ -1,7 +1,7 @@
 # Example of a hyperparameter sweep configuration file
 
 defaults:
-  - logger: base_logger
+  - logger: logger
   - arch: anakin
   - system: ppo/ff_ppo
   - network: mlp

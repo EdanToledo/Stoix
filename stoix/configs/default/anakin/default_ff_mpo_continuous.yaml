@@ -1,5 +1,5 @@
 defaults:
-  - logger: base_logger
+  - logger: logger
   - arch: anakin
   - system: mpo/ff_mpo_continuous
   - network: mlp_mpo_continuous

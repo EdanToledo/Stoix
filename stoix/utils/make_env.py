@@ -1,29 +1,20 @@
 import copy
 import dataclasses
-from typing import Callable, Tuple
+from typing import Any, Callable, Tuple
 
 import hydra
 import jax
 from colorama import Fore, Style
-from gymnax.environments.environment import Environment as GymnaxEnvironment
-from gymnax.environments.environment import EnvParams as GymnaxEnvParams
 from omegaconf import DictConfig
 from stoa import (
     AddStartFlagAndPrevAction,
     AutoResetWrapper,
-    BraxToStoa,
     Environment,
     EpisodeStepLimitWrapper,
-    GymnaxToStoa,
-    JumanjiToStoa,
-    KinetixToStoa,
-    MuJoCoPlaygroundToStoa,
     MultiDiscreteSpace,
     MultiDiscreteToDiscreteWrapper,
-    NavixToStoa,
     ObservationExtractWrapper,
     RecordEpisodeMetrics,
-    XMiniGridToStoa,
 )
 from stoa.core_wrappers.auto_reset import CachedAutoResetWrapper
 from stoa.core_wrappers.optimistic_auto_reset import OptimisticResetVmapWrapper
@@ -94,6 +85,7 @@ def make_jumanji_env(scenario_name: str, config: DictConfig) -> Tuple[Environmen
     """Creates and wraps a Jumanji environment."""
     import jumanji
     import jumanji.wrappers as jumanji_wrappers
+    from stoa.env_adapters.jumanji import JumanjiToStoa
 
     env_kwargs = dict(copy.deepcopy(config.env.kwargs))
     if "generator" in env_kwargs:
@@ -125,8 +117,8 @@ def make_jumanji_env(scenario_name: str, config: DictConfig) -> Tuple[Environmen
 def _create_gymnax_env_instance(
     scenario_name: str,
     env_kwargs: dict,
-    env_make_fn: Callable[[str], Tuple[GymnaxEnvironment, GymnaxEnvParams]],
-) -> Tuple[GymnaxEnvironment, GymnaxEnvParams]:
+    env_make_fn: Callable[[str], Tuple[Any, Any]],
+) -> Tuple[Any, Any]:
     """Instantiates a Gymnax-like environment, handling init and param kwargs."""
     _, default_params = env_make_fn(scenario_name)
     param_fields = {f.name for f in dataclasses.fields(default_params)}
@@ -143,6 +135,7 @@ def _create_gymnax_env_instance(
 def make_gymnax_env(scenario_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
     """Creates and wraps a Gymnax environment."""
     import gymnax
+    from stoa.env_adapters.gymnax import GymnaxToStoa
 
     env_kwargs = dict(copy.deepcopy(config.env.kwargs))
     env, env_params = _create_gymnax_env_instance(scenario_name, env_kwargs, gymnax.make)
@@ -162,6 +155,7 @@ def make_popgym_arcade_env(
 ) -> Tuple[Environment, Environment]:
     """Creates and wraps a PopGym Arcade environment."""
     import popgym_arcade
+    from stoa.env_adapters.gymnax import GymnaxToStoa
 
     env_kwargs = dict(copy.deepcopy(config.env.kwargs))
     env, env_params = _create_gymnax_env_instance(scenario_name, env_kwargs, popgym_arcade.make)
@@ -183,6 +177,7 @@ def make_xland_minigrid_env(
 ) -> Tuple[Environment, Environment]:
     """Creates and wraps an XLand-MiniGrid environment."""
     import xminigrid
+    from stoa.env_adapters.xminigrid import XMiniGridToStoa
 
     env, env_params = xminigrid.make(scenario_name, **config.env.kwargs)
     eval_env, eval_env_params = xminigrid.make(scenario_name, **config.env.kwargs)
@@ -199,6 +194,7 @@ def make_xland_minigrid_env(
 def make_brax_env(scenario_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
     """Creates and wraps a Brax environment."""
     from brax.envs import create as brax_make
+    from stoa.env_adapters.brax import BraxToStoa
 
     env = brax_make(scenario_name, auto_reset=False, **config.env.kwargs)
     eval_env = brax_make(scenario_name, auto_reset=False, **config.env.kwargs)
@@ -220,6 +216,7 @@ def make_kinetix_env(scenario_name: str, config: DictConfig) -> Tuple[Environmen
     from kinetix.environment.utils import ActionType, ObservationType
     from kinetix.util.config import generate_params_from_config
     from kinetix.util.saving import load_evaluation_levels
+    from stoa.env_adapters.kinetix import KinetixToStoa
 
     env_params, override_static_env_params = generate_params_from_config(
         dict(config.env.kinetix.env_size)
@@ -280,6 +277,7 @@ def make_kinetix_env(scenario_name: str, config: DictConfig) -> Tuple[Environmen
 def make_craftax_env(scenario_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
     """Creates and wraps a Crafter (Craftax) environment."""
     from craftax.craftax_env import make_craftax_env_from_name
+    from stoa.env_adapters.gymnax import GymnaxToStoa
 
     env = make_craftax_env_from_name(scenario_name, auto_reset=False)
     eval_env = make_craftax_env_from_name(scenario_name, auto_reset=False)
@@ -309,6 +307,7 @@ def make_debug_env(scenario_name: str, config: DictConfig) -> Tuple[Environment,
 def make_popjym_env(scenario_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
     """Creates and wraps a POPJym environment."""
     import popjym
+    from stoa.env_adapters.gymnax import GymnaxToStoa
 
     env, env_params = popjym.make(scenario_name, **config.env.kwargs)
     eval_env, eval_env_params = popjym.make(scenario_name, **config.env.kwargs)
@@ -327,6 +326,7 @@ def make_popjym_env(scenario_name: str, config: DictConfig) -> Tuple[Environment
 def make_navix_env(scenario_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
     """Creates and wraps a Navix environment."""
     import navix
+    from stoa.env_adapters.navix import NavixToStoa
 
     env = navix.make(scenario_name, **config.env.kwargs)
     eval_env = navix.make(scenario_name, **config.env.kwargs)
@@ -343,6 +343,7 @@ def make_navix_env(scenario_name: str, config: DictConfig) -> Tuple[Environment,
 def make_playground_env(scenario_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
     """Creates and wraps a MuJoCo Playground environment."""
     import mujoco_playground
+    from stoa.env_adapters.playground import MuJoCoPlaygroundToStoa
 
     env_cfg = mujoco_playground.registry.get_default_config(scenario_name)
     env = mujoco_playground.registry.load(

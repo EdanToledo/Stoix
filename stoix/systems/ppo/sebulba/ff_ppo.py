@@ -19,7 +19,6 @@ from flax.core.frozen_dict import FrozenDict
 from flax.jax_utils import unreplicate
 from jax import Array
 from omegaconf import DictConfig, OmegaConf
-from rich.pretty import pprint
 from stoa.core_wrappers.episode_metrics import get_final_step_metrics
 
 from stoix.base_types import (
@@ -786,7 +785,7 @@ def learner_setup(
             model_name=config.system.system_name,
             **config.logger.checkpointing.load_args,
         )
-        restored_params, _ = loaded_checkpoint.restore_params()
+        restored_params, _ = loaded_checkpoint.restore_params(input_params=params)
         params = restored_params
 
     # Initialize complete learner state
@@ -874,9 +873,8 @@ def run_experiment(_config: DictConfig) -> float:
 
     # Setup logging and checkpointing
     logger = StoixLogger(config)
-    cfg: Dict = OmegaConf.to_container(config, resolve=True)
-    cfg["arch"]["devices"] = jax.devices()
-    pprint(cfg)
+    logger.log_config(OmegaConf.to_container(config, resolve=True))
+    print(f"{Fore.YELLOW}{Style.BRIGHT}JAX Global Devices {jax.devices()}{Style.RESET_ALL}")
 
     save_checkpoint = config.logger.checkpointing.save_model
     if save_checkpoint:

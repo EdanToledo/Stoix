@@ -4,7 +4,7 @@ import chex
 import optax
 from flashbax.buffers.trajectory_buffer import BufferState
 from flax.core.frozen_dict import FrozenDict
-from jumanji.types import TimeStep
+from stoa import TimeStep
 from typing_extensions import NamedTuple
 
 from stoix.base_types import Action, Done, OnlineAndTarget, Truncated, WrapperState

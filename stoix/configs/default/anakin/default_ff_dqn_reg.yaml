@@ -1,5 +1,5 @@
 defaults:
-  - logger: base_logger
+  - logger: logger
   - arch: anakin
   - system: q_learning/ff_dqn_reg
   - network: mlp_dqn
