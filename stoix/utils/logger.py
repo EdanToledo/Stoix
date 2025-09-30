@@ -461,6 +461,7 @@ class WandBLogger(BaseLogger):
         tag: list[str],
         group_tag: list[str],
         detailed_logging: bool,
+        architecture_name: str,
         upload_json_data: bool,
         run_id: str | None = None,
         *,
