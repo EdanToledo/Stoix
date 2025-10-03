@@ -10,7 +10,7 @@ loggers:
     _target_: stoix.utils.logger.ConsoleLogger
     enabled: True
   wandb:
-    _target_: stoix.utils.logger.WandbLogger
+    _target_: stoix.utils.logger.WandBLogger
     enabled: False
     # If specified will resume the run with this run ID.
     # This is useful for resuming runs and logging from multiple processes.
