@@ -499,7 +499,7 @@ def get_learner_fn(
                     "reward_loss": jnp.array(0.0),
                     "entropy_loss": jnp.array(0.0),
                 }
-                init_mask = jnp.ones((config.system.batch_size,))
+                init_mask = 1.0 - sequence.done[:, 0].astype(jnp.float32)
                 (losses, _, _, _, _), _ = jax.lax.scan(
                     unroll_fn,
                     (init_total_loss, state_embedding, muzero_params, init_mask, rng_key),
