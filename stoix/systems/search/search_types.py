@@ -16,6 +16,14 @@ EnvironmentStep = Callable[[chex.ArrayTree, Action], Tuple[chex.ArrayTree, TimeS
 
 RepresentationApply = Callable[[FrozenDict, Observation], chex.Array]
 DynamicsApply = Callable[[FrozenDict, chex.Array, chex.Array], Tuple[chex.Array, DistributionLike]]
+DynamicsWithRewardRNNApply = Callable[
+    [FrozenDict, chex.Array, chex.Array, chex.Array],
+    Tuple[chex.Array, DistributionLike, chex.Array],
+]
+InitialHiddenStateApply = Callable[[int], chex.Array]
+
+ProjectorApply = Callable[[FrozenDict, chex.Array], DistributionLike]
+PredictorApply = Callable[[FrozenDict, chex.Array], chex.Array]
 
 
 class ExItTransition(NamedTuple):
@@ -51,3 +59,10 @@ class ZLearnerState(NamedTuple):
     key: chex.PRNGKey
     env_state: WrapperState
     timestep: TimeStep
+
+
+class EZParams(NamedTuple):
+    prediction_params: ActorCriticParams
+    world_model_params: FrozenDict
+    projector_params: FrozenDict
+    predictor_params: FrozenDict

@@ -1,0 +1,32 @@
+# --- Defaults FF-EZ ---
+# This implementation of EfficientZero is not an exact replica of the original EfficientZero algorithm and serves more as an example.
+# It is a simplified version that implements the efficient zero tricks to the stoix muzero implementation.
+
+system_name: ff_ez # Name of the system.
+
+# --- RL hyperparameters ---
+lr: 3e-4 # Learning rate for entire algorithm.
+rollout_length: 8 # Number of environment steps per vectorised environment.
+epochs: 8 # Number of epochs per training data batch.
+warmup_steps: 16  # Number of steps to collect before training.
+total_buffer_size: 25_000 # Total effective size of the replay buffer across all devices and vectorised update steps. This means each device has a buffer of size buffer_size//num_devices which is further divided by the update_batch_size. This value must be divisible by num_devices*update_batch_size.
+total_batch_size: 32 # Total effective number of samples to train on. This means each device has a batch size of batch_size/num_devices which is further divided by the update_batch_size. This value must be divisible by num_devices*update_batch_size.
+sample_sequence_length: 6 # Number of steps to consider for each element of the batch.
+period : 1 # Period of the sampled sequences.
+gamma: 0.99 # Discounting factor.
+n_steps: 5 # Number of steps to use for bootstrapped returns.
+ent_coef: 0.0 # Entropy regularisation term for loss function.
+vf_coef: 0.25 # Critic weight in
+ssl_weight: 1.0 # Weight for the self-supervised consistency loss.
+max_grad_norm: 0.5 # Maximum norm of the gradients for a weight update.
+decay_learning_rates: False # Whether learning rates should be linearly decayed during training.
+num_simulations: 25 # Number of simulations to run.
+max_depth: ~ # Maximum depth of the search tree.
+search_method : muzero # Search method to use. Options: gumbel, muzero.
+search_method_kwargs: {} # Additional kwargs for the search method.
+critic_vmin: -300.0 # Minimum value for the critic.
+critic_vmax: 300.0 # Maximum value for the critic.
+critic_num_atoms: 601 # Number of atoms for the categorical critic head.
+reward_vmin: -300.0 # Minimum value for the reward.
+reward_vmax: 300.0 # Maximum value for the reward.
+reward_num_atoms: 601 # Number of atoms for the categorical reward head.

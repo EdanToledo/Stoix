@@ -22,7 +22,6 @@ from stoix.base_types import (
     ActorApply,
     ActorCriticParams,
     AnakinExperimentOutput,
-    CriticApply,
     DistributionCriticApply,
     LearnerFn,
 )
@@ -31,9 +30,12 @@ from stoix.networks.base import FeedForwardCritic as Critic
 from stoix.networks.inputs import ArrayInput
 from stoix.systems.search.evaluator import search_evaluator_setup
 from stoix.systems.search.search_types import (
-    DynamicsApply,
+    DynamicsWithRewardRNNApply,
     ExItTransition,
-    MZParams,
+    EZParams,
+    InitialHiddenStateApply,
+    PredictorApply,
+    ProjectorApply,
     RepresentationApply,
     RootFnApply,
     SearchApply,
@@ -55,13 +57,14 @@ tfd = tfp.distributions
 
 
 def make_root_fn(
+    initial_state_apply_fn: InitialHiddenStateApply,
     representation_apply_fn: RepresentationApply,
     actor_apply_fn: ActorApply,
     critic_apply_fn: DistributionCriticApply,
     critic_tx_pair: rlax.TxPair,
 ) -> RootFnApply:
     def root_fn(
-        params: MZParams,
+        params: EZParams,
         observation: chex.ArrayTree,
         _: chex.ArrayTree,  # This is the state of the environment and unused in MuZero
         rng_key: chex.PRNGKey,
@@ -73,10 +76,20 @@ def make_root_fn(
         value = critic_tx_pair.apply_inv(value_dist.probs)
         logits = pi.logits
 
+        # Initialize the reward hidden state and other information
+        init_reward_hidden_state = initial_state_apply_fn(logits.shape[0])
+        init_depth = jnp.zeros(logits.shape[0], dtype=jnp.int32)
+        init_value_prefix = jnp.zeros(logits.shape[0])
+
         root_fn_output = mctx.RootFnOutput(
             prior_logits=logits,
             value=value,
-            embedding=observation_embedding,
+            embedding=(
+                observation_embedding,
+                init_reward_hidden_state,
+                init_depth,
+                init_value_prefix,
+            ),
         )
 
         return root_fn_output
@@ -85,7 +98,8 @@ def make_root_fn(
 
 
 def make_recurrent_fn(
-    dynamics_apply_fn: DynamicsApply,
+    initial_state_apply_fn: InitialHiddenStateApply,
+    dynamics_apply_fn: DynamicsWithRewardRNNApply,
     actor_apply_fn: ActorApply,
     critic_apply_fn: DistributionCriticApply,
     critic_tx_pair: rlax.TxPair,
@@ -93,16 +107,31 @@ def make_recurrent_fn(
     config: DictConfig,
 ) -> mctx.RecurrentFn:
     def recurrent_fn(
-        params: MZParams,
+        params: EZParams,
         rng_key: chex.PRNGKey,
         action: chex.Array,
-        state_embedding: chex.ArrayTree,
+        search_state: Tuple[chex.ArrayTree, chex.ArrayTree, chex.Array, chex.Array],
     ) -> Tuple[mctx.RecurrentFnOutput, chex.ArrayTree]:
+        state_embedding, reward_hidden_state, depth, prev_value_prefix = search_state
 
-        next_state_embedding, next_reward_dist = dynamics_apply_fn(
-            params.world_model_params, state_embedding, action
+        # Check if we need to reset the reward hidden state and reset it and the value prefix
+        # The config.system.sample_sequence_length is the model training unroll length.
+        # Efficient zero resets the 'hidden state' every unroll length during search.
+        reset_flag = (depth % config.system.sample_sequence_length == 0)[0]
+        reward_hidden_state = jax.lax.select(
+            reset_flag, initial_state_apply_fn(action.shape[0]), reward_hidden_state
         )
-        next_reward = reward_tx_pair.apply_inv(next_reward_dist.probs)
+        prev_value_prefix = jax.lax.select(
+            reset_flag, jnp.zeros_like(prev_value_prefix), prev_value_prefix
+        )
+
+        next_state_embedding, next_value_prefix_dist, reward_hidden_state = dynamics_apply_fn(
+            params.world_model_params, state_embedding, action, reward_hidden_state
+        )
+        next_value_prefix = reward_tx_pair.apply_inv(next_value_prefix_dist.probs)
+
+        # Calculate the reward as the difference between the value prefixes
+        next_reward = next_value_prefix - prev_value_prefix
 
         pi = actor_apply_fn(params.prediction_params.actor_params, next_state_embedding)
         value_dist = critic_apply_fn(params.prediction_params.critic_params, next_state_embedding)
@@ -116,22 +145,35 @@ def make_recurrent_fn(
             value=value,
         )
 
-        return recurrent_fn_output, next_state_embedding
+        return recurrent_fn_output, (
+            next_state_embedding,
+            reward_hidden_state,
+            depth + 1,
+            next_value_prefix,
+        )
 
     return recurrent_fn
 
 
 def get_warmup_fn(
     env: Environment,
-    params: MZParams,
+    params: EZParams,
     apply_fns: Tuple[
-        RepresentationApply, DynamicsApply, ActorApply, CriticApply, RootFnApply, SearchApply
+        InitialHiddenStateApply,
+        RepresentationApply,
+        DynamicsWithRewardRNNApply,
+        ActorApply,
+        DistributionCriticApply,
+        ProjectorApply,
+        PredictorApply,
+        RootFnApply,
+        SearchApply,
     ],
     buffer_add_fn: Callable,
     config: DictConfig,
 ) -> Callable:
 
-    _, _, _, _, root_fn, search_apply_fn = apply_fns
+    _, _, _, _, _, _, _, root_fn, search_apply_fn = apply_fns
 
     def warmup(
         env_states: WrapperState,
@@ -194,10 +236,13 @@ def get_warmup_fn(
 def get_learner_fn(
     env: Environment,
     apply_fns: Tuple[
+        InitialHiddenStateApply,
         RepresentationApply,
-        DynamicsApply,
+        DynamicsWithRewardRNNApply,
         ActorApply,
         DistributionCriticApply,
+        ProjectorApply,
+        PredictorApply,
         RootFnApply,
         SearchApply,
     ],
@@ -210,10 +255,13 @@ def get_learner_fn(
 
     # Get apply and update functions for actor and critic networks.
     (
+        initial_state_apply_fn,
         representation_apply_fn,
         dynamics_apply_fn,
         actor_apply_fn,
         critic_apply_fn,
+        projector_apply_fn,
+        predictor_apply_fn,
         root_fn,
         search_apply_fn,
     ) = apply_fns
@@ -267,10 +315,10 @@ def get_learner_fn(
 
         def _update_epoch(update_state: Tuple, _: Any) -> Tuple:
             def _loss_fn(
-                muzero_params: MZParams,
+                ez_params: EZParams,
                 sequence: ExItTransition,
             ) -> Tuple:
-                """Calculate the total MuZero loss."""
+                """Calculate the total EfficientZero loss."""
 
                 # Calculate the value targets using n-step bootstrapped returns
                 # with the search values
@@ -282,29 +330,59 @@ def get_learner_fn(
                 value_targets = batch_n_step_bootstrapped_returns(
                     r_t, d_t, search_values, config.system.n_steps
                 )
+                # We treat the sample sequence length as the unroll length
+                # and lstm horizon reset length for the value prefix
+                value_prefix_targets = jnp.cumsum(r_t, axis=1)  # B, T-1
 
                 # Get the state embedding of the first observation of each sequence
                 state_embedding = representation_apply_fn(
-                    muzero_params.world_model_params, sequence.obs
+                    ez_params.world_model_params, sequence.obs
                 )[
                     :, 0
                 ]  # B, T=0
+                # Get the initial reward hidden state
+                reward_hidden_state = initial_state_apply_fn(state_embedding.shape[0])  # B, T=0
 
                 def unroll_fn(
-                    carry: Tuple[chex.Array, chex.Array, MZParams, chex.Array],
+                    carry: Tuple[chex.Array, chex.Array, chex.Array, EZParams, chex.Array],
                     targets: Tuple[chex.Array, chex.Array, chex.Array, chex.Array, chex.Array],
                 ) -> Tuple[chex.Array, chex.Array]:
-                    total_loss, state_embedding, muzero_params, mask = carry
-                    action, reward_target, search_policy, value_targets, done = targets
+                    total_loss, state_embedding, reward_hidden_state, ez_params, mask = carry
+                    action, value_prefix_target, search_policy, value_targets, done = targets
                     actor_policy = actor_apply_fn(
-                        muzero_params.prediction_params.actor_params, state_embedding
+                        ez_params.prediction_params.actor_params, state_embedding
                     )
                     value_dist = critic_apply_fn(
-                        muzero_params.prediction_params.critic_params, state_embedding
+                        ez_params.prediction_params.critic_params, state_embedding
                     )
                     state_embedding = scale_gradient(state_embedding, 0.5)
-                    next_state_embedding, predicted_reward = dynamics_apply_fn(
-                        muzero_params.world_model_params, state_embedding, action
+
+                    # The dynamics function also returns the value prefix and the projected state
+                    (
+                        next_state_embedding,
+                        predicted_value_prefix,
+                        next_reward_hidden_state,
+                    ) = dynamics_apply_fn(
+                        ez_params.world_model_params, state_embedding, action, reward_hidden_state
+                    )
+
+                    # Project s_t and predict s_t+1
+                    projected_state = projector_apply_fn(
+                        ez_params.projector_params, state_embedding
+                    )
+                    predicted_state_embedding = predictor_apply_fn(
+                        ez_params.predictor_params, projected_state
+                    )
+                    # Project s_t+1
+                    projected_next_state = projector_apply_fn(
+                        ez_params.projector_params, next_state_embedding
+                    )
+                    # Stop the gradient on the projected next state
+                    projected_next_state = jax.lax.stop_gradient(projected_next_state)
+
+                    # CALCULATE SELF-SUPERVISED CONSISTENCY LOSS
+                    ssl_loss = -config.system.ssl_weight * optax.cosine_similarity(
+                        predicted_state_embedding, projected_next_state
                     )
 
                     # CALCULATE ACTOR LOSS
@@ -329,19 +407,20 @@ def get_learner_fn(
                         value_dist.logits, value_targets
                     )
 
-                    # CALCULATE REWARD LOSS
-                    # We do the same for the reward loss as we did for the value loss
-                    reward_target = reward_target * mask
-                    reward_target = reward_tx_pair.apply(reward_target)
-                    reward_loss = optax.softmax_cross_entropy(
-                        predicted_reward.logits, reward_target
+                    # CALCULATE VALUE PREFIX LOSS
+                    # We do the same for the value prefix loss as we did for the value loss
+                    value_prefix_target = value_prefix_target * mask
+                    value_prefix_target = reward_tx_pair.apply(value_prefix_target)
+                    value_prefix_loss = optax.softmax_cross_entropy(
+                        predicted_value_prefix.logits, value_prefix_target
                     )
 
                     curr_loss = {
                         "actor_loss": actor_loss,
                         "value_loss": value_loss,
-                        "reward_loss": reward_loss,
+                        "value_prefix_loss": value_prefix_loss,
                         "entropy_loss": entropy_loss,
+                        "ssl_loss": ssl_loss,
                     }
                     # UPDATE LOSS
                     total_loss = jax.tree_util.tree_map(
@@ -350,11 +429,17 @@ def get_learner_fn(
                     # Update the mask - This is to ensure that the loss is
                     # not updated for any steps after the episode is done
                     mask = mask * (1.0 - done.astype(jnp.float32))
-                    return (total_loss, next_state_embedding, muzero_params, mask), None
+                    return (
+                        total_loss,
+                        next_state_embedding,
+                        next_reward_hidden_state,
+                        ez_params,
+                        mask,
+                    ), None
 
                 targets = (
                     sequence.action[:, :-1],
-                    sequence.reward[:, :-1],
+                    value_prefix_targets,
                     sequence.search_policy[:, :-1],
                     value_targets,
                     sequence.done[:, :-1],
@@ -364,12 +449,15 @@ def get_learner_fn(
                 init_total_loss = {
                     "actor_loss": jnp.array(0.0),
                     "value_loss": jnp.array(0.0),
-                    "reward_loss": jnp.array(0.0),
+                    "value_prefix_loss": jnp.array(0.0),
                     "entropy_loss": jnp.array(0.0),
+                    "ssl_loss": jnp.array(0.0),
                 }
                 init_mask = 1.0 - sequence.done[:, 0].astype(jnp.float32)
-                (losses, _, _, _), _ = jax.lax.scan(
-                    unroll_fn, (init_total_loss, state_embedding, muzero_params, init_mask), targets
+                (losses, _, _, _, _), _ = jax.lax.scan(
+                    unroll_fn,
+                    (init_total_loss, state_embedding, reward_hidden_state, ez_params, init_mask),
+                    targets,
                 )
                 # Divide by the number of unrolled steps to ensure a consistent scale
                 # across different unroll lengths
@@ -380,7 +468,8 @@ def get_learner_fn(
                 total_loss = (
                     losses["actor_loss"]
                     + losses["value_loss"]
-                    + losses["reward_loss"]
+                    + losses["value_prefix_loss"]
+                    + losses["ssl_loss"]
                     - losses["entropy_loss"]
                 )
 
@@ -472,7 +561,7 @@ def learner_setup(
     config.system.action_dim = num_actions
 
     # PRNG keys.
-    key, wm_network_key, actor_net_key, critic_net_key = keys
+    key, wm_network_key, actor_net_key, critic_net_key, projector_net_key, predictor_net_key = keys
 
     # Define network and optimiser.
     actor_torso = hydra.utils.instantiate(config.network.actor_network.pre_torso)
@@ -491,6 +580,13 @@ def learner_setup(
 
     wm_network = hydra.utils.instantiate(
         config.network.wm_network, action_dim=config.system.action_dim
+    )
+
+    projector_network = hydra.utils.instantiate(
+        config.network.projector_network,
+    )
+    predictor_network = hydra.utils.instantiate(
+        config.network.predictor_network,
     )
 
     lr = make_learning_rate(
@@ -512,13 +608,16 @@ def learner_setup(
 
     # Initialise params params and optimiser state.
     world_model_params = wm_network.init(wm_network_key, init_x, init_a)
-    hidden_state_embedding, _ = wm_network.apply(world_model_params, init_x, init_a)
+    hidden_state_embedding, _, _ = wm_network.apply(world_model_params, init_x, init_a)
     actor_params = actor_network.init(actor_net_key, hidden_state_embedding)
     critic_params = critic_network.init(critic_net_key, hidden_state_embedding)
+    projector_params = projector_network.init(projector_net_key, hidden_state_embedding)
+    projected_state = projector_network.apply(projector_params, hidden_state_embedding)
+    predictor_params = predictor_network.init(predictor_net_key, projected_state)
 
     # Pack params.
     prediction_params = ActorCriticParams(actor_params, critic_params)
-    params = MZParams(prediction_params, world_model_params)
+    params = EZParams(prediction_params, world_model_params, projector_params, predictor_params)
 
     # Initialise optimiser state.
     opt_state = optim.init(params)
@@ -528,8 +627,13 @@ def learner_setup(
         wm_network.apply, method=wm_network.representation
     )
     dynamics_network_apply_fn = functools.partial(wm_network.apply, method=wm_network.dynamics)
+    initial_state_apply_fn = lambda batch_size: wm_network.initial_state(batch_size).get(
+        "reward_rnn_state"
+    )
     actor_network_apply_fn = actor_network.apply
     critic_network_apply_fn = critic_network.apply
+    projector_network_apply_fn = projector_network.apply
+    predictor_network_apply_fn = predictor_network.apply
 
     # Initialise tx pairs.
     critic_tx_pair = rlax.muzero_pair(
@@ -546,12 +650,14 @@ def learner_setup(
     )
 
     root_fn = make_root_fn(
+        initial_state_apply_fn,
         representation_network_apply_fn,
         actor_network_apply_fn,
         critic_network_apply_fn,
         critic_tx_pair,
     )
     model_recurrent_fn = make_recurrent_fn(
+        initial_state_apply_fn,
         dynamics_network_apply_fn,
         actor_network_apply_fn,
         critic_network_apply_fn,
@@ -570,10 +676,13 @@ def learner_setup(
 
     # Pack apply and update functions.
     apply_fns = (
+        initial_state_apply_fn,
         representation_network_apply_fn,
         dynamics_network_apply_fn,
         actor_network_apply_fn,
         critic_network_apply_fn,
+        projector_network_apply_fn,
+        predictor_network_apply_fn,
         root_fn,
         search_apply_fn,
     )
@@ -692,13 +801,21 @@ def run_experiment(_config: DictConfig) -> float:
     env, eval_env = environments.make(config=config)
 
     # PRNG keys.
-    key, key_e, wm_key, actor_net_key, critic_net_key = jax.random.split(
-        jax.random.PRNGKey(config.arch.seed), num=5
-    )
+    (
+        key,
+        key_e,
+        wm_key,
+        actor_net_key,
+        critic_net_key,
+        projector_net_key,
+        predictor_net_key,
+    ) = jax.random.split(jax.random.PRNGKey(config.arch.seed), num=7)
 
     # Setup learner.
     learn, root_fn, search_apply_fn, learner_state = learner_setup(
-        env, (key, wm_key, actor_net_key, critic_net_key), config
+        env,
+        (key, wm_key, actor_net_key, critic_net_key, projector_net_key, predictor_net_key),
+        config,
     )
 
     # Setup evaluator.
@@ -825,7 +942,7 @@ def run_experiment(_config: DictConfig) -> float:
 
 
 @hydra.main(
-    config_path="../../configs/default/anakin", config_name="default_ff_mz.yaml", version_base="1.2"
+    config_path="../../configs/default/anakin", config_name="default_ff_ez.yaml", version_base="1.2"
 )
 def hydra_entry_point(cfg: DictConfig) -> float:
     """Experiment entry point."""
@@ -835,7 +952,7 @@ def hydra_entry_point(cfg: DictConfig) -> float:
     # Run experiment.
     eval_performance = run_experiment(cfg)
 
-    print(f"{Fore.CYAN}{Style.BRIGHT}MuZero experiment completed{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}{Style.BRIGHT}EfficientZero experiment completed{Style.RESET_ALL}")
     return eval_performance
 
 

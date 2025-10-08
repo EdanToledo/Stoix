@@ -661,11 +661,9 @@ def learner_setup(
 
     # Define apply functions.
     representation_network_apply_fn = functools.partial(
-        wm_network.apply, method=wm_network.initial_inference
+        wm_network.apply, method=wm_network.representation
     )
-    dynamics_network_apply_fn = functools.partial(
-        wm_network.apply, method=wm_network.recurrent_inference
-    )
+    dynamics_network_apply_fn = functools.partial(wm_network.apply, method=wm_network.dynamics)
     actor_network_apply_fn = actor_network.apply
     critic_network_apply_fn = critic_network.apply
 

@@ -1,0 +1,68 @@
+# ---MLP Actor Critic Networks---
+actor_network:
+  pre_torso:
+    _target_: stoix.networks.torso.MLPTorso
+    layer_sizes: [256, 256]
+    use_layer_norm: False
+    activation: silu
+  action_head:
+    _target_: stoix.networks.heads.CategoricalHead
+
+critic_network:
+  pre_torso:
+    _target_: stoix.networks.torso.MLPTorso
+    layer_sizes: [256, 256]
+    use_layer_norm: False
+    activation: silu
+  critic_head:
+    _target_: stoix.networks.heads.CategoricalCriticHead
+    vmin: ${system.critic_vmin}
+    vmax: ${system.critic_vmax}
+    num_atoms: ${system.critic_num_atoms}
+
+wm_network:
+  _target_: stoix.networks.model_based.RewardBasedWorldModel
+
+  obs_encoder: # Encoder for the observation. This can be seen as the representation network.
+    _target_: stoix.networks.torso.MLPTorso
+    layer_sizes: [256, 256]
+    use_layer_norm: False
+    activation: silu
+
+  # This can be seen as the dynamics network.
+  rnn_size: 256
+  num_stacked_rnn_layers: 2
+  rnn_cell_type: "gru"
+  recurrent_activation: "sigmoid"
+
+  # Very important for efficient zero to enable the reward rnn.
+  # This allows for resetting of the reward hidden state at intervals
+  # so the value prefix resets.
+  # This will use the same size as the dynamics rnn so change the reward torso appropriately.
+  use_reward_rnn: True
+  # For efficient zero, this is the value prefix network.
+  reward_torso:
+    _target_: stoix.networks.torso.MLPTorso
+    layer_sizes: [256]
+    use_layer_norm: False
+    activation: silu
+
+  reward_head:
+    _target_: stoix.networks.heads.CategoricalCriticHead
+    vmin: ${system.reward_vmin}
+    vmax: ${system.reward_vmax}
+    num_atoms: ${system.reward_num_atoms}
+
+
+projector_network:
+  _target_: stoix.networks.torso.MLPTorso
+  layer_sizes: [256]
+  use_layer_norm: False
+  activation: silu
+
+
+predictor_network:
+  _target_: stoix.networks.torso.MLPTorso
+  layer_sizes: [256]
+  use_layer_norm: False
+  activation: silu
