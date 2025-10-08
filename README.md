@@ -127,9 +127,8 @@ You can use Stoix by cloning the repo and installing via UV as follows:
 git clone https://github.com/EdanToledo/Stoix.git
 cd Stoix
 pipx install uv
-uv venv
-source .venv/bin/activate
 uv sync
+source .venv/bin/activate
 ```
 
 We have tested `Stoix` on Python 3.10. Note that because the installation of JAX differs depending on your hardware accelerator,
