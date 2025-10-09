@@ -1,0 +1,81 @@
+site_name: Stoix
+theme:
+  name: material
+  features:
+    - navigation.tracking
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+  palette:
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: deep orange
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: deep orange
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+plugins:
+  - search
+nav:
+  - Overview 🏛️: index.md
+  - Get Started:
+      - get_started/installation.md
+      - get_started/quickstart.md
+      - get_started/hyperparameter_tuning.md
+      - get_started/resuming_training.md
+      - get_started/statistical_tests.md
+  - Community:
+      - community/contributing.md
+  - RL Algorithms:
+      - rl_algorithms/overview.md
+      - Q-learning:
+          - rl_algorithms/dqn.md
+          - rl_algorithms/ddqn.md
+          - rl_algorithms/dueling_dqn.md
+          - rl_algorithms/c51.md
+          - rl_algorithms/mdqn.md
+          - rl_algorithms/qr_dqn.md
+          - rl_algorithms/noisy_dqn.md
+          - rl_algorithms/rainbow_dqn.md
+      - Policy Gradients:
+          - rl_algorithms/ppo.md
+          - rl_algorithms/reinforce.md
+
+repo_url: https://github.com/EdanToledo/Stoix/tree/main
+repo_name: EdanToledo/Stoix
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/EdanToledo/Stoix/tree/main
+
+markdown_extensions:
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - abbr
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.snippets
+  - admonition
+  - pymdownx.details
+  - attr_list
+  - md_in_html
+  - footnotes
+
+extra_javascript:
+  - javascripts/config.js
+  - https://polyfill.io/v3/polyfill.min.js?features=es6
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
+copyright: Copyright &copy; 2024, Stoix. All rights reserved.
