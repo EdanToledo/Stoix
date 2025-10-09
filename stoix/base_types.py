@@ -5,21 +5,20 @@ from distrax import DistributionLike
 from flashbax.buffers.trajectory_buffer import BufferState
 from flax.core.frozen_dict import FrozenDict
 from optax import OptState
+from stoa import Action as Action
+from stoa import Reward as Reward
+from stoa import State as State
 from stoa import TimeStep, WrapperState
 from typing_extensions import NamedTuple, Protocol, TypeAlias, runtime_checkable
 
 from stoix.utils.running_statistics import RunningStatisticsState
 
-Action: TypeAlias = chex.Array
 Value: TypeAlias = chex.Array
 Done: TypeAlias = chex.Array
 Truncated: TypeAlias = chex.Array
 First: TypeAlias = chex.Array
 HiddenState: TypeAlias = chex.Array
 LogProb: TypeAlias = chex.Array
-Reward: TypeAlias = chex.Array
-# Can't know the exact type of State.
-State: TypeAlias = Any
 Parameters: TypeAlias = Any
 OptStates: TypeAlias = Any
 HiddenStates: TypeAlias = Any
@@ -216,5 +215,4 @@ class EvalFn(Protocol[StoixState]):
         trained_params: FrozenDict,
         key: chex.PRNGKey,
         running_statistics: Optional[RunningStatisticsState] = None,
-    ) -> EvaluationOutput[StoixState]:
-        ...
+    ) -> EvaluationOutput[StoixState]: ...
