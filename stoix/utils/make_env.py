@@ -1,5 +1,5 @@
 import copy
-from typing import Callable, Tuple
+from typing import Any, Callable, Tuple
 
 import hydra
 from colorama import Fore, Style
@@ -25,9 +25,22 @@ def make(config: DictConfig) -> Tuple[Environment, Environment]:
     Returns:
         A tuple containing the instantiated training and evaluation environments.
     """
-    suite_name = config.env.env_name
-    scenario_name = config.env.scenario.name
-    env_kwargs = dict(copy.deepcopy(config.env.kwargs))
+    config_env: dict[str, Any] = copy.deepcopy(config.env)
+
+    # some environments store wrapper arguments directly on `config.env`
+    # so here we parse the known kwargs and pass the rest to stoa
+    suite_name = config_env.pop("env_name")
+    scenario_name = config_env.pop("scenario").name
+    env_kwargs = config_env.pop("kwargs")
+    del config_env["eval_metric"]
+    wrapper = config_env.pop("wrapper", None)
+
+    core_wrapper_args = dict(
+        use_optimistic_reset=config_env.pop("use_optimistic_reset", False),
+        num_envs=config.arch.num_envs,
+        reset_ratio=config_env.pop("reset_ratio", 16),
+        use_cached_auto_reset=config_env.pop("use_cached_auto_reset", False),
+    )
 
     # environment-specific kwargs modification
     if suite_name == "jumanji" and "generator" in env_kwargs:
@@ -35,21 +48,15 @@ def make(config: DictConfig) -> Tuple[Environment, Environment]:
         generator = hydra.utils.instantiate(generator)
         env_kwargs["generator"] = generator
 
-    env = environments.make(suite_name, scenario_name, **env_kwargs)
-    eval_env = environments.make(suite_name, scenario_name, **env_kwargs)
+    # create and wrap the environments
+    env = environments.make(suite_name, scenario_name, **config_env, **env_kwargs)
+    eval_env = environments.make(suite_name, scenario_name, **config_env, **env_kwargs)
 
-    wrapper = config.env.get("wrapper", None)
     if wrapper is not None:
         wrapper = hydra.utils.instantiate(wrapper, _partial_=True)
         env, eval_env = wrapper(env), wrapper(eval_env)
 
-    env = environments.apply_core_wrappers(
-        env,
-        use_optimistic_reset=config.env.get("use_optimistic_reset", False),
-        num_envs=config.arch.num_envs,
-        reset_ratio=config.env.get("reset_ratio", 16),
-        use_cached_auto_reset=config.env.get("use_cached_auto_reset", False),
-    )
+    env = environments.apply_core_wrappers(env, **core_wrapper_args)
 
     print(
         f"{Fore.YELLOW}{Style.BRIGHT}Created environments for Suite: {suite_name} - "
