@@ -297,11 +297,9 @@ def get_learner_fn(
             batch_size = config.system.rollout_length * config.arch.num_envs
             permutation = jax.random.permutation(shuffle_key, batch_size)
             batch = (traj_batch, advantages, targets)
-            batch = jax.tree_util.tree_map(lambda x: merge_leading_dims(x, 2), batch)
-            shuffled_batch = jax.tree_util.tree_map(
-                lambda x: jnp.take(x, permutation, axis=0), batch
-            )
-            minibatches = jax.tree_util.tree_map(
+            batch = jax.tree.map(lambda x: merge_leading_dims(x, 2), batch)
+            shuffled_batch = jax.tree.map(lambda x: jnp.take(x, permutation, axis=0), batch)
+            minibatches = jax.tree.map(
                 lambda x: jnp.reshape(x, [config.system.num_minibatches, -1] + list(x.shape[1:])),
                 shuffled_batch,
             )
@@ -408,9 +406,7 @@ def _collect_obs_norm_rollouts(
     all_observations = jax.tree.map(
         lambda reset_obs, warmup_obs: jnp.concatenate(
             [
-                reset_obs[
-                    jnp.newaxis,
-                ],
+                reset_obs[jnp.newaxis,],
                 warmup_obs,
             ],
             axis=0,
@@ -464,7 +460,7 @@ def learner_setup(
 
     # Initialise observation
     init_x = env.observation_space().generate_value()
-    init_x = jax.tree_util.tree_map(lambda x: x[None, ...], init_x)
+    init_x = jax.tree.map(lambda x: x[None, ...], init_x)
 
     # Initialise actor params and optimiser state.
     actor_params = actor_network.init(actor_net_key, init_x)
@@ -497,8 +493,8 @@ def learner_setup(
         (n_devices, config.arch.update_batch_size, config.arch.num_envs) + x.shape[1:]
     )
     # (devices, update batch size, num_envs, ...)
-    env_states = jax.tree_util.tree_map(reshape_states, env_states)
-    timesteps = jax.tree_util.tree_map(reshape_states, timesteps)
+    env_states = jax.tree.map(reshape_states, env_states)
+    timesteps = jax.tree.map(reshape_states, timesteps)
 
     # Load model from checkpoint if specified.
     if config.logger.checkpointing.load_model:
@@ -521,7 +517,7 @@ def learner_setup(
 
     # Duplicate learner for update_batch_size.
     broadcast = lambda x: jnp.broadcast_to(x, (config.arch.update_batch_size,) + x.shape)
-    replicate_learner = jax.tree_util.tree_map(broadcast, replicate_learner)
+    replicate_learner = jax.tree.map(broadcast, replicate_learner)
 
     # Duplicate learner across devices.
     replicate_learner = flax.jax_utils.replicate(replicate_learner, devices=jax.devices())

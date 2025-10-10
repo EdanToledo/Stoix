@@ -329,7 +329,7 @@ def learner_setup(
 
     # Initialise observation
     init_x = env.observation_space().generate_value()
-    init_x = jax.tree_util.tree_map(lambda x: x[None, ...], init_x)
+    init_x = jax.tree.map(lambda x: x[None, ...], init_x)
 
     # Initialise q params and optimiser state.
     q_online_params = q_network.init(q_net_key, init_x)
@@ -347,11 +347,11 @@ def learner_setup(
 
     # Create replay buffer
     dummy_transition = Transition(
-        obs=jax.tree_util.tree_map(lambda x: x.squeeze(0), init_x),
+        obs=jax.tree.map(lambda x: x.squeeze(0), init_x),
         action=jnp.zeros((), dtype=int),
         reward=jnp.zeros((), dtype=float),
         done=jnp.zeros((), dtype=bool),
-        next_obs=jax.tree_util.tree_map(lambda x: x.squeeze(0), init_x),
+        next_obs=jax.tree.map(lambda x: x.squeeze(0), init_x),
         info={"episode_return": 0.0, "episode_length": 0, "is_terminal_step": False},
     )
 
@@ -395,8 +395,8 @@ def learner_setup(
         (n_devices, config.arch.update_batch_size, config.arch.num_envs) + x.shape[1:]
     )
     # (devices, update batch size, num_envs, ...)
-    env_states = jax.tree_util.tree_map(reshape_states, env_states)
-    timesteps = jax.tree_util.tree_map(reshape_states, timesteps)
+    env_states = jax.tree.map(reshape_states, env_states)
+    timesteps = jax.tree.map(reshape_states, timesteps)
 
     # Load model from checkpoint if specified.
     if config.logger.checkpointing.load_model:
@@ -421,7 +421,7 @@ def learner_setup(
 
     # Duplicate learner for update_batch_size.
     broadcast = lambda x: jnp.broadcast_to(x, (config.arch.update_batch_size,) + x.shape)
-    replicate_learner = jax.tree_util.tree_map(broadcast, replicate_learner)
+    replicate_learner = jax.tree.map(broadcast, replicate_learner)
 
     # Duplicate learner across devices.
     replicate_learner = flax.jax_utils.replicate(replicate_learner, devices=jax.devices())

@@ -84,7 +84,7 @@ def get_learner_fn(
             key, policy_key = jax.random.split(key)
 
             # Add a batch dimension to the observation.
-            batched_observation = jax.tree_util.tree_map(
+            batched_observation = jax.tree.map(
                 lambda x: x[jnp.newaxis, :], last_timestep.observation
             )
             reset_hidden_state = jnp.logical_or(last_done, last_truncated)
@@ -163,7 +163,7 @@ def get_learner_fn(
         ) = learner_state
 
         # Add a batch dimension to the observation.
-        batched_last_observation = jax.tree_util.tree_map(
+        batched_last_observation = jax.tree.map(
             lambda x: x[jnp.newaxis, :], last_timestep.observation
         )
         reset_hidden_state = jnp.logical_or(last_done, last_truncated)
@@ -213,7 +213,7 @@ def get_learner_fn(
                     # RERUN NETWORK
                     reset_hidden_state = jnp.logical_or(traj_batch.done, traj_batch.truncated)
                     obs_and_done = (traj_batch.obs, reset_hidden_state)
-                    policy_hidden_state = jax.tree_util.tree_map(
+                    policy_hidden_state = jax.tree.map(
                         lambda x: x[0], traj_batch.hstates.policy_hidden_state
                     )
                     _, actor_policy = actor_apply_fn(
@@ -242,7 +242,7 @@ def get_learner_fn(
                     # RERUN NETWORK
                     reset_hidden_state = jnp.logical_or(traj_batch.done, traj_batch.truncated)
                     obs_and_done = (traj_batch.obs, reset_hidden_state)
-                    critic_hidden_state = jax.tree_util.tree_map(
+                    critic_hidden_state = jax.tree.map(
                         lambda x: x[0], traj_batch.hstates.critic_hidden_state
                     )
                     _, value = critic_apply_fn(critic_params, critic_hidden_state, obs_and_done)
@@ -329,7 +329,7 @@ def get_learner_fn(
             num_recurrent_chunks = (
                 config.system.rollout_length // config.system.recurrent_chunk_size
             )
-            batch = jax.tree_util.tree_map(
+            batch = jax.tree.map(
                 lambda x: x.reshape(
                     config.system.recurrent_chunk_size,
                     config.arch.num_envs * num_recurrent_chunks,
@@ -340,16 +340,14 @@ def get_learner_fn(
             permutation = jax.random.permutation(
                 shuffle_key, config.arch.num_envs * num_recurrent_chunks
             )
-            shuffled_batch = jax.tree_util.tree_map(
-                lambda x: jnp.take(x, permutation, axis=1), batch
-            )
-            reshaped_batch = jax.tree_util.tree_map(
+            shuffled_batch = jax.tree.map(lambda x: jnp.take(x, permutation, axis=1), batch)
+            reshaped_batch = jax.tree.map(
                 lambda x: jnp.reshape(
                     x, (x.shape[0], config.system.num_minibatches, -1, *x.shape[2:])
                 ),
                 shuffled_batch,
             )
-            minibatches = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 1, 0), reshaped_batch)
+            minibatches = jax.tree.map(lambda x: jnp.swapaxes(x, 1, 0), reshaped_batch)
 
             # UPDATE MINIBATCHES
             (params, opt_states), loss_info = jax.lax.scan(
@@ -367,7 +365,7 @@ def get_learner_fn(
             )
             return update_state, loss_info
 
-        init_hstates = jax.tree_util.tree_map(lambda x: x[None, :], initial_hstates)
+        init_hstates = jax.tree.map(lambda x: x[None, :], initial_hstates)
         update_state = (
             params,
             opt_states,
@@ -494,11 +492,11 @@ def learner_setup(
 
     # Initialise observation
     init_obs = env.observation_space().generate_value()
-    init_obs = jax.tree_util.tree_map(
+    init_obs = jax.tree.map(
         lambda x: jnp.repeat(x[jnp.newaxis, ...], config.arch.num_envs, axis=0),
         init_obs,
     )
-    init_obs = jax.tree_util.tree_map(lambda x: x[None, ...], init_obs)
+    init_obs = jax.tree.map(lambda x: x[None, ...], init_obs)
     init_done = jnp.zeros((1, config.arch.num_envs), dtype=bool)
     init_x = (init_obs, init_done)
 
@@ -550,8 +548,8 @@ def learner_setup(
         (n_devices, config.arch.update_batch_size, config.arch.num_envs) + x.shape[1:]
     )
     # (devices, update batch size, num_envs, ...)
-    env_states = jax.tree_util.tree_map(reshape_states, env_states)
-    timesteps = jax.tree_util.tree_map(reshape_states, timesteps)
+    env_states = jax.tree.map(reshape_states, env_states)
+    timesteps = jax.tree.map(reshape_states, timesteps)
 
     # Define params to be replicated across devices and batches.
     dones = jnp.zeros(
@@ -571,7 +569,7 @@ def learner_setup(
 
     # Duplicate learner for update_batch_size.
     broadcast = lambda x: jnp.broadcast_to(x, (config.arch.update_batch_size,) + x.shape)
-    replicate_learner = jax.tree_util.tree_map(broadcast, replicate_learner)
+    replicate_learner = jax.tree.map(broadcast, replicate_learner)
 
     # Duplicate learner across devices.
     replicate_learner = flax.jax_utils.replicate(replicate_learner, devices=jax.devices())
