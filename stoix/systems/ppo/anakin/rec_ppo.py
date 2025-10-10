@@ -455,8 +455,8 @@ def learner_setup(
 
     actor_network = RecurrentActor(
         pre_torso=actor_pre_torso,
-        hidden_state_dim=config.network.critic_network.rnn_layer.hidden_state_dim,
-        cell_type=config.network.critic_network.rnn_layer.cell_type,
+        hidden_state_dim=config.network.actor_network.rnn_layer.hidden_state_dim,
+        cell_type=config.network.actor_network.rnn_layer.cell_type,
         post_torso=actor_post_torso,
         action_head=actor_action_head,
     )
