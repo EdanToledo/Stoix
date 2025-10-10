@@ -32,9 +32,9 @@ from stoa.environment import Environment
 
 from stoix.base_types import (
     ActorApply,
+    AgentObservation,
     AnakinExperimentOutput,
     LearnerFn,
-    Observation,
     OffPolicyLearnerState,
     OnlineAndTarget,
     WrapperState,
@@ -271,7 +271,7 @@ def get_learner_fn(
 class EvalActorWrapper:
     actor: Actor
 
-    def apply(self, params: FrozenDict, x: Observation) -> distrax.EpsilonGreedy:
+    def apply(self, params: FrozenDict, x: AgentObservation) -> distrax.EpsilonGreedy:
         return self.actor.apply(params, x)[0]
 
 

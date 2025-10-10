@@ -33,9 +33,9 @@ from stoa.environment import Environment
 
 from stoix.base_types import (
     ActorApply,
+    AgentObservation,
     AnakinExperimentOutput,
     LearnerFn,
-    Observation,
     OffPolicyLearnerState,
     OnlineAndTarget,
     WrapperState,
@@ -334,7 +334,7 @@ class EvalActorWrapper:
     actor: Actor
 
     def apply(
-        self, params: FrozenDict, x: Observation, rngs: Dict[str, chex.PRNGKey]
+        self, params: FrozenDict, x: AgentObservation, rngs: Dict[str, chex.PRNGKey]
     ) -> distrax.EpsilonGreedy:
         return self.actor.apply(params, x, rngs=rngs)[0]
 

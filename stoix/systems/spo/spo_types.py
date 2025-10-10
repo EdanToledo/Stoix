@@ -6,8 +6,8 @@ from flax.core.frozen_dict import FrozenDict
 
 from stoix.base_types import (
     Action,
+    AgentObservation,
     Done,
-    Observation,
     OnlineAndTarget,
     Truncated,
     Value,
@@ -69,7 +69,9 @@ class SPOOutput(NamedTuple):
 
 StateEmbedding: TypeAlias = chex.ArrayTree
 SPOApply = Callable[[FrozenDict, chex.PRNGKey, SPORootFnOutput], SPOOutput]
-SPORootFnApply = Callable[[FrozenDict, Observation, chex.ArrayTree, chex.PRNGKey], SPORootFnOutput]
+SPORootFnApply = Callable[
+    [FrozenDict, AgentObservation, chex.ArrayTree, chex.PRNGKey], SPORootFnOutput
+]
 SPORecurrentFn = Callable[
     [SPOParams, chex.PRNGKey, Action, StateEmbedding], Tuple[SPORecurrentFnOutput, StateEmbedding]
 ]
