@@ -105,7 +105,7 @@ def get_warmup_fn(
 
         # Add the trajectory to the buffer.
         # Swap the batch and time axes.
-        traj_batch = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), traj_batch)
+        traj_batch = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), traj_batch)
         buffer_states = buffer_add_fn(buffer_states, traj_batch)
 
         return env_states, timesteps, keys, buffer_states
@@ -173,7 +173,7 @@ def get_learner_fn(
 
         # Add the trajectory to the buffer.
         # Swap the batch and time axes.
-        traj_batch = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), traj_batch)
+        traj_batch = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), traj_batch)
         buffer_state = buffer_add_fn(buffer_state, traj_batch)
 
         def _update_epoch(update_state: Tuple, _: Any) -> Tuple:
@@ -248,9 +248,9 @@ def get_learner_fn(
             transition_sample = buffer_sample_fn(buffer_state, sample_key)
             transition_sequence: Transition = transition_sample.experience
             # Extract the first and last observations.
-            step_0_obs = jax.tree_util.tree_map(lambda x: x[:, 0], transition_sequence).obs
+            step_0_obs = jax.tree.map(lambda x: x[:, 0], transition_sequence).obs
             step_0_actions = transition_sequence.action[:, 0]
-            step_n_obs = jax.tree_util.tree_map(lambda x: x[:, -1], transition_sequence).next_obs
+            step_n_obs = jax.tree.map(lambda x: x[:, -1], transition_sequence).next_obs
             # check if any of the transitions are done - this will be used to decide
             # if bootstrapping is needed
             n_step_done = jnp.any(transition_sequence.done, axis=-1)
@@ -421,7 +421,7 @@ def learner_setup(
 
     # Initialise observation
     init_x = env.observation_space().generate_value()
-    init_x = jax.tree_util.tree_map(lambda x: x[None, ...], init_x)
+    init_x = jax.tree.map(lambda x: x[None, ...], init_x)
     init_a = jnp.zeros((1, action_dim))
 
     # Initialise actor params and optimiser state.
@@ -451,11 +451,11 @@ def learner_setup(
 
     # Create replay buffer
     dummy_transition = Transition(
-        obs=jax.tree_util.tree_map(lambda x: x.squeeze(0), init_x),
+        obs=jax.tree.map(lambda x: x.squeeze(0), init_x),
         action=jnp.zeros((action_dim), dtype=float),
         reward=jnp.zeros((), dtype=float),
         done=jnp.zeros((), dtype=bool),
-        next_obs=jax.tree_util.tree_map(lambda x: x.squeeze(0), init_x),
+        next_obs=jax.tree.map(lambda x: x.squeeze(0), init_x),
         info={"episode_return": 0.0, "episode_length": 0, "is_terminal_step": False},
     )
 
@@ -504,8 +504,8 @@ def learner_setup(
         )
 
     # (devices, update batch size, num_envs, ...)
-    env_states = jax.tree_util.tree_map(reshape_states, env_states)
-    timesteps = jax.tree_util.tree_map(reshape_states, timesteps)
+    env_states = jax.tree.map(reshape_states, env_states)
+    timesteps = jax.tree.map(reshape_states, timesteps)
 
     # Load model from checkpoint if specified.
     if config.logger.checkpointing.load_model:
@@ -535,7 +535,7 @@ def learner_setup(
     def broadcast(x: chex.Array) -> chex.Array:
         return jnp.broadcast_to(x, (config.arch.update_batch_size,) + x.shape)
 
-    replicate_learner = jax.tree_util.tree_map(broadcast, replicate_learner)
+    replicate_learner = jax.tree.map(broadcast, replicate_learner)
 
     # Duplicate learner across devices.
     replicate_learner = flax.jax_utils.replicate(replicate_learner, devices=jax.devices())

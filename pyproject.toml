@@ -107,7 +107,7 @@ readme = "README.md"
 description = "Single-Agent Reinforcement Learning with JAX"
 authors = [
     {name = "Edan Toledo"},
-  ]
+]
 dynamic = ["version"]
 license = {file = "LICENSE"}
 requires-python = ">=3.10"

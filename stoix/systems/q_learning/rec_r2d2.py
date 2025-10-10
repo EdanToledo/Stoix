@@ -78,7 +78,7 @@ def get_warmup_fn(
             key, policy_key = jax.random.split(key)
 
             # Add a batch dimension to the observation.
-            batched_observation = jax.tree_util.tree_map(
+            batched_observation = jax.tree.map(
                 lambda x: x[jnp.newaxis, :], last_timestep.observation
             )
             reset_hidden_state = jnp.logical_or(last_done, last_truncated)
@@ -215,7 +215,7 @@ def get_learner_fn(
             key, policy_key = jax.random.split(key)
 
             # Add a batch dimension to the observation.
-            batched_observation = jax.tree_util.tree_map(
+            batched_observation = jax.tree.map(
                 lambda x: x[jnp.newaxis, :], last_timestep.observation
             )
             reset_hidden_state = jnp.logical_or(last_done, last_truncated)
@@ -574,11 +574,11 @@ def learner_setup(
     )
 
     # INITIALIZE OBSERVATIONS
-    init_obs = env.observation_space().generate_value()
+    init_obs = jax.tree.map).generate_value()
     init_obs = jax.tree_util.tree_map(
         lambda x: jnp.repeat(x[jnp.newaxis, ...], config.arch.num_envs, axis=0),
         init_obs,
-    )  # Give it num envs batch dimension
+    )  # Give ijax.tree.mapsion
     init_obs = jax.tree_util.tree_map(
         lambda x: x[jnp.newaxis, ...], init_obs
     )  # Give it time dimension
@@ -603,7 +603,7 @@ def learner_setup(
     scheduler_fns = importance_sampling_exponent_scheduler
 
     # SETUP REPLAY BUFFER
-    dummy_transition = RNNTransition(
+    dummy_trjax.tree.mapon(
         obs=jax.tree_util.tree_map(lambda x: x.squeeze(0)[0], init_obs),
         action=jnp.zeros((), dtype=int),
         reward=jnp.zeros((), dtype=float),
@@ -674,8 +674,8 @@ def learner_setup(
         return x.reshape(
             (n_devices, config.arch.update_batch_size, config.arch.num_envs) + x.shape[1:]
         )
-
-    env_states = jax.tree_util.tree_map(reshape_states, env_states)
+jax.tree.map
+    env_states =jax.tree.mapp(reshape_states, env_states)
     timesteps = jax.tree_util.tree_map(reshape_states, timesteps)
 
     # LOAD CHECKPOINT IF SPECIFIED
@@ -705,7 +705,7 @@ def learner_setup(
 
     def broadcast(x: chex.Array) -> chex.Array:
         return jnp.broadcast_to(x, (config.arch.update_batch_size,) + x.shape)
-
+jax.tree.map
     replicate_learner = jax.tree_util.tree_map(broadcast, replicate_learner)
     replicate_learner = flax.jax_utils.replicate(replicate_learner, devices=jax.devices())
 

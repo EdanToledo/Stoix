@@ -101,7 +101,7 @@ def get_learner_fn(
         params, opt_states, key, env_state, last_timestep, learner_step_count = learner_state
 
         # Swap the batch and time axes for easier processing.
-        traj_batch = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), traj_batch)
+        traj_batch = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), traj_batch)
         chex.assert_tree_shape_prefix(
             traj_batch, (config.arch.num_envs, config.system.rollout_length)
         )
@@ -118,10 +118,10 @@ def get_learner_fn(
             ) -> chex.Array:
 
                 # Remove the last timestep from the sequence.
-                sequence = jax.tree_util.tree_map(lambda x: x[:, :-1], sequence)
+                sequence = jax.tree.map(lambda x: x[:, :-1], sequence)
 
                 # Reshape the sequence to [B*T, ...].
-                (sequence, advantages) = jax.tree_util.tree_map(
+                (sequence, advantages) = jax.tree.map(
                     lambda x: merge_leading_dims(x, 2), (sequence, advantages)
                 )
 
@@ -221,7 +221,7 @@ def get_learner_fn(
             ) -> chex.Array:
 
                 # Remove the last timestep from the sequence.
-                sequence = jax.tree_util.tree_map(lambda x: x[:, :-1], sequence)
+                sequence = jax.tree.map(lambda x: x[:, :-1], sequence)
 
                 online_v_t = critic_apply_fn(online_critic_params, sequence.obs)  # [B, T]
 
@@ -424,7 +424,7 @@ def learner_setup(
 
     # Initialise observation
     init_x = env.observation_space().generate_value()
-    init_x = jax.tree_util.tree_map(lambda x: x[None, ...], init_x)
+    init_x = jax.tree.map(lambda x: x[None, ...], init_x)
 
     # Initialise actor params and optimiser state.
     actor_params = actor_network.init(actor_net_key, init_x)
@@ -491,8 +491,8 @@ def learner_setup(
         (n_devices, config.arch.update_batch_size, config.arch.num_envs) + x.shape[1:]
     )
     # (devices, update batch size, num_envs, ...)
-    env_states = jax.tree_util.tree_map(reshape_states, env_states)
-    timesteps = jax.tree_util.tree_map(reshape_states, timesteps)
+    env_states = jax.tree.map(reshape_states, env_states)
+    timesteps = jax.tree.map(reshape_states, timesteps)
 
     # Load model from checkpoint if specified.
     if config.logger.checkpointing.load_model:
@@ -516,7 +516,7 @@ def learner_setup(
 
     # Duplicate learner for update_batch_size.
     broadcast = lambda x: jnp.broadcast_to(x, (config.arch.update_batch_size,) + x.shape)
-    replicate_learner = jax.tree_util.tree_map(broadcast, replicate_learner)
+    replicate_learner = jax.tree.map(broadcast, replicate_learner)
 
     # Duplicate learner across devices.
     replicate_learner = flax.jax_utils.replicate(replicate_learner, devices=jax.devices())

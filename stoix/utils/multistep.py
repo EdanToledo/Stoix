@@ -176,9 +176,7 @@ def batch_n_step_bootstrapped_returns(
         estimated bootstrapped returns at times B x [0, ...., T-1]
     """
     # swap axes to make time axis the first dimension
-    r_t, discount_t, v_t = jax.tree_util.tree_map(
-        lambda x: jnp.swapaxes(x, 0, 1), (r_t, discount_t, v_t)
-    )
+    r_t, discount_t, v_t = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), (r_t, discount_t, v_t))
     seq_len = r_t.shape[0]
     batch_size = r_t.shape[1]
 
@@ -247,7 +245,7 @@ def batch_general_off_policy_returns_from_q_and_v(
       Off-policy estimates of the generalized returns from states visited at times
       [0, ..., K - 1].
     """
-    q_t, v_t, r_t, discount_t, c_t = jax.tree_util.tree_map(
+    q_t, v_t, r_t, discount_t, c_t = jax.tree.map(
         lambda x: jnp.swapaxes(x, 0, 1), (q_t, v_t, r_t, discount_t, c_t)
     )
 
@@ -387,9 +385,7 @@ def batch_lambda_returns(
 
     # Swap axes to make time axis the first dimension
     if not time_major:
-        r_t, discount_t, v_t = jax.tree_util.tree_map(
-            lambda x: jnp.swapaxes(x, 0, 1), (r_t, discount_t, v_t)
-        )
+        r_t, discount_t, v_t = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), (r_t, discount_t, v_t))
 
     # If scalar make into vector.
     lambda_ = jnp.ones_like(discount_t) * lambda_
@@ -403,7 +399,7 @@ def batch_lambda_returns(
     _, returns = jax.lax.scan(_body, v_t[-1], (r_t, discount_t, v_t, lambda_), reverse=True)
 
     if not time_major:
-        returns = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), returns)
+        returns = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), returns)
 
     return jax.lax.select(stop_target_gradients, jax.lax.stop_gradient(returns), returns)
 

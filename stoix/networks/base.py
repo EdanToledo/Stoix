@@ -140,7 +140,7 @@ class ScannedRNN(nn.Module):
             reset_state,
             current_state,
         )
-        rnn_state = jax.tree_util.tree_map(
+        rnn_state = jax.tree.map(
             hidden_state_reset_fn,
             self.initialize_carry(ins.shape[0]),
             rnn_state,
