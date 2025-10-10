@@ -28,7 +28,7 @@ Metrics: TypeAlias = chex.ArrayTree
 EvalResetFn = Callable[[chex.PRNGKey, int], Tuple[State, TimeStep]]
 
 
-class Observation(NamedTuple):
+class AgentObservation(NamedTuple):
     """The observation that the agent sees.
     agent_view: the agent's view of the environment.
     action_mask: boolean array specifying which action is legal.
@@ -183,7 +183,7 @@ class EvaluationOutput(NamedTuple, Generic[StoixState]):
     episode_metrics: Dict[str, chex.Array]
 
 
-RNNObservation: TypeAlias = Tuple[Observation, Done]
+RNNObservation: TypeAlias = Tuple[AgentObservation, Done]
 LearnerFn = Callable[[StoixState], AnakinExperimentOutput[StoixState]]
 SebulbaLearnerFn = Callable[
     [StoixState, List[StoixTransition]], SebulbaExperimentOutput[StoixState]
@@ -192,11 +192,11 @@ SebulbaEvalFn = Callable[[FrozenDict, chex.PRNGKey], Dict[str, chex.Array]]
 
 ActorApply = Callable[..., DistributionLike]
 
-ActFn = Callable[[FrozenDict, Observation, chex.PRNGKey], chex.Array]
-CriticApply = Callable[[FrozenDict, Observation], Value]
-DistributionCriticApply = Callable[[FrozenDict, Observation], DistributionLike]
-ContinuousQApply = Callable[[FrozenDict, Observation, Action], Value]
-ActorCriticApply = Callable[[FrozenDict, Observation], Tuple[DistributionLike, Value]]
+ActFn = Callable[[FrozenDict, AgentObservation, chex.PRNGKey], chex.Array]
+CriticApply = Callable[[FrozenDict, AgentObservation], Value]
+DistributionCriticApply = Callable[[FrozenDict, AgentObservation], DistributionLike]
+ContinuousQApply = Callable[[FrozenDict, AgentObservation, Action], Value]
+ActorCriticApply = Callable[[FrozenDict, AgentObservation], Tuple[DistributionLike, Value]]
 RecActorApply = Callable[
     [FrozenDict, HiddenState, RNNObservation], Tuple[HiddenState, DistributionLike]
 ]

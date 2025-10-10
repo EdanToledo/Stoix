@@ -6,7 +6,7 @@ import jax
 import jax.numpy as jnp
 from flax import linen as nn
 
-from stoix.base_types import Observation
+from stoix.base_types import AgentObservation
 from stoix.networks.inputs import ArrayInput
 from stoix.networks.layers import StackedRNN
 from stoix.networks.utils import parse_activation_fn, parse_rnn_cell
@@ -77,11 +77,11 @@ class RewardBasedWorldModel(nn.Module):
     def initial_state(self, batch_size: int) -> chex.Array:
         return jnp.zeros((batch_size, self.hidden_state_size))
 
-    def _encode_observation(self, observation: Observation) -> chex.Array:
+    def _encode_observation(self, observation: AgentObservation) -> chex.Array:
         observation = self.observation_input_layer(observation)
         return self.obs_encoder(observation)
 
-    def initial_inference(self, observation: Observation) -> chex.Array:
+    def initial_inference(self, observation: AgentObservation) -> chex.Array:
         encoded_observation = self._encode_observation(observation)
         hidden_state = self._to_hidden(encoded_observation)
         if self.nonlinear_to_hidden:
@@ -122,7 +122,7 @@ class RewardBasedWorldModel(nn.Module):
 
         return next_hidden_state, reward
 
-    def __call__(self, observation: Observation, action: chex.Array) -> chex.Array:
+    def __call__(self, observation: AgentObservation, action: chex.Array) -> chex.Array:
         """Mainly used for initialisation."""
         hidden_state = self.initial_inference(observation)
         next_hidden_state, reward = self.recurrent_inference(hidden_state, action)

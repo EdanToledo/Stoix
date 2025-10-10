@@ -9,7 +9,7 @@ import jax.numpy as jnp
 import numpy as np
 from flax import linen as nn
 
-from stoix.base_types import Observation, RNNObservation
+from stoix.base_types import AgentObservation, RNNObservation
 from stoix.networks.inputs import ArrayInput
 from stoix.networks.utils import parse_rnn_cell
 
@@ -24,7 +24,7 @@ class FeedForwardActor(nn.Module):
     @nn.compact
     def __call__(
         self,
-        observation: Observation,
+        observation: AgentObservation,
         input_kwargs: Optional[Dict] = None,
         torso_kwargs: Optional[Dict] = None,
         head_kwargs: Optional[Dict] = None,
@@ -45,7 +45,7 @@ class FeedForwardCritic(nn.Module):
     @nn.compact
     def __call__(
         self,
-        observation: Observation,
+        observation: AgentObservation,
         input_kwargs: Optional[Dict] = None,
         torso_kwargs: Optional[Dict] = None,
         head_kwargs: Optional[Dict] = None,
@@ -69,7 +69,7 @@ class FeedForwardActorCritic(nn.Module):
     @nn.compact
     def __call__(
         self,
-        observation: Observation,
+        observation: AgentObservation,
         input_kwargs: Optional[Dict] = None,
         torso_kwargs: Optional[Dict] = None,
         actor_head_kwargs: Optional[Dict] = None,
