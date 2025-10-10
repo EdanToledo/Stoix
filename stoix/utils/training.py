@@ -21,11 +21,11 @@ def make_learning_rate_schedule(
         relevant arguments to the system config and then parsing them accordingly here.
     """
 
-    def linear_scedule(count: int) -> float:
+    def linear_schedule(count: int) -> float:
         frac: float = 1.0 - (count // (num_epochs * num_minibatches)) / num_updates
         return init_lr * frac
 
-    return linear_scedule
+    return linear_schedule
 
 
 def make_learning_rate(
