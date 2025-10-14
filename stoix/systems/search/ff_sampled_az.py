@@ -668,12 +668,7 @@ def learner_setup(
         params = restored_params
 
     # Define params to be replicated across devices and batches.
-    key, step_key, warmup_key = jax.random.split(key, num=3)
-    step_keys = jax.random.split(step_key, n_devices * config.arch.update_batch_size)
-    warmup_keys = jax.random.split(warmup_key, n_devices * config.arch.update_batch_size)
-    reshape_keys = lambda x: x.reshape((n_devices, config.arch.update_batch_size) + x.shape[1:])
-    step_keys = reshape_keys(jnp.stack(step_keys))
-    warmup_keys = reshape_keys(jnp.stack(warmup_keys))
+    step_keys, warmup_keys = jax.random.split(key, (2, n_devices, config.arch.update_batch_size))
     opt_states = ActorCriticOptStates(actor_opt_state, critic_opt_state)
     replicate_learner = (params, opt_states, buffer_states)
 
