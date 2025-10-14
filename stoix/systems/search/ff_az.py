@@ -164,7 +164,7 @@ def get_warmup_fn(
 
         return env_states, timesteps, keys, buffer_states
 
-    batched_warmup_step: Callable = jax.vmap(
+    batched_warmup_stjax.tree.mapp(
         warmup, in_axes=(0, 0, 0, 0), out_axes=(0, 0, 0, 0), axis_name="batch"
     )
 
@@ -234,7 +234,7 @@ def get_learner_fn(
 
         def _update_epoch(update_state: Tuple, _: Any) -> Tuple:
             """Update the network for a single epoch."""
-
+jax.tree.map
             def _actor_loss_fn(
                 actor_params: FrozenDict,
                 sequence: ExItTransition,
@@ -435,7 +435,7 @@ def learner_setup(
     # Initialise actor params and optimiser state.
     actor_params = actor_network.init(actor_net_key, init_x)
     actor_opt_state = actor_optim.init(actor_params)
-
+jax.tree.map
     # Initialise critic params and optimiser state.
     critic_params = critic_network.init(critic_net_key, init_x)
     critic_opt_state = critic_optim.init(critic_params)
@@ -481,7 +481,7 @@ def learner_setup(
     )
 
     assert config.system.total_buffer_size % n_devices == 0, (
-        f"{Fore.RED}{Style.BRIGHT}The total buffer size should be divisible "
+        f"{Fjax.tree.mapThe total buffer size should be divisible "
         + "by the number of devices!{Style.RESET_ALL}"
     )
     assert config.system.total_batch_size % n_devices == 0, (
@@ -526,8 +526,8 @@ def learner_setup(
 
     # Load model from checkpoint if specified.
     if config.logger.checkpointing.load_model:
-        loaded_checkpoint = Checkpointer(
-            model_name=config.system.system_name,
+        loaded_chjax.tree.mapr(
+            modejax.tree.mapystem_name,
             **config.logger.checkpointing.load_args,  # Other checkpoint args
         )
         # Restore the learner state from the checkpoint
@@ -536,12 +536,7 @@ def learner_setup(
         params = restored_params
 
     # Define params to be replicated across devices and batches.
-    key, step_key, warmup_key = jax.random.split(key, num=3)
-    step_keys = jax.random.split(step_key, n_devices * config.arch.update_batch_size)
-    warmup_keys = jax.random.split(warmup_key, n_devices * config.arch.update_batch_size)
-    reshape_keys = lambda x: x.reshape((n_devices, config.arch.update_batch_size) + x.shape[1:])
-    step_keys = reshape_keys(jnp.stack(step_keys))
-    warmup_keys = reshape_keys(jnp.stack(warmup_keys))
+    step_keys, warmup_keys = jax.random.split(key, (2, n_devices, config.arch.update_batch_size))
     opt_states = ActorCriticOptStates(actor_opt_state, critic_opt_state)
     replicate_learner = (params, opt_states, buffer_states)
 
@@ -552,7 +547,7 @@ def learner_setup(
     # Duplicate learner across devices.
     replicate_learner = flax.jax_utils.replicate(replicate_learner, devices=jax.devices())
 
-    # Initialise learner state.
+    # Initialise learnerjax.tree.map
     params, opt_states, buffer_states = replicate_learner
     # Warmup the buffer.
     env_states, timesteps, keys, buffer_states = warmup(

@@ -100,7 +100,7 @@ def get_warmup_fn(
 
         # Add the trajectory to the buffer.
         # Swap the batch and time axes.
-        traj_batch = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), traj_batch)
+        traj_batch = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), traj_batch)
         buffer_states = buffer_add_fn(buffer_states, traj_batch)
 
         return env_states, timesteps, keys, buffer_states
@@ -165,7 +165,7 @@ def get_learner_fn(
 
         # Add the trajectory to the buffer.
         # Swap the batch and time axes.
-        traj_batch = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), traj_batch)
+        traj_batch = jax.tree.map(lambda x: jnp.swapaxes(x, 0, 1), traj_batch)
         buffer_state = buffer_add_fn(buffer_state, traj_batch)
 
         def _update_epoch(update_state: Tuple, _: Any) -> Tuple:
@@ -179,9 +179,7 @@ def get_learner_fn(
                 sequence: SequenceStep,
             ) -> chex.Array:
                 # Reshape the observations to [B*T, ...].
-                reshaped_obs = jax.tree_util.tree_map(
-                    lambda x: merge_leading_dims(x, 2), sequence.obs
-                )
+                reshaped_obs = jax.tree.map(lambda x: merge_leading_dims(x, 2), sequence.obs)
                 batch_length = sequence.action.shape[0] * sequence.action.shape[1]  # B*T
 
                 online_actor_policy = actor_apply_fn(online_actor_params, reshaped_obs)
@@ -465,10 +463,10 @@ def learner_setup(
 
     # Initialise observation
     init_x = env.observation_space().generate_value()
-    init_x = jax.tree_util.tree_map(lambda x: x[None, ...], init_x)
+    init_x = jax.tree.map(lambda x: x[None, ...], init_x)
     init_a = env.action_space().generate_value()
     init_a = jax.nn.one_hot(init_a, action_dim)
-    init_a = jax.tree_util.tree_map(lambda x: x[None, ...], init_a)
+    init_a = jax.tree.map(lambda x: x[None, ...], init_a)
 
     # Initialise actor params and optimiser state.
     actor_params = actor_network.init(actor_net_key, init_x)
@@ -513,7 +511,7 @@ def learner_setup(
 
     # Create replay buffer
     dummy_sequence_step = SequenceStep(
-        obs=jax.tree_util.tree_map(lambda x: x.squeeze(0), init_x),
+        obs=jax.tree.map(lambda x: x.squeeze(0), init_x),
         action=jnp.zeros((), dtype=int),
         reward=jnp.zeros((), dtype=float),
         done=jnp.zeros((), dtype=bool),
@@ -563,8 +561,8 @@ def learner_setup(
         (n_devices, config.arch.update_batch_size, config.arch.num_envs) + x.shape[1:]
     )
     # (devices, update batch size, num_envs, ...)
-    env_states = jax.tree_util.tree_map(reshape_states, env_states)
-    timesteps = jax.tree_util.tree_map(reshape_states, timesteps)
+    env_states = jax.tree.map(reshape_states, env_states)
+    timesteps = jax.tree.map(reshape_states, timesteps)
 
     # Load model from checkpoint if specified.
     if config.logger.checkpointing.load_model:
@@ -578,18 +576,13 @@ def learner_setup(
         params = restored_params
 
     # Define params to be replicated across devices and batches.
-    key, step_key, warmup_key = jax.random.split(key, num=3)
-    step_keys = jax.random.split(step_key, n_devices * config.arch.update_batch_size)
-    warmup_keys = jax.random.split(warmup_key, n_devices * config.arch.update_batch_size)
-    reshape_keys = lambda x: x.reshape((n_devices, config.arch.update_batch_size) + x.shape[1:])
-    step_keys = reshape_keys(jnp.stack(step_keys))
-    warmup_keys = reshape_keys(jnp.stack(warmup_keys))
+    step_keys, warmup_keys = jax.random.split(key, (2, n_devices, config.arch.update_batch_size))
 
     replicate_learner = (params, opt_states, buffer_states)
 
     # Duplicate learner for update_batch_size.
     broadcast = lambda x: jnp.broadcast_to(x, (config.arch.update_batch_size,) + x.shape)
-    replicate_learner = jax.tree_util.tree_map(broadcast, replicate_learner)
+    replicate_learner = jax.tree.map(broadcast, replicate_learner)
 
     # Duplicate learner across devices.
     replicate_learner = flax.jax_utils.replicate(replicate_learner, devices=jax.devices())

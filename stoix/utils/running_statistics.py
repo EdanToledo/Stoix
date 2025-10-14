@@ -76,11 +76,11 @@ def _is_prefix(a: Path, b: Path) -> bool:
 
 
 def _zeros_like(nest: chex.ArrayTree, dtype: Optional[jnp.dtype] = None) -> chex.ArrayTree:
-    return jax.tree_util.tree_map(lambda x: jnp.zeros(x.shape, dtype or x.dtype), nest)
+    return jax.tree.map(lambda x: jnp.zeros(x.shape, dtype or x.dtype), nest)
 
 
 def _ones_like(nest: chex.ArrayTree, dtype: Optional[jnp.dtype] = None) -> chex.ArrayTree:
-    return jax.tree_util.tree_map(lambda x: jnp.ones(x.shape, dtype or x.dtype), nest)
+    return jax.tree.map(lambda x: jnp.ones(x.shape, dtype or x.dtype), nest)
 
 
 @chex.dataclass(frozen=True)
@@ -187,7 +187,7 @@ def _validate_batch_shapes(
 
 
 def convert_pmap_axes_names(
-    pmap_axes: Optional[Union[str, Sequence[str]]]
+    pmap_axes: Optional[Union[str, Sequence[str]]],
 ) -> Optional[Sequence[str]]:
     """Converts pmap axes names to a list of strings."""
     # Handle multiple pmap axes
