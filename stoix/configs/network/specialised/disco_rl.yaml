@@ -1,0 +1,52 @@
+# ---MLP PPO Networks---
+agent_network:
+  torso:
+    _target_: stoix.networks.torso.MLPTorso
+    layer_sizes: [256, 256]
+    use_layer_norm: False
+    activation: relu
+  logits_head:
+    _target_: stoix.networks.base.chained_torsos
+    _recursive_: false
+    torso_cfgs:
+      - _target_: stoix.networks.torso.MLPTorso
+        layer_sizes: [128, 128]
+        use_layer_norm: False
+        activation: relu
+      - _target_: stoix.networks.heads.LinearHead
+  q_head:
+    _target_: stoix.networks.base.chained_torsos
+    _recursive_: false
+    torso_cfgs:
+      - _target_: stoix.networks.torso.MLPTorso
+        layer_sizes: [128, 128]
+        use_layer_norm: False
+        activation: relu
+      - _target_: stoix.networks.heads.LinearHead
+  y_head:
+    _target_: stoix.networks.base.chained_torsos
+    _recursive_: false
+    torso_cfgs:
+      - _target_: stoix.networks.torso.MLPTorso
+        layer_sizes: [128, 128]
+        use_layer_norm: False
+        activation: relu
+      - _target_: stoix.networks.heads.LinearHead
+  z_head:
+    _target_: stoix.networks.base.chained_torsos
+    _recursive_: false
+    torso_cfgs:
+      - _target_: stoix.networks.torso.MLPTorso
+        layer_sizes: [128, 128]
+        use_layer_norm: False
+        activation: relu
+      - _target_: stoix.networks.heads.LinearHead
+  aux_pi_head:
+    _target_: stoix.networks.base.chained_torsos
+    _recursive_: false
+    torso_cfgs:
+      - _target_: stoix.networks.torso.MLPTorso
+        layer_sizes: [128, 128]
+        use_layer_norm: False
+        activation: relu
+      - _target_: stoix.networks.heads.LinearHead

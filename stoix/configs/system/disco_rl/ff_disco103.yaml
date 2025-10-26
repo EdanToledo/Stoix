@@ -1,0 +1,48 @@
+# --- Defaults FF-Disco103 ---
+
+system_name: ff_disco103 # Name of the system.
+
+# --- RL hyperparameters ---
+rollout_length: 128 # Number of environment steps per training step.
+epochs: 4 # Number of epochs to train on the collected data.
+num_minibatches: 16 # Number of minibatches to split the data into.
+gamma: 0.997 # Discounting factor.
+lr: 3e-4 # Learning rate.
+max_abs_update: 1.0 # Maximum abs values for a weight update.
+reward_scale: 1.0 # Scaling factor for the reward.
+decay_learning_rates: False # Whether learning rates should be linearly decayed during training.
+
+# DiscoRL HyperParams - These are passed to the agent_loss functions
+disco_hyperparams:
+  pi_cost: 1.0 # Weight for the policy loss.
+  y_cost: 1.0 # Weight for the 'y' auxiliary loss.
+  z_cost: 1.0 # Weight for the 'z' auxiliary loss.
+  aux_policy_cost: 1.0 # Weight for the auxiliary policy loss.
+  value_cost: 0.2 # Weight for the value function loss.
+  value_fn_td_lambda: 0.95 # Lambda for TD(lambda) updates of the value function.
+  target_params_coeff: 0.9 # Polyak averaging coeff for target net
+
+# DiscoRL UpdateRule Config - These values are passed to the DiscoUpdateRule constructor
+disco_rule:
+  value_discount: ${system.gamma} # Discount factor for the value function.
+  max_abs_value: 300.0 # Maximum absolute value for categorical value transforms.
+  num_bins: 601 # Number of bins for the Q-network's categorical distribution.
+  moving_average_decay: 0.99 # Decay rate for the moving average of statistics.
+  # Config for the meta-network (meta_nets.LSTM)
+  net:
+    name: "lstm" # Name of the network architecture.
+    prediction_size: 600 # Size of y and z auxiliary outputs
+    hidden_size: 256 # Size of the hidden layers in the network.
+    embedding_size: [16, 1] # Size of the embeddings.
+    policy_channels: [16, 2] # Number of channels in the policy network layers.
+    policy_target_channels: [16] # Number of channels in the policy target network layers.
+    output_stddev: 0.3 # Standard deviation for the output distribution.
+    aux_stddev: 0.3 # Standard deviation for the auxiliary output distributions.
+    policy_target_stddev: 0.3 # Standard deviation for the policy target distribution.
+    state_stddev: 1.0 # Standard deviation for the state normalization.
+    # Config for the inner MetaLSTM
+    meta_rnn_kwargs:
+      hidden_size: 128 # Size of the hidden layers in the meta-network.
+      embedding_size: [16] # Size of the embeddings in the meta-network.
+      pred_embedding_size: [16, 1] # Size of the prediction embeddings in the meta-network.
+      policy_channels: [16, 2] # Number of channels in the policy layers of the meta-network.

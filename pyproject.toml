@@ -99,6 +99,7 @@ popjym = { git = "https://github.com/FLAIROx/popjym.git", rev = "main" }
 popgym-arcade = { git = "https://github.com/bolt-research/popgym-arcade.git", rev = "main" }
 gymnax = { git = "https://github.com/RobertTLange/gymnax.git", rev = "main" }
 stoa-env = { git = "https://github.com/EdanToledo/Stoa.git", rev = "main" }
+disco_rl = { git = "https://github.com/google-deepmind/disco_rl.git", rev = "main" }
 
 
 [project]
@@ -158,7 +159,8 @@ dependencies = [
     "tqdm>=4.67.1",
     "wandb>=0.19.8",
     "playground>=0.0.5",
-    "protobuf==3.20.3"
+    "protobuf==3.20.3",
+    "disco_rl @ git+https://github.com/google-deepmind/disco_rl.git@main"
 ]
 
 [dependency-groups]

@@ -294,11 +294,21 @@ class QuantileDiscreteQNetwork(nn.Module):
 class LinearHead(nn.Module):
     output_dim: int
     kernel_init: Initializer = orthogonal(0.01)
+    pre_shape: Optional[Tuple[int, ...]] = None
+
+    def setup(self) -> None:
+        if self.pre_shape is not None:
+            self.shape = self.pre_shape + (self.output_dim,)
+        else:
+            self.shape = (self.output_dim,)
+        self.output_size = int(np.prod(self.shape))
 
     @nn.compact
     def __call__(self, embedding: chex.Array) -> chex.Array:
-
-        return nn.Dense(self.output_dim, kernel_init=self.kernel_init)(embedding)
+        out = nn.Dense(self.output_size, kernel_init=self.kernel_init)(embedding)
+        if self.pre_shape is None:
+            return out
+        return out.reshape(out.shape[:-1] + self.shape)
 
 
 class MultiDiscreteHead(nn.Module):
