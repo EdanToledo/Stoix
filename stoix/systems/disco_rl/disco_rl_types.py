@@ -1,11 +1,10 @@
-# stoix/systems/disco/disco_types.py
 from typing import Dict
 
 import chex
+from disco_rl import types as disco_types
 from stoa import TimeStep, WrapperState
 from typing_extensions import NamedTuple
 
-from disco_rl import types as disco_types
 from stoix.base_types import ActorCriticOptStates, ActorCriticParams
 
 

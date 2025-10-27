@@ -10,6 +10,7 @@ import jax.numpy as jnp
 import numpy as np
 import optax
 from colorama import Fore, Style
+from disco_rl import types as disco_types
 from disco_rl.update_rules import disco as disco_rule
 from flax.core.frozen_dict import FrozenDict
 from ml_collections import ConfigDict
@@ -17,7 +18,6 @@ from omegaconf import DictConfig, OmegaConf
 from stoa import Environment, get_final_step_metrics
 from tensorflow_probability.substrates.jax.distributions import Categorical
 
-from disco_rl import types as disco_types
 from stoix.base_types import AnakinExperimentOutput, LearnerFn
 from stoix.evaluator import evaluator_setup
 from stoix.networks.specialised.disco103 import DiscoAgentNetwork
