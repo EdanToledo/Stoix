@@ -99,7 +99,6 @@ popjym = { git = "https://github.com/FLAIROx/popjym.git", rev = "main" }
 popgym-arcade = { git = "https://github.com/bolt-research/popgym-arcade.git", rev = "main" }
 gymnax = { git = "https://github.com/RobertTLange/gymnax.git", rev = "main" }
 stoa-env = { git = "https://github.com/EdanToledo/Stoa.git", rev = "main" }
-disco_rl = { git = "https://github.com/google-deepmind/disco_rl.git", rev = "main" }
 
 
 [project]
@@ -160,7 +159,6 @@ dependencies = [
     "wandb>=0.19.8",
     "playground>=0.0.5",
     "protobuf==3.20.3",
-    "disco_rl @ git+https://github.com/google-deepmind/disco_rl.git@main ; python_version >= '3.11'"
 ]
 
 [dependency-groups]
@@ -172,6 +170,10 @@ dev = [
   "pytest-cov", "pytest-mock", "pytest-parallel", "pytest-xdist", "pytype",
   "testfixtures",
 ]
+
+[dependency-groups.optional]
+disco = ["disco_rl @ git+https://github.com/google-deepmind/disco_rl.git@main ; python_version >= '3.11'"]
+
 
 [project.urls]
 "Homepage" = "https://github.com/EdanToledo/Stoix"
