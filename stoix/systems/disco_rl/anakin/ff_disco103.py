@@ -108,9 +108,9 @@ def get_learner_fn(
                     observations: chex.ArrayTree,
                     unused_should_reset_mask_fwd: chex.Array,
                 ) -> Tuple[chex.ArrayTree, None]:
-                    """Since this is a feedforward network, we can just vmap over time and batch."""
+                    """Since this is a feedforward network, we can just vmap over time"""
                     apply_fn = lambda obs: agent_apply_fn(params, obs)
-                    agent_out = jax.vmap(jax.vmap(apply_fn))(observations)
+                    agent_out = jax.vmap(apply_fn)(observations)
                     return agent_out._asdict(), unused_state
 
                 def _agent_loss_fn(
@@ -347,33 +347,35 @@ def learner_setup(
     out_model_spec = meta_update_rule.model_output_spec(action_spec)
 
     # Define network and optimiser.
-    pre_shape = (num_actions,)
-    torso = hydra.utils.instantiate(config.network.agent_network.torso)
+    shared_torso = hydra.utils.instantiate(config.network.agent_network.shared_torso)
     logits_head = hydra.utils.instantiate(
         config.network.agent_network.logits_head, output_dim=num_actions
-    )
-    q_head = hydra.utils.instantiate(
-        config.network.agent_network.q_head,
-        output_dim=int(out_model_spec["q"].shape[-1]),
-        pre_shape=pre_shape,
     )
     y_head = hydra.utils.instantiate(
         config.network.agent_network.y_head, output_dim=int(out_model_spec["z"].shape[-1])
     )
+    # Action Conditional Torso
+    action_conditional_torso = hydra.utils.instantiate(
+        config.network.agent_network.action_conditional_torso, num_actions=num_actions
+    )
+    # Action Conditional Heads
+    q_head = hydra.utils.instantiate(
+        config.network.agent_network.q_head,
+        output_dim=int(out_model_spec["q"].shape[-1]),
+    )
     z_head = hydra.utils.instantiate(
         config.network.agent_network.z_head,
         output_dim=int(out_model_spec["z"].shape[-1]),
-        pre_shape=pre_shape,
     )
     aux_pi_head = hydra.utils.instantiate(
         config.network.agent_network.aux_pi_head,
         output_dim=int(out_model_spec["aux_pi"].shape[-1]),
-        pre_shape=pre_shape,
     )
 
     # Instantiate the agent network
     agent_network = DiscoAgentNetwork(
-        torso=torso,
+        shared_torso=shared_torso,
+        action_conditional_torso=action_conditional_torso,
         logits_head=logits_head,
         q_head=q_head,
         y_head=y_head,
