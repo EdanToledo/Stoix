@@ -327,7 +327,7 @@ def learner_setup(
     disco_103_url = f"https://raw.githubusercontent.com/google-deepmind/disco_rl/main/disco_rl/update_rules/weights/{disco_103_fname}"  # noqa: E501
     # Download the weights if not already present
     path = get_or_create_file(
-        disco_103_fname, disco_103_url, cache_dir="disco_rl/weights", filetype="npz"
+        disco_103_fname, disco_103_url, cache_dir="disco_rl_weights", filetype="npz"
     )
     with open(f"{path}", "rb") as file:
         meta_params = unflatten_params(np.load(file))

@@ -5,7 +5,7 @@ system_name: ff_disco103 # Name of the system.
 # --- RL hyperparameters ---
 rollout_length: 128 # Number of environment steps per training step.
 epochs: 4 # Number of epochs to train on the collected data.
-num_minibatches: 16 # Number of minibatches to split the data into.
+num_minibatches: 8 # Number of minibatches to split the data into.
 gamma: 0.997 # Discounting factor.
 lr: 3e-4 # Learning rate.
 max_abs_update: 1.0 # Maximum abs values for a weight update.
