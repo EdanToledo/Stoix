@@ -3361,15 +3361,15 @@ wheels = [
 
 [[package]]
 name = "protobuf"
-version = "3.20.2"
+version = "3.20.3"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/3d/79/34fbcce8666c74ec6729e2844143fd066d9708eecb89ecd2037fc6cfe9a9/protobuf-3.20.2.tar.gz", hash = "sha256:712dca319eee507a1e7df3591e639a2b112a2f4a62d40fe7832a16fd19151750", size = 216716, upload-time = "2022-09-13T21:56:49.375Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/55/5b/e3d951e34f8356e5feecacd12a8e3b258a1da6d9a03ad1770f28925f29bc/protobuf-3.20.3.tar.gz", hash = "sha256:2e3427429c9cffebf259491be0af70189607f365c2f41c7c3764af6f337105f2", size = 216768, upload-time = "2022-09-29T22:39:47.592Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f9/c5/fc6c282fa6e8408684059f2c04ee3e1957e6ed454c896de279f4b725b2fb/protobuf-3.20.2-cp310-cp310-manylinux2014_aarch64.whl", hash = "sha256:09e25909c4297d71d97612f04f41cea8fa8510096864f2835ad2f3b3df5a5559", size = 918426, upload-time = "2022-09-14T18:30:25.484Z" },
-    { url = "https://files.pythonhosted.org/packages/3d/6e/aab44b481801b04d95ba01f71f41b15960265045061cf6061c8c313b83c6/protobuf-3.20.2-cp310-cp310-manylinux_2_12_x86_64.manylinux2010_x86_64.whl", hash = "sha256:e8fbc522303e09036c752a0afcc5c0603e917222d8bedc02813fd73b4b4ed804", size = 1051042, upload-time = "2022-09-14T18:30:27.319Z" },
-    { url = "https://files.pythonhosted.org/packages/e8/85/66a2453a3d76a0e5e1fee55cc2661a401558abdb1564818af0413e249423/protobuf-3.20.2-cp310-cp310-win32.whl", hash = "sha256:84a1544252a933ef07bb0b5ef13afe7c36232a774affa673fc3636f7cee1db6c", size = 780166, upload-time = "2022-09-14T18:30:29.508Z" },
-    { url = "https://files.pythonhosted.org/packages/39/f3/393c00e45439a46f293077da5b0362a1a4d04b2c8242c35a763f03e8e742/protobuf-3.20.2-cp310-cp310-win_amd64.whl", hash = "sha256:2c0b040d0b5d5d207936ca2d02f00f765906622c07d3fa19c23a16a8ca71873f", size = 904027, upload-time = "2022-09-14T18:30:31.373Z" },
-    { url = "https://files.pythonhosted.org/packages/8b/e6/2a47ce2eba1aaf287380a44270da897ada03d118a55c19595ec7b4f0831f/protobuf-3.20.2-py2.py3-none-any.whl", hash = "sha256:c9cdf251c582c16fd6a9f5e95836c90828d51b0069ad22f463761d27c6c19019", size = 162128, upload-time = "2022-09-13T21:56:47.5Z" },
+    { url = "https://files.pythonhosted.org/packages/28/55/b80e8567ec327c060fa39b242392e25690c8899c489ecd7bb65b46b7bb55/protobuf-3.20.3-cp310-cp310-manylinux2014_aarch64.whl", hash = "sha256:f4bd856d702e5b0d96a00ec6b307b0f51c1982c2bf9c0052cf9019e9a544ba99", size = 918427, upload-time = "2022-09-29T22:10:52.591Z" },
+    { url = "https://files.pythonhosted.org/packages/31/be/80a9c6f16dfa4d41be3edbe655349778ae30882407fa8275eb46b4d34854/protobuf-3.20.3-cp310-cp310-manylinux_2_12_x86_64.manylinux2010_x86_64.whl", hash = "sha256:9aae4406ea63d825636cc11ffb34ad3379335803216ee3a856787bcf5ccc751e", size = 1051042, upload-time = "2022-09-29T22:10:54.629Z" },
+    { url = "https://files.pythonhosted.org/packages/db/96/948d3fcc1fa816e7ae1d27af59b9d8c5c5e582f3994fd14394f31da95b99/protobuf-3.20.3-cp310-cp310-win32.whl", hash = "sha256:28545383d61f55b57cf4df63eebd9827754fd2dc25f80c5253f9184235db242c", size = 780167, upload-time = "2022-09-29T22:10:56.276Z" },
+    { url = "https://files.pythonhosted.org/packages/6f/5e/fc6feb366b0a9f28e0a2de3b062667c521cd9517d4ff55077b8f351ba2f3/protobuf-3.20.3-cp310-cp310-win_amd64.whl", hash = "sha256:67a3598f0a2dcbc58d02dd1928544e7d88f764b47d4a286202913f0b2801c2e7", size = 904029, upload-time = "2022-09-29T22:10:57.866Z" },
+    { url = "https://files.pythonhosted.org/packages/8d/14/619e24a4c70df2901e1f4dbc50a6291eb63a759172558df326347dce1f0d/protobuf-3.20.3-py2.py3-none-any.whl", hash = "sha256:a7ca6d488aa8ff7f329d4c545b2dbad8ac31464f1d8b1c87ad1346717731e4db", size = 162128, upload-time = "2022-09-29T22:39:44.547Z" },
 ]
 
 [[package]]
@@ -4588,7 +4588,6 @@ dependencies = [
     { name = "colorama" },
     { name = "craftax" },
     { name = "distrax" },
-    { name = "envpool", marker = "sys_platform == 'linux'" },
     { name = "flashbax" },
     { name = "flax" },
     { name = "gymnasium" },
@@ -4621,6 +4620,12 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+envpool = [
+    { name = "envpool", marker = "sys_platform == 'linux'" },
+    { name = "jax" },
+]
+
+[package.dev-dependencies]
 dev = [
     { name = "black" },
     { name = "coverage" },
@@ -4651,15 +4656,12 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "black", marker = "extra == 'dev'" },
     { name = "brax", specifier = ">=0.9.0" },
     { name = "chex", specifier = ">=0.1.89" },
     { name = "colorama", specifier = ">=0.4.6" },
-    { name = "coverage", marker = "extra == 'dev'" },
     { name = "craftax", specifier = ">=1.4.5" },
     { name = "distrax" },
-    { name = "envpool", marker = "sys_platform == 'linux'", specifier = ">=0.8.4" },
-    { name = "flake8", marker = "extra == 'dev'" },
+    { name = "envpool", marker = "sys_platform == 'linux' and extra == 'envpool'", specifier = ">=0.8.4" },
     { name = "flashbax", git = "https://github.com/instadeepai/flashbax?rev=main" },
     { name = "flax", specifier = ">=0.10.5" },
     { name = "gymnasium", specifier = ">=1.1.1" },
@@ -4667,24 +4669,13 @@ requires-dist = [
     { name = "huggingface-hub", specifier = ">=0.30.1" },
     { name = "hydra-core", specifier = ">=1.3.2" },
     { name = "id-marl-eval", git = "https://github.com/EdanToledo/marl-eval?rev=main" },
-    { name = "importlib-metadata", marker = "extra == 'dev'" },
-    { name = "isort", marker = "extra == 'dev'" },
     { name = "jax", specifier = ">=0.4.25" },
+    { name = "jax", marker = "extra == 'envpool'", specifier = ">=0.4.25,<0.6.0" },
     { name = "jaxlib", specifier = ">=0.5.3" },
     { name = "jumanji", specifier = ">=1.0.0" },
     { name = "kinetix-env", specifier = ">=1.0.6" },
-    { name = "livereload", marker = "extra == 'dev'" },
     { name = "mctx", specifier = ">=0.0.5" },
-    { name = "mkdocs", marker = "extra == 'dev'" },
-    { name = "mkdocs-git-revision-date-plugin", marker = "extra == 'dev'" },
-    { name = "mkdocs-include-markdown-plugin", marker = "extra == 'dev'" },
-    { name = "mkdocs-material", marker = "extra == 'dev'" },
-    { name = "mkdocs-mermaid2-plugin", marker = "extra == 'dev'" },
-    { name = "mkdocstrings", marker = "extra == 'dev'" },
-    { name = "mknotebooks", marker = "extra == 'dev'" },
-    { name = "mypy", marker = "extra == 'dev'" },
     { name = "navix", specifier = ">=0.7.0" },
-    { name = "nbmake", marker = "extra == 'dev'" },
     { name = "neptune", specifier = ">=1.13.0" },
     { name = "numpy", specifier = ">=1.26.4" },
     { name = "omegaconf", specifier = ">=2.3.0" },
@@ -4693,26 +4684,46 @@ requires-dist = [
     { name = "playground", specifier = ">=0.0.5" },
     { name = "popgym-arcade", git = "https://github.com/bolt-research/popgym-arcade.git?rev=main" },
     { name = "popjym", git = "https://github.com/FLAIROx/popjym.git?rev=main" },
-    { name = "pre-commit", marker = "extra == 'dev'" },
-    { name = "promise", marker = "extra == 'dev'" },
+    { name = "protobuf", specifier = "==3.20.3" },
     { name = "protobuf", specifier = ">=3.20.2" },
-    { name = "pymdown-extensions", marker = "extra == 'dev'" },
-    { name = "pytest", marker = "extra == 'dev'" },
-    { name = "pytest-cov", marker = "extra == 'dev'" },
-    { name = "pytest-mock", marker = "extra == 'dev'" },
-    { name = "pytest-parallel", marker = "extra == 'dev'" },
-    { name = "pytest-xdist", marker = "extra == 'dev'" },
-    { name = "pytype", marker = "extra == 'dev'" },
     { name = "rlax", specifier = ">=0.1.6" },
     { name = "stoa-env", extras = ["all"], git = "https://github.com/EdanToledo/Stoa.git?rev=main" },
     { name = "tensorboard-logger", specifier = ">=0.1.0" },
     { name = "tensorflow-probability", specifier = ">=0.25.0" },
-    { name = "testfixtures", marker = "extra == 'dev'" },
     { name = "tqdm", specifier = ">=4.67.1" },
     { name = "wandb", specifier = ">=0.19.8" },
     { name = "xminigrid", git = "https://github.com/corl-team/xland-minigrid.git?rev=main" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["envpool"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "black" },
+    { name = "coverage" },
+    { name = "flake8" },
+    { name = "importlib-metadata" },
+    { name = "isort" },
+    { name = "livereload" },
+    { name = "mkdocs" },
+    { name = "mkdocs-git-revision-date-plugin" },
+    { name = "mkdocs-include-markdown-plugin" },
+    { name = "mkdocs-material" },
+    { name = "mkdocs-mermaid2-plugin" },
+    { name = "mkdocstrings" },
+    { name = "mknotebooks" },
+    { name = "mypy" },
+    { name = "nbmake" },
+    { name = "pre-commit" },
+    { name = "promise" },
+    { name = "pymdown-extensions" },
+    { name = "pytest" },
+    { name = "pytest-cov" },
+    { name = "pytest-mock" },
+    { name = "pytest-parallel" },
+    { name = "pytest-xdist" },
+    { name = "pytype" },
+    { name = "testfixtures" },
+]
 
 [[package]]
 name = "svgwrite"
