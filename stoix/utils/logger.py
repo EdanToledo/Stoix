@@ -6,23 +6,52 @@ import zipfile
 from datetime import datetime
 from enum import Enum
 from os import PathLike
-from typing import Callable, ClassVar, Dict, List, Union
+from typing import TYPE_CHECKING, Callable, ClassVar, Dict, List, Union
 
 import hydra
 import jax
 import numpy as np
-import wandb
 from colorama import Fore, Style
 from etils.epath import Path
 from jax import tree
 from jax.typing import ArrayLike
-from neptune.utils import stringify_unsupported
 from omegaconf import DictConfig, OmegaConf
 from pandas.io.json._normalize import _simple_json_normalize as flatten_dict
 from rich.pretty import pprint
-from tensorboard_logger import configure, log_value
 
 from stoix.base_types import Metrics
+
+# Optional tensorboard_logger - has protobuf compatibility issues
+try:
+    from tensorboard_logger import configure, log_value
+    TENSORBOARD_LOGGER_AVAILABLE = True
+except (ImportError, TypeError) as e:
+    TENSORBOARD_LOGGER_AVAILABLE = False
+    # Dummy functions if tensorboard_logger not available
+    def configure(*args, **kwargs):
+        pass
+    def log_value(*args, **kwargs):
+        pass
+
+# Optional imports for external loggers
+try:
+    import wandb
+    WANDB_AVAILABLE = True
+except ImportError:
+    WANDB_AVAILABLE = False
+
+try:
+    from neptune.utils import stringify_unsupported
+    NEPTUNE_AVAILABLE = True
+except ImportError:
+    NEPTUNE_AVAILABLE = False
+    # Fallback for stringify_unsupported used by WandbLogger too
+    def stringify_unsupported(obj: Dict) -> Dict:
+        """Fallback for neptune.utils.stringify_unsupported."""
+        import json
+        def default_serializer(o):
+            return str(o)
+        return json.loads(json.dumps(obj, default=default_serializer))
 
 
 class LogEvent(Enum):
