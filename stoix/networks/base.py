@@ -1,4 +1,5 @@
 import functools
+import inspect
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import chex
@@ -221,14 +222,31 @@ class RecurrentCritic(nn.Module):
         return critic_hidden_state, critic_output
 
 
-def chained_torsos(torso_cfgs: List[Dict[str, Any]]) -> nn.Module:
+def chained_torsos(torso_cfgs: List[Dict[str, Any]], **kwargs: Dict[str, Any]) -> nn.Module:
     """Create a network by chaining multiple torsos together using a list of configs.
     This makes use of hydra to instantiate the modules and the composite network
-    to chain them together.
+    to chain them together. Be careful when using kwargs, if two torsos accept
+    the same argument name, the value will be passed to both torsos.
 
     Args:
         torso_cfgs: List of dictionaries containing the configuration for each torso.
-            These configs should use the same format as the individual torso configs."""
+            These configs should use the same format as the individual torso configs.
+        **kwargs: Additional keyword arguments to pass to each torso during instantiation.
+    """
 
-    torso_modules = [hydra.utils.instantiate(torso_cfg) for torso_cfg in torso_cfgs]
+    torso_modules = []
+    for torso_cfg in torso_cfgs:
+        # Get the target class
+        target_class = hydra.utils.get_class(torso_cfg["_target_"])
+
+        # Inspect the signature to find all accepted parameter names
+        sig = inspect.signature(target_class)
+        accepted_keys = set(sig.parameters.keys())
+
+        # Filter the kwargs based on the accepted keys
+        current_kwargs = {k: v for k, v in kwargs.items() if k in accepted_keys}
+
+        # Instantiate with the filtered kwargs
+        torso_modules.append(hydra.utils.instantiate(torso_cfg, **current_kwargs))
+
     return CompositeNetwork(torso_modules)

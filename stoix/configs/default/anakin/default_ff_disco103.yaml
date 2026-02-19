@@ -1,0 +1,11 @@
+defaults:
+  - logger: logger
+  - arch: anakin
+  - system: disco_rl/ff_disco103
+  - network: specialised/disco_rl
+  - env: gymnax/cartpole
+  - _self_
+
+hydra:
+  searchpath:
+    - file://stoix/configs
