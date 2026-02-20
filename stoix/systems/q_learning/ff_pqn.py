@@ -16,9 +16,9 @@ from stoa import Environment, get_final_step_metrics
 
 from stoix.base_types import (
     ActorApply,
+    AgentObservation,
     AnakinExperimentOutput,
     LearnerFn,
-    Observation,
     OnPolicyLearnerState,
 )
 from stoix.evaluator import evaluator_setup, get_distribution_act_fn
@@ -131,7 +131,7 @@ def get_learner_fn(
 
                 def _q_loss_fn(
                     params: FrozenDict,
-                    o_tm1: Observation,
+                    o_tm1: AgentObservation,
                     a_tm1: chex.Array,
                     targets: chex.Array,
                 ) -> Tuple:

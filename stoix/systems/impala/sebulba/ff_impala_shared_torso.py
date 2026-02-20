@@ -28,10 +28,10 @@ from stoix.base_types import (
     ActorCriticApply,
     ActorCriticOptStates,
     ActorCriticParams,
+    AgentObservation,
     CoreLearnerState,
     CriticApply,
     LogProb,
-    Observation,
     SebulbaExperimentOutput,
     SebulbaLearnerFn,
 )
@@ -106,11 +106,14 @@ class AsyncEvaluator(AsyncEvaluatorBase):
 
 def get_act_fn(
     actor_critic_apply_fn: ActorCriticApply,
-) -> Callable[[FrozenDict, Observation, chex.PRNGKey], Tuple[Action, LogProb, chex.PRNGKey],]:
+) -> Callable[
+    [FrozenDict, AgentObservation, chex.PRNGKey],
+    Tuple[Action, LogProb, chex.PRNGKey],
+]:
     """Create action function for actor threads."""
 
     def actor_fn(
-        params: FrozenDict, observation: Observation, rng_key: chex.PRNGKey
+        params: FrozenDict, observation: AgentObservation, rng_key: chex.PRNGKey
     ) -> Tuple[Action, LogProb, chex.PRNGKey]:
         rng_key, policy_key = jax.random.split(rng_key)
         pi, _ = actor_critic_apply_fn(params, observation)
@@ -593,7 +596,10 @@ def get_learner_rollout_fn(
 
                 # Perform learning update
                 with timer.time("learn_step_time"):
-                    (learner_state, loss_info,) = learner_step_fn(
+                    (
+                        learner_state,
+                        loss_info,
+                    ) = learner_step_fn(
                         learner_state,
                         sharded_storages,
                     )

@@ -18,10 +18,10 @@ from stoa import Environment, TimeStep, WrapperState, get_final_step_metrics
 
 from stoix.base_types import (
     ActorApply,
+    AgentObservation,
     AnakinExperimentOutput,
     ContinuousQApply,
     LearnerFn,
-    Observation,
     OffPolicyLearnerState,
     OnlineAndTarget,
 )
@@ -43,7 +43,7 @@ from stoix.utils.training import make_learning_rate
 
 def get_default_behavior_policy(config: DictConfig, actor_apply_fn: ActorApply) -> Callable:
     def behavior_policy(
-        params: DDPGParams, observation: Observation, key: chex.PRNGKey
+        params: DDPGParams, observation: AgentObservation, key: chex.PRNGKey
     ) -> chex.Array:
         action = actor_apply_fn(params, observation).mode()
         action_scale = (config.system.action_maximum - config.system.action_minimum) / 2
