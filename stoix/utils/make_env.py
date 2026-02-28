@@ -304,6 +304,53 @@ def make_debug_env(scenario_name: str, config: DictConfig) -> Tuple[Environment,
     return env, eval_env
 
 
+def make_jaxarc_env(
+    scenario_name: str, config: DictConfig
+) -> Tuple[Environment, Environment]:
+    """Creates and wraps a JaxARC environment for ARC puzzle tasks.
+
+    JaxARC environments are natively Stoa-compatible, so no adapter is needed.
+    Domain-specific wrapper application (action, observation) is delegated to
+    JaxARC's factory function. ExtendedMetrics is applied after RecordEpisodeMetrics
+    so that domain-specific metrics merge correctly with episode metrics.
+    """
+    try:
+        from jaxarc.stoix_adapter import make_jaxarc_env as _make_jaxarc
+        from jaxarc.wrappers import ExtendedMetrics
+    except ImportError as e:
+        raise ImportError(
+            "JaxARC is required for 'jaxarc' environments. "
+            "Install it with: pip install jaxarc"
+        ) from e
+
+    env, eval_env = _make_jaxarc(config)
+    env, eval_env = apply_optional_wrappers((env, eval_env), config)
+
+    # Apply core wrappers with ExtendedMetrics injected after RecordEpisodeMetrics.
+    # ExtendedMetrics must come after REM so it can merge its fields into the
+    # episode_metrics dict that REM creates, rather than being overwritten by it.
+    # Note: only train_env gets core wrappers (standard Stoix pattern).
+    env = AddRNGKey(env)
+    env = RecordEpisodeMetrics(env)
+    env = ExtendedMetrics(env)
+
+    if config.env.get("use_optimistic_reset", False):
+        env = OptimisticResetVmapWrapper(
+            env,
+            config.arch.num_envs,
+            min(config.env.get("reset_ratio", 16), config.arch.num_envs),
+            next_obs_in_extras=True,
+        )
+    else:
+        if config.env.get("use_cached_auto_reset", False):
+            env = CachedAutoResetWrapper(env, next_obs_in_extras=True)
+        else:
+            env = AutoResetWrapper(env, next_obs_in_extras=True)
+        env = VmapWrapper(env)
+
+    return env, eval_env
+
+
 def make_popjym_env(scenario_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
     """Creates and wraps a POPJym environment."""
     import popjym
@@ -378,6 +425,7 @@ ENV_MAKERS = {
     "gymnax": make_gymnax_env,
     "brax": make_brax_env,
     "craftax": make_craftax_env,
+    "jaxarc": make_jaxarc_env,
     "popgym_arcade": make_popgym_arcade_env,
     "xland_minigrid": make_xland_minigrid_env,
     "popjym": make_popjym_env,
