@@ -157,9 +157,7 @@ def get_rollout_fn(
     @jax.jit
     def prepare_data(evaluation: ESEvaluation) -> ESEvaluation:
         """Prepare and shard evaluation data for learner devices."""
-        return jax.tree.map(
-            lambda x: jnp.split(x, len(learner_devices)), evaluation
-        )
+        return ESEvaluation(*jax.tree.map(lambda x: jnp.split(x, len(learner_devices)), evaluation))
 
     @jax.jit
     def flatten_params(params: FrozenDict) -> chex.Array:
@@ -174,9 +172,7 @@ def get_rollout_fn(
         )(perturbation_seeds)
 
     @jax.jit
-    def compute_perturbed_params(
-        flat_params: chex.Array, all_noise: chex.Array
-    ) -> FrozenDict:
+    def compute_perturbed_params(flat_params: chex.Array, all_noise: chex.Array) -> FrozenDict:
         """Compute all perturbed parameter sets for one generation.
 
         Builds signed noise (antithetic if configured), repeats for multi-episode
