@@ -101,14 +101,22 @@ class AsyncEvaluator(AsyncEvaluatorBase):
 def get_act_fn(
     apply_fn: ActorApply,
 ) -> Callable[[FrozenDict, Observation, chex.PRNGKey], Tuple[chex.Array, chex.PRNGKey],]:
-    """Create action function for actor threads."""
+    """Create action function for actor threads.
+
+    Note: This function is designed to be vmapped. Each vmapped call receives a single
+    observation (no batch dim), so we add/remove a batch dim around the network call.
+    """
 
     def actor_fn(
         params: FrozenDict, observation: Observation, rng_key: chex.PRNGKey
     ) -> Tuple[chex.Array, chex.PRNGKey]:
         rng_key, policy_key = jax.random.split(rng_key)
+        # Add batch dim for network (vmap strips the env batch dim)
+        observation = jnp.expand_dims(observation, axis=0)
         pi = apply_fn(params, observation)
         action = pi.sample(seed=policy_key)
+        # Remove batch dim
+        action = jnp.squeeze(action, axis=0)
         return action, rng_key
 
     return actor_fn
