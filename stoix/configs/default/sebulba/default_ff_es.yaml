@@ -1,0 +1,11 @@
+defaults:
+  - logger: logger
+  - arch: sebulba
+  - system: es/ff_es
+  - network: mlp
+  - env: gymnasium/lunarlander
+  - _self_
+
+hydra:
+  searchpath:
+    - file://stoix/configs
