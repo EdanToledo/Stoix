@@ -10,4 +10,3 @@ antithetic: true # Use antithetic sampling (mirror perturbations).
 fitness_shaping: centered_rank # Fitness shaping method: centered_rank, z_score, raw.
 num_episodes_per_eval: 1 # Episodes per perturbation fitness evaluation. Higher = less noisy fitness.
 max_grad_norm: ~ # Maximum norm of the gradients for a weight update. Set to null for no clipping.
-decay_learning_rates: false # Whether learning rates should be linearly decayed during training.
