@@ -3,8 +3,23 @@ defaults:
   - arch: sebulba
   - system: es/ff_es
   - network: mlp
-  - env: gymnasium/lunarlander
+  - env: envpool/cartpole
   - _self_
+
+
+arch:
+  total_num_envs: 128  # Not relevant for ES But defines max number of *parallel* (not total) envs for async eval.
+  total_timesteps: ~ # Not relevant for ES.
+  num_updates: 300 # Number of generations.
+  actor:
+    device_ids: [0,1,2,3,4,5,6,7] # Define which devices to use for the actors.
+    actor_per_device: 2 # number of different threads per actor device.
+    log_frequency: 10 # How often to log actor statistics.
+
+  # Define which devices to use for the learner.
+  learner:
+    device_ids: [0] # Define which devices to use for the learner.
+    log_frequency: 10 # How often to log learner statistics.
 
 hydra:
   searchpath:

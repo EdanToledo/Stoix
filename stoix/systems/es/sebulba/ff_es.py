@@ -100,7 +100,7 @@ class AsyncEvaluator(AsyncEvaluatorBase):
 
 def get_act_fn(
     apply_fn: ActorApply,
-) -> Callable[[FrozenDict, Observation, chex.PRNGKey], Tuple[chex.Array, chex.PRNGKey],]:
+) -> Callable[[FrozenDict, Observation, chex.PRNGKey], Tuple[chex.Array, chex.PRNGKey]]:
     """Create action function for actor threads.
 
     Note: This function is designed to be vmapped. Each vmapped call receives a single
@@ -133,20 +133,10 @@ def get_rollout_fn(
     learner_devices: Sequence[jax.Device],
     seeds: List[int],
     thread_lifetime: ThreadLifetime,
+    unravel_fn: Callable,
+    flat_params_shape: Tuple[int, ...],
 ) -> Callable[[chex.PRNGKey], None]:
     """Create rollout function for actor threads."""
-
-    # Setup action function — vmap over (params, obs, key) for batched perturbation eval
-    act_fn = get_act_fn(apply_fn)
-    batched_act_fn = jax.jit(jax.vmap(act_fn), device=actor_device)
-
-    @jax.jit
-    def prepare_data(evaluation: ESEvaluation) -> List[ESEvaluation]:
-        """Prepare and shard evaluation data for learner devices."""
-        split_data: List[ESEvaluation] = jax.tree.map(
-            lambda x: jnp.split(x, len(learner_devices)), evaluation
-        )
-        return split_data
 
     # Cache frequently used config values
     perturbations_per_actor = config.arch.perturbations_per_actor
@@ -159,6 +149,47 @@ def get_rollout_fn(
     actor_log_frequency = config.arch.actor.log_frequency
     num_updates = config.arch.num_updates
     synchronous = config.arch.synchronous
+
+    # Setup action function — vmap over (params, obs, key) for batched perturbation eval
+    act_fn = get_act_fn(apply_fn)
+    batched_act_fn = jax.jit(jax.vmap(act_fn), device=actor_device)
+
+    @jax.jit
+    def prepare_data(evaluation: ESEvaluation) -> ESEvaluation:
+        """Prepare and shard evaluation data for learner devices."""
+        return jax.tree.map(
+            lambda x: jnp.split(x, len(learner_devices)), evaluation
+        )
+
+    @jax.jit
+    def flatten_params(params: FrozenDict) -> chex.Array:
+        """Flatten parameter pytree to a single vector."""
+        return jax.flatten_util.ravel_pytree(params)[0]
+
+    @jax.jit
+    def generate_noise_vectors(perturbation_seeds: chex.Array) -> chex.Array:
+        """Generate noise vectors from seeds."""
+        return jax.vmap(
+            lambda s: jax.random.normal(jax.random.PRNGKey(s), shape=flat_params_shape)
+        )(perturbation_seeds)
+
+    @jax.jit
+    def compute_perturbed_params(
+        flat_params: chex.Array, all_noise: chex.Array
+    ) -> FrozenDict:
+        """Compute all perturbed parameter sets for one generation.
+
+        Builds signed noise (antithetic if configured), repeats for multi-episode
+        evaluation, and unravels flat vectors back into parameter pytrees.
+        """
+        if antithetic:
+            signed_noise = jnp.concatenate([all_noise, -all_noise], axis=0)
+        else:
+            signed_noise = all_noise
+        if num_episodes_per_eval > 1:
+            signed_noise = jnp.repeat(signed_noise, num_episodes_per_eval, axis=0)
+        all_perturbed_flat = flat_params + noise_std * signed_noise
+        return jax.vmap(unravel_fn)(all_perturbed_flat)
 
     # Number of parallel policy evaluations per generation
     num_evals = perturbations_per_actor * (2 if antithetic else 1)
@@ -197,9 +228,9 @@ def get_rollout_fn(
                 if params is None:  # Shutdown signal
                     break
 
-                # Flatten params for perturbation
+                # Flatten params
                 with timer.time("flatten_params_time"):
-                    flat_params, unravel_fn = jax.flatten_util.ravel_pytree(params)
+                    flat_params = flatten_params(params)
 
                 # Generate perturbation seeds
                 rng_key, seed_key = jax.random.split(rng_key)
@@ -210,31 +241,13 @@ def get_rollout_fn(
                     maxval=2**31 - 1,
                 )
 
-                # Generate all perturbed params in one batched call
+                # Generate noise and compute all perturbed params once per generation
                 with timer.time("perturbation_gen_time"):
-                    all_noise = jax.vmap(
-                        lambda s: jax.random.normal(jax.random.PRNGKey(s), shape=flat_params.shape)
-                    )(perturbation_seeds)
-
-                    # Positive perturbations: theta + sigma * epsilon
-                    pos_flat = flat_params + noise_std * all_noise  # [P, D]
-
-                    if antithetic:
-                        # Negative perturbations: theta - sigma * epsilon
-                        neg_flat = flat_params - noise_std * all_noise  # [P, D]
-                        all_flat = jnp.concatenate([pos_flat, neg_flat], axis=0)
-                    else:
-                        all_flat = pos_flat
-
-                    # Repeat each param set for multi-episode evaluation
-                    # [num_evals, D] -> [num_evals * num_episodes_per_eval, D]
-                    all_flat_repeated = jnp.repeat(all_flat, num_episodes_per_eval, axis=0)
-
-                    # Unravel all flat param vectors into batched pytree [num_envs, ...]
-                    all_params = jax.vmap(unravel_fn)(all_flat_repeated)
+                    all_noise = generate_noise_vectors(perturbation_seeds)
+                    all_params = compute_perturbed_params(flat_params, all_noise)
 
                 # Evaluate all perturbations in parallel
-                with timer.time("single_actor_rollout_time"):
+                with timer.time("perturbation_eval_time"):
                     timestep = envs.reset(seed=seeds)
                     episode_returns = np.zeros(num_envs)
                     finished = np.zeros(num_envs, dtype=bool)
@@ -260,7 +273,7 @@ def get_rollout_fn(
                             timestep = envs.step(cpu_actions)
 
                         # Track episode completion using extras metrics
-                        with timer.time("storage_time"):
+                        with timer.time("episode_tracking_time"):
                             done_np = np.asarray(timestep.last())
                             newly_done = np.logical_and(done_np, ~finished)
                             if newly_done.any():
@@ -290,9 +303,8 @@ def get_rollout_fn(
                     neg_fitnesses = np.zeros(perturbations_per_actor)
 
                 # Pack evaluation results
-                perturbation_seeds_np = np.asarray(perturbation_seeds)
                 evaluation = ESEvaluation(
-                    seeds=jnp.array(perturbation_seeds_np, dtype=jnp.int32),
+                    seeds=perturbation_seeds,
                     positive_fitnesses=jnp.array(pos_fitnesses),
                     negative_fitnesses=jnp.array(neg_fitnesses),
                 )
@@ -332,10 +344,10 @@ def get_rollout_fn(
                         timing_metrics = {
                             **timer.get_all_means(),
                             "actor_policy_version": actor_policy_version,
-                            "local_SPS": int(
+                            "local_env_steps_per_second": int(
                                 local_step_count / (time.perf_counter() - thread_start_time)
                             ),
-                            "global_SPS": int(
+                            "global_env_steps_per_second": int(
                                 approximate_global_step / (time.perf_counter() - thread_start_time)
                             ),
                             "num_generations": num_generations,
@@ -372,6 +384,8 @@ def get_actor_thread(
     logger: StoixLogger,
     learner_devices: Sequence[jax.Device],
     thread_lifetime: ThreadLifetime,
+    unravel_fn: Callable,
+    flat_params_shape: Tuple[int, ...],
 ) -> threading.Thread:
     """Create actor thread for perturbation evaluation."""
 
@@ -389,6 +403,8 @@ def get_actor_thread(
         learner_devices=learner_devices,
         seeds=seeds,
         thread_lifetime=thread_lifetime,
+        unravel_fn=unravel_fn,
+        flat_params_shape=flat_params_shape,
     )
 
     actor_thread = threading.Thread(
@@ -551,10 +567,9 @@ def get_learner_rollout_fn(
                 if learner_policy_version % learner_log_frequency == 0:
                     learner_timing_metrics = {
                         **timer.get_all_means(),
-                        "update_no": learner_policy_version,
-                        "timestep": global_step_count,
+                        "global_env_step_count": global_step_count,
                         "learner_policy_version": learner_policy_version,
-                        "learner_steps_per_seconds": int(
+                        "learner_updates_per_second": int(
                             learner_policy_version / (time.perf_counter() - thread_start_time)
                         ),
                     }
@@ -642,7 +657,13 @@ def learner_setup(
     keys: chex.Array,
     learner_devices: Sequence[jax.Device],
     config: DictConfig,
-) -> Tuple[SebulbaLearnerFn[CoreLearnerState, ESEvaluation], ActorApply, CoreLearnerState,]:
+) -> Tuple[
+    SebulbaLearnerFn[CoreLearnerState, ESEvaluation],
+    ActorApply,
+    CoreLearnerState,
+    Callable,
+    Tuple[int, ...],
+]:
     """Setup learner networks and initial state."""
 
     # Get environment specifications
@@ -708,7 +729,7 @@ def learner_setup(
     # Prepare learner state for multi-device training
     learner_state = flax.jax_utils.replicate(learner_state, devices=learner_devices)
 
-    return learn_step, actor_network_apply_fn, learner_state
+    return learn_step, actor_network_apply_fn, learner_state, unravel_fn, flat_params_shape
 
 
 def check_es_config(config: DictConfig) -> DictConfig:
@@ -835,7 +856,7 @@ def run_experiment(_config: DictConfig) -> float:
     np_rng = np.random.default_rng(config.arch.seed)
 
     # Setup learner and networks
-    learn_step, apply_fn, learner_state = learner_setup(
+    learn_step, apply_fn, learner_state, unravel_fn, flat_params_shape = learner_setup(
         env_factory, (key, actor_net_key), local_learner_devices, config
     )
 
@@ -911,6 +932,8 @@ def run_experiment(_config: DictConfig) -> float:
                 logger=logger,
                 learner_devices=local_learner_devices,
                 thread_lifetime=actor_thread_lifetime,
+                unravel_fn=unravel_fn,
+                flat_params_shape=flat_params_shape,
             )
             print(
                 f"{Fore.BLUE}{Style.BRIGHT}Starting actor thread "
