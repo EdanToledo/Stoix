@@ -1,0 +1,20 @@
+# ConceptARC — SameDifferent concept group.
+# ConceptARC organises tasks by abstract reasoning concepts.
+# Use "Concept-{ConceptName}" as the scenario to focus on a single concept:
+#   AboveBelow, Center, CleanUp, CompleteShape, Copy, Count,
+#   ExtendToBoundary, ExtractObjects, FilledNotFilled, HorizontalVertical,
+#   InsideOutside, MoveToBoundary, Order, SameDifferent, TopBottom2D, TopBottom3D
+env_name: jaxarc
+
+scenario:
+  name: Concept-SameDifferent
+
+action:
+  mode: point  # point | bbox | mask
+
+observation_wrappers:
+  answer_grid: true
+  input_grid: true
+  contextual: true
+
+eval_metric: episode_return

@@ -1,0 +1,17 @@
+# ARC-AGI-1 with bounding-box actions — demonstrates bbox action mode.
+# Bbox actions let the agent select rectangular regions instead of individual cells,
+# reducing the action space as compared to mask selection and enabling more structured edits.
+env_name: jaxarc
+
+scenario:
+  name: AGI1-train
+
+action:
+  mode: bbox  # point | bbox | mask
+
+observation_wrappers:
+  answer_grid: true
+  input_grid: true
+  contextual: true
+
+eval_metric: episode_return
