@@ -14,3 +14,6 @@ observation_wrappers:
   contextual: true
 
 eval_metric: episode_return
+
+wrapper:
+  _target_: stoa.FlattenObservationWrapper
