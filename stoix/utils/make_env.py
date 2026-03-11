@@ -304,9 +304,7 @@ def make_debug_env(scenario_name: str, config: DictConfig) -> Tuple[Environment,
     return env, eval_env
 
 
-def make_jaxarc_env(
-    scenario_name: str, config: DictConfig
-) -> Tuple[Environment, Environment]:
+def make_jaxarc_env(scenario_name: str, config: DictConfig) -> Tuple[Environment, Environment]:
     """Creates and wraps a JaxARC environment for ARC puzzle tasks.
 
     JaxARC environments are natively Stoa-compatible, so no adapter is needed.
@@ -319,8 +317,7 @@ def make_jaxarc_env(
         from jaxarc.wrappers import ExtendedMetrics
     except ImportError as e:
         raise ImportError(
-            "JaxARC is required for 'jaxarc' environments. "
-            "Install it with: pip install jaxarc"
+            "JaxARC is required for 'jaxarc' environments. Install it with: pip install jaxarc"
         ) from e
 
     env, eval_env = _make_jaxarc(config)
