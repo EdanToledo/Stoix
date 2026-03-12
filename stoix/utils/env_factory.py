@@ -1,23 +1,35 @@
+"""Factories for creating non-Jax environments for Sebulba systems.
+
+See `stoix.utils.make_env.make_factory` for environment creation and `stoix/systems/*/sebulba` for usage.
+"""
+
 import abc
 import threading
 from typing import Any, Callable
 
+import gymnasium
+import jax
 from colorama import Fore, Style
+from packaging import version
+
+from stoix.wrappers.envpool import EnvPoolToStoa
+from stoix.wrappers.gymnasium import VecGymToStoa
 
 # Envpool is not usable on certain platforms, so we need to handle the ImportError
 try:
     import envpool
+
+    if version.parse(jax.__version__) >= version.parse("0.6.0"):
+        print(
+            f"{Fore.MAGENTA}{Style.BRIGHT}Envpool is not compatible with jax>=0.6.0. "
+            f"Please install Envpool via `uv sync --extra envpool` if you want to use the Envpool factory{Style.RESET_ALL}"
+        )
 except ImportError:
     envpool = None
     print(
         f"{Fore.MAGENTA}{Style.BRIGHT}Envpool not installed. "
-        f"Please install it if you want to use the Envpool factory{Style.RESET_ALL}"
+        f"Please install it via `uv sync --extra envpool` if you want to use the Envpool factory{Style.RESET_ALL}"
     )
-
-import gymnasium
-
-from stoix.wrappers.envpool import EnvPoolToStoa
-from stoix.wrappers.gymnasium import VecGymToStoa
 
 
 class EnvFactory(abc.ABC):

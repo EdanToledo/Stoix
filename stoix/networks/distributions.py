@@ -102,7 +102,7 @@ class ClippedBeta(Beta):
         sample_shape: Sequence[int] = (),
         seed: Optional[chex.PRNGKey] = None,
         name: str = "sample",
-        **kwargs: Any
+        **kwargs: Any,
     ) -> chex.Array:
         _epsilon = 1e-7
         # Call the original sample method

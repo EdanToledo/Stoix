@@ -1,6 +1,6 @@
 import copy
 import dataclasses
-from typing import Any, Callable, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Tuple
 
 import hydra
 import jax
@@ -22,8 +22,8 @@ from stoa.core_wrappers.vmap import VmapWrapper
 from stoa.core_wrappers.wrapper import AddRNGKey
 from stoa.utility_wrappers.extras_transforms import NoExtrasWrapper
 
-from stoix.utils.env_factory import EnvFactory
-from stoix.wrappers.jax_to_factory import JaxEnvFactory
+if TYPE_CHECKING:
+    from stoix.utils.env_factory import EnvFactory
 
 
 def apply_core_wrappers(env: Environment, config: DictConfig) -> Environment:
@@ -421,7 +421,7 @@ def make(config: DictConfig) -> Tuple[Environment, Environment]:
     return envs
 
 
-def make_factory(config: DictConfig) -> EnvFactory:
+def make_factory(config: DictConfig) -> "EnvFactory":
     """Creates a factory for generating environments.
 
     This is used for systems that require an environment factory rather than
@@ -462,6 +462,8 @@ def make_factory(config: DictConfig) -> EnvFactory:
     else:
         # For all other JAX-based environments, create a single instance
         # and wrap it in a JaxEnvFactory.
+        from stoix.wrappers.jax_to_factory import JaxEnvFactory
+
         train_env = make(config)[0]
         return JaxEnvFactory(
             train_env, init_seed=config.arch.seed, apply_wrapper_fn=apply_wrapper_fn

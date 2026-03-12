@@ -1,6 +1,6 @@
 import math
 import time
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, Union
 
 import chex
 import flax.linen as nn
@@ -27,9 +27,11 @@ from stoix.base_types import (
     SebulbaEvalFn,
     State,
 )
-from stoix.utils.env_factory import EnvFactory
 from stoix.utils.jax_utils import unreplicate_batch_dim
 from stoix.utils.running_statistics import RunningStatisticsState, normalize
+
+if TYPE_CHECKING:
+    from stoix.utils.env_factory import EnvFactory
 
 
 def make_random_initial_eval_reset_fn(config: DictConfig, env: Environment) -> EvalResetFn:
@@ -417,7 +419,7 @@ def evaluator_setup(
 
 
 def get_sebulba_eval_fn(
-    env_factory: EnvFactory,
+    env_factory: "EnvFactory",
     act_fn: ActFn,
     config: DictConfig,
     np_rng: np.random.Generator,

@@ -41,9 +41,9 @@ Stoix is fully in JAX with substantial speed improvement compared to other popul
 ## System Design Paradigms
 Stoix offers two primary system design paradigms (Podracer Architectures) to cater to different research and deployment needs:
 
-- **Anakin:** Traditional Stoix implementations are fully end-to-end compiled with JAX, focusing on speed and simplicity with native JAX environments. This design paradigm is ideal for setups where all components, including environments, can be optimized using JAX, leveraging the full power of JAX's pmap and jit. For an illustration of the Anakin architecture, see this [figure](docs/images/anakin_arch.jpg) from the [Mava][mava] technical report or the original podracer [paper][anakin_paper].
+- **Anakin:** Traditional Stoix implementations are fully end-to-end compiled with JAX, focusing on speed and simplicity with native JAX environments. This design paradigm is ideal for setups where all components, including environments, can be optimised using JAX, leveraging the full power of JAX's pmap and jit. For an illustration of the Anakin architecture, see this [figure](docs/images/anakin_arch.jpg) from the [Mava][mava] technical report or the original podracer [paper][anakin_paper].
 
-- **Sebulba:** The Sebulba system introduces flexibility by allowing different devices to be assigned specifically for learning and acting. In this setup, acting devices serve as inference servers for multiple parallel environments, which can be written in any framework, not just JAX. Each set of parallel environments can run on separate threads asynchronously. This enables Stoix to be used with a broader range of environments while still benefiting from JAX's speed. For an illustration of the Sebulba architecture, see this [animation](docs/images/sebulba_arch.gif) from the [InstaDeep Sebulba implementation](https://github.com/instadeepai/sebulba/). Whilst one could optimisie for throughput of data to purely maximise performance, Stoix aims to serve as a research codebase, thus, we take inspiration from [cleanba][cleanba] which focused on ensuring reproducibility and algorithm correctness. With this in mind, one could easily adapt the sebulba systems to optimise for throughput.
+- **Sebulba:** The Sebulba system introduces flexibility by allowing different devices to be assigned specifically for learning and acting. In this setup, acting devices serve as inference servers for multiple parallel environments, which can be written in any framework, not just JAX. Each set of parallel environments can run on separate threads asynchronously. This enables Stoix to be used with a broader range of environments while still benefiting from JAX's speed. For an illustration of the Sebulba architecture, see this [animation](docs/images/sebulba_arch.gif) from the [InstaDeep Sebulba implementation](https://github.com/instadeepai/sebulba/). Whilst one could optimise for throughput of data to purely maximise performance, Stoix aims to serve as a research codebase, thus, we take inspiration from [cleanba][cleanba] which focused on ensuring reproducibility and algorithm correctness. With this in mind, one could easily adapt the sebulba systems to optimise for throughput.
 
 Not all implementations have both Anakin and Sebulba implementations but effort has gone into making the two implementations as similar as possible to allow easy conversion.
 
@@ -56,9 +56,9 @@ The current code in Stoix was initially **largely** taken and subsequently adapt
 ### Stoix TLDR
 1. **Algorithms:** Stoix offers easily hackable, single-file implementations of popular algorithms in pure JAX. You can vectorize algorithm training on a single device using `vmap` as well as distribute training across multiple devices with `pmap` (or both). Multi-host support (i.e., vmap/pmap over multiple devices **and** host machines/nodes) is coming soon! All implementations include checkpointing to save and resume parameters and training runs.
 
-2. **System Designs:** Choose between Anakin systems for fully JAX-optimized workflows or Sebulba systems for flexibility with non-JAX environments.
+2. **System Designs:** Choose between Anakin systems for fully JAX-optimised workflows or Sebulba systems for flexibility with non-JAX environments.
 
-3. **Hydra Config System:** Leverage the Hydra configuration system for efficient and consistent management of experiments, network architectures, and environments. Hydra facilitates the easy addition of new hyperparameters and supports multi-runs and Optuna hyperparameter optimization. No more need to create large bash scripts to run a series of experiments with differing hyperparameters, network architectures or environments.
+3. **Hydra Config System:** Leverage the Hydra configuration system for efficient and consistent management of experiments, network architectures, and environments. Hydra facilitates the easy addition of new hyperparameters and supports multi-runs and Optuna hyperparameter optimisation. No more need to create large bash scripts to run a series of experiments with differing hyperparameters, network architectures or environments.
 
 4. **Advanced Logging:** Stoix features advanced and configurable logging, ready for output to the terminal, TensorBoard, and other ML tracking dashboards (WandB and Neptune). It also supports logging experiments in JSON format ready for statistical tests and generating RLiable plots (see the notebook in the plotting folder). This enables statistically confident comparisons of algorithms natively.
 
@@ -81,8 +81,8 @@ Stoix currently offers the following building blocks for Single-Agent RL researc
 - **Twin Delayed DDPG (TD3)** - [Paper](https://arxiv.org/abs/1802.09477)
 - **Distributed Distributional DDPG (D4PG)** - [Paper](https://arxiv.org/abs/1804.08617)
 - **Soft Actor-Critic (SAC)** - [Paper](https://arxiv.org/abs/1801.01290)
-- **Proximal Policy Optimization (PPO)** - [Paper](https://arxiv.org/abs/1707.06347)
-- **Discovered Policy Optimization (DPO)** [Paper](https://arxiv.org/abs/2210.05639)
+- **Proximal Policy Optimisation (PPO)** - [Paper](https://arxiv.org/abs/1707.06347)
+- **Discovered Policy Optimisation (DPO)** [Paper](https://arxiv.org/abs/2210.05639)
 - **Maximum a Posteriori Policy Optimisation (MPO)** - [Paper](https://arxiv.org/abs/1806.06920)
 - **On-Policy Maximum a Posteriori Policy Optimisation (V-MPO)** - [Paper](https://arxiv.org/abs/1909.12238)
 - **Advantage-Weighted Regression (AWR)** - [Paper](https://arxiv.org/abs/1910.00177)
@@ -128,6 +128,7 @@ git clone https://github.com/EdanToledo/Stoix.git
 cd Stoix
 pipx install uv
 uv sync
+uv sync --extra envpool  # if using non-Jax environments
 source .venv/bin/activate
 ```
 
@@ -196,9 +197,9 @@ This SLURM launcher is designed to assist with research, making it simple to sca
 
 1. If your environment does not have a timestep limit or is not guaranteed to end through some game mechanic, then it is possible for the evaluation to seem as if it is hanging forever thereby stalling the training but in fact your agent is just so good _or bad_ that the episode never finishes. Keep this in mind if you are seeing this behaviour. One solution is to simply add a time step limit or potentially action masking.
 
-2. Due to the way Stoix is set up, you are not guaranteed to run for exactly the number of timesteps you set. A warning is given at the beginning of a run on the actual number of timesteps that will be run. This value will always be less than or equal to the specified sample budget. To get the exact number of transitions to run, ensure that the number of timesteps is divisible by the rollout length * total_num_envs and additionally ensure that the number of evaluations spaced out throughout training perfectly divide the number of updates to be performed. To see the exact calculation, see the file total_timestep_checker.py. This will give an indication of how the actual number of timesteps is calculated and how you can easily set it up to run the exact amount you desire. Its relatively trivial to do so but it is important to keep in mind.
+2. Due to the way Stoix is set up, you are not guaranteed to run for exactly the number of timesteps you set. A warning is given at the beginning of a run on the actual number of timesteps that will be run. This value will always be less than or equal to the specified sample budget. To get the exact number of transitions to run, ensure that the number of timesteps is divisible by the rollout length * total_num_envs and additionally ensure that the number of evaluations spaced out throughout training perfectly divide the number of updates to be performed. To see the exact calculation, see the file [`total_timestep_checker.py`](./stoix/utils/total_timestep_checker.py). This will give an indication of how the actual number of timesteps is calculated and how you can easily set it up to run the exact amount you desire. Its relatively trivial to do so but it is important to keep in mind.
 
-3. Optimising the performance and speed for Sebulba systems can be a little tricky as you need to balance the pipeline size, the number of actor threads, etc so keep this in mind when applying an algorithm to a new problem.
+3. Optimising the performance and speed for **Sebulba systems** can be a little tricky as you need to balance the pipeline size, the number of actor threads, etc so keep this in mind when applying an algorithm to a new problem. Note that Sebulba systems are not compatible with Jax versions 0.6.0 or newer.
 
 ## Contributing 🤝
 

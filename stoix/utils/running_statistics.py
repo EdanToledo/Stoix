@@ -187,7 +187,7 @@ def _validate_batch_shapes(
 
 
 def convert_pmap_axes_names(
-    pmap_axes: Optional[Union[str, Sequence[str]]]
+    pmap_axes: Optional[Union[str, Sequence[str]]],
 ) -> Optional[Sequence[str]]:
     """Converts pmap axes names to a list of strings."""
     # Handle multiple pmap axes
