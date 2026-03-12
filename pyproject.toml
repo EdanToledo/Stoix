@@ -176,6 +176,11 @@ dev = [
   "testfixtures",
 ]
 
+[project.optional-dependencies]
+disco = [
+  "disco_rl @ git+https://github.com/google-deepmind/disco_rl.git@main ; python_version >= '3.11'",
+]
+
 [project.urls]
 "Homepage" = "https://github.com/EdanToledo/Stoix"
 "Bug Tracker" = "https://github.com/EdanToledo/Stoix/issues"

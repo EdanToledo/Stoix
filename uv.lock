@@ -735,6 +735,25 @@ wheels = [
 ]
 
 [[package]]
+name = "disco-rl"
+version = "1.0.0"
+source = { git = "https://github.com/google-deepmind/disco_rl.git?rev=main#9059a29f7121d60948f25ef165e08e050e9399c8" }
+dependencies = [
+    { name = "distrax", marker = "python_full_version >= '3.11'" },
+    { name = "dm-haiku", marker = "python_full_version >= '3.11'" },
+    { name = "immutabledict", marker = "python_full_version >= '3.11'" },
+    { name = "jax", marker = "python_full_version >= '3.11'" },
+    { name = "jmp", marker = "python_full_version >= '3.11'" },
+    { name = "matplotlib", marker = "python_full_version >= '3.11'" },
+    { name = "ml-collections", marker = "python_full_version >= '3.11'" },
+    { name = "optax", marker = "python_full_version >= '3.11'" },
+    { name = "pandas", marker = "python_full_version >= '3.11'" },
+    { name = "rlax", marker = "python_full_version >= '3.11'" },
+    { name = "seaborn", marker = "python_full_version >= '3.11'" },
+    { name = "tqdm", marker = "python_full_version >= '3.11'" },
+]
+
+[[package]]
 name = "distlib"
 version = "0.3.9"
 source = { registry = "https://pypi.org/simple" }
@@ -774,6 +793,21 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/62/c9/93e8d6239d5806508a2ee4b370e67c6069943ca149f59f533923737a99b7/dm-env-1.6.tar.gz", hash = "sha256:a436eb1c654c39e0c986a516cee218bea7140b510fceff63f97eb4fcff3d93de", size = 20187, upload-time = "2022-12-21T00:25:29.306Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/08/7e/36d548040e61337bf9182637a589c44da407a47a923ee88aec7f0e89867c/dm_env-1.6-py3-none-any.whl", hash = "sha256:0eabb6759dd453b625e041032f7ae0c1e87d4eb61b6a96b9ca586483837abf29", size = 26339, upload-time = "2022-12-21T00:25:37.128Z" },
+]
+
+[[package]]
+name = "dm-haiku"
+version = "0.0.16"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "absl-py", marker = "python_full_version >= '3.11'" },
+    { name = "jmp", marker = "python_full_version >= '3.11'" },
+    { name = "numpy", marker = "python_full_version >= '3.11'" },
+    { name = "tabulate", marker = "python_full_version >= '3.11'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/2a/fc/daf4689198f4c0af8b71611f39fcd5d68ce0ae59fa919b9e58192a7d70f5/dm_haiku-0.0.16.tar.gz", hash = "sha256:1830b0ce63c5cef2fb3a63a13033c9d8f612ee7f896f2b0b25a6ba484f5fad28", size = 263092, upload-time = "2025-12-17T15:55:35.145Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/14/91/0f53835d0292a74e6b37e68125b669827e2a75a26e01c34741d6c13cca6c/dm_haiku-0.0.16-py3-none-any.whl", hash = "sha256:cc355d4d5aaa85af20e5a23ccd278bc751232ac8e5971261bed39318c07d744f", size = 374267, upload-time = "2025-12-17T15:55:33.9Z" },
 ]
 
 [[package]]
@@ -1407,6 +1441,15 @@ wheels = [
 ]
 
 [[package]]
+name = "immutabledict"
+version = "4.3.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/1d/e6/718471048fea0366c3e3d1df3acfd914ca66d571cdffcf6d37bbcd725708/immutabledict-4.3.1.tar.gz", hash = "sha256:f844a669106cfdc73f47b1a9da003782fb17dc955a54c80972e0d93d1c63c514", size = 7806, upload-time = "2026-02-15T10:32:34.668Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a3/ce/f9018bf69ae91b273b6391a095e7c93fa5e1617f25b6ba81ad4b20c9df10/immutabledict-4.3.1-py3-none-any.whl", hash = "sha256:c9facdc0ff30fdb8e35bd16532026cac472a549e182c94fa201b51b25e4bf7bf", size = 5000, upload-time = "2026-02-15T10:32:33.672Z" },
+]
+
+[[package]]
 name = "importlab"
 version = "0.8.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1672,6 +1715,18 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/00/2a/e867e8531cf3e36b41201936b7fa7ba7b5702dbef42922193f05c8976cd6/jmespath-1.0.1.tar.gz", hash = "sha256:90261b206d6defd58fdd5e85f478bf633a2901798906be2ad389150c5c60edbe", size = 25843, upload-time = "2022-06-17T18:00:12.224Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/31/b4/b9b800c45527aadd64d5b442f9b932b00648617eb5d63d2c7a6587b7cafc/jmespath-1.0.1-py3-none-any.whl", hash = "sha256:02e2e4cc71b5bcab88332eebf907519190dd9e6e82107fa7f83b1003a6252980", size = 20256, upload-time = "2022-06-17T18:00:10.251Z" },
+]
+
+[[package]]
+name = "jmp"
+version = "0.0.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy", marker = "python_full_version >= '3.11'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ab/b0/e90fbbffef4b345329c878a69f0336d3edc5a1f9fcba193931aca2132d62/jmp-0.0.4.tar.gz", hash = "sha256:5dfeb0fd7c7a9f72a70fff0aab9d0cbfae32a809c02f4037ff3485ceb33e1730", size = 18582, upload-time = "2023-01-30T12:47:13.634Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/27/e5/cce82de2831e5aff9332d8d624bb57188f1b2af6ccf6979caf898a8a4348/jmp-0.0.4-py3-none-any.whl", hash = "sha256:6aa7adbddf2bd574b28c7faf6e81a735eb11f53386447896909c6968dc36807d", size = 18274, upload-time = "2023-01-30T12:47:11.931Z" },
 ]
 
 [[package]]
@@ -4626,6 +4681,11 @@ envpool = [
 ]
 
 [package.dev-dependencies]
+disco = [
+    { name = "disco-rl", marker = "python_full_version >= '3.11'" },
+]
+
+[package.dev-dependencies]
 dev = [
     { name = "black" },
     { name = "coverage" },
@@ -4660,6 +4720,7 @@ requires-dist = [
     { name = "chex", specifier = ">=0.1.89" },
     { name = "colorama", specifier = ">=0.4.6" },
     { name = "craftax", specifier = ">=1.4.5" },
+    { name = "disco-rl", marker = "python_full_version >= '3.11' and extra == 'disco'", git = "https://github.com/google-deepmind/disco_rl.git?rev=main" },
     { name = "distrax" },
     { name = "envpool", marker = "sys_platform == 'linux' and extra == 'envpool'", specifier = ">=0.8.4" },
     { name = "flashbax", git = "https://github.com/instadeepai/flashbax?rev=main" },
@@ -4694,7 +4755,7 @@ requires-dist = [
     { name = "wandb", specifier = ">=0.19.8" },
     { name = "xminigrid", git = "https://github.com/corl-team/xland-minigrid.git?rev=main" },
 ]
-provides-extras = ["envpool"]
+provides-extras = ["disco", "envpool"]
 
 [package.metadata.requires-dev]
 dev = [
