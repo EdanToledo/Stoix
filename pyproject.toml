@@ -165,6 +165,9 @@ envpool = [
     "envpool>=0.8.4 ; sys_platform == 'linux'",
     "jax>=0.4.25,<0.6.0",
 ]
+disco = [
+  "disco_rl @ git+https://github.com/google-deepmind/disco_rl.git@main ; python_version >= '3.11'",
+]
 
 [dependency-groups]
 dev = [
@@ -174,11 +177,6 @@ dev = [
   "mypy", "nbmake", "pre-commit", "promise", "pymdown-extensions", "pytest",
   "pytest-cov", "pytest-mock", "pytest-parallel", "pytest-xdist", "pytype",
   "testfixtures",
-]
-
-[project.optional-dependencies]
-disco = [
-  "disco_rl @ git+https://github.com/google-deepmind/disco_rl.git@main ; python_version >= '3.11'",
 ]
 
 [project.urls]
