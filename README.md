@@ -95,7 +95,7 @@ Stoix currently offers the following building blocks for Single-Agent RL researc
 ### Environment Wrappers 🍬
 Stoix offers wrappers for:
 
-- **JAX environments:** [Gymnax][gymnax], [Jumanji][jumanji], [Brax][brax], [XMinigrid][xminigrid], [Craftax][craftax], [POPJym][popjym], [Navix][navix] and more.
+- **JAX environments:** [Gymnax][gymnax], [Jumanji][jumanji], [Brax][brax], [XMinigrid][xminigrid], [Craftax][craftax], [POPJym][popjym], [Navix][navix], [JaxARC][jaxarc] and more.
 - **Non-JAX environments:** [Envpool][envpool] and [Gymnasium][gymnasium].
 
 ### Statistically Robust Evaluation 🧪
@@ -270,3 +270,4 @@ We would like to thank the authors and developers of [Mava][mava] as this was es
 [envpool]: https://github.com/sail-sg/envpool/
 [gymnasium]: https://github.com/Farama-Foundation/Gymnasium
 [cleanba]: https://github.com/vwxyzjn/cleanba
+[jaxarc]: https://github.com/aadimator/JaxARC
