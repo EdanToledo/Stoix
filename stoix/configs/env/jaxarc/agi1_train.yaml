@@ -1,0 +1,19 @@
+# ARC-AGI-1 Training Set — Standard ARC benchmark for RL research.
+# Uses the official training split (400 tasks) with point-based actions.
+env_name: jaxarc
+
+scenario:
+  name: AGI1-train
+
+action:
+  mode: point  # point | bbox | mask
+
+observation_wrappers:
+  answer_grid: true
+  input_grid: true
+  contextual: true
+
+eval_metric: episode_return
+
+wrapper:
+  _target_: stoa.FlattenObservationWrapper

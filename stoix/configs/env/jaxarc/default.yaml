@@ -1,0 +1,23 @@
+# ---Environment Configs---
+env_name: jaxarc
+
+scenario:
+  name: "Mini-Colony_Expansion_2_l6d2q1yx5npw0qdrnzn"
+  task_name: mini
+
+action:
+  mode: point  # point | bbox | mask
+
+observation_wrappers:
+  answer_grid: true
+  input_grid: true
+  contextual: true
+
+# Defines the metric that will be used to evaluate the performance of the agent.
+# This metric is returned at the end of an experiment and can be used for hyperparameter tuning.
+eval_metric: episode_return
+
+# Flatten multi-dimensional observation (4, 5, 5, 13) -> (1300,) for MLP networks.
+# Remove this wrapper when using CNN networks (e.g., network=jaxarc/arc_shallow_cnn).
+wrapper:
+  _target_: stoa.FlattenObservationWrapper
