@@ -1,4 +1,4 @@
-# How to Contribute
+# Contributing 🤝
 
 We'd love to accept your patches and contributions to this project. There are
 just a few small guidelines you need to follow.
@@ -28,19 +28,26 @@ pip install -e .[dev]
 ## Installing Pre-Commit Hooks
 
 Install the pre-commit hooks:
+
 ```bash
 pre-commit install
 pre-commit install -t commit-msg
 ```
+
 You can run all the pre-commit hooks on all files as follows:
+
 ```bash
 pre-commit run --all-files
 ```
 
 ## Naming Conventions
+
 ### Branch Names
+
 We name our feature and bugfix branches as follows - `feature/[BRANCH-NAME]`, `bugfix/[BRANCH-NAME]` or `maintenance/[BRANCH-NAME]`. Please ensure `[BRANCH-NAME]` is hyphen delimited.
+
 ### Commit Messages
+
 We follow the conventional commits [standard](https://www.conventionalcommits.org/en/v1.0.0/).
 
 ## Code reviews
