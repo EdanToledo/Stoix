@@ -137,6 +137,55 @@ def apply_exploration_noise(
     return noisy_prior
 
 
+# Field names under which an environment state carries its PRNG key: `rng_key` is
+# stoa's `AdapterStateWithKey`, `key` is Jumanji's own `State`.
+_RNG_KEY_FIELDS = ("rng_key", "key")
+
+
+def _is_rng_key_path(path: Tuple[Any, ...]) -> bool:
+    """Whether a pytree path points at an environment state's PRNG key."""
+    leaf = path[-1]
+    return isinstance(leaf, jax.tree_util.GetAttrKey) and leaf.name in _RNG_KEY_FIELDS
+
+
+def _rekey_particles(
+    particle_states: chex.ArrayTree, rng_key: chex.PRNGKey, num_particles: int
+) -> chex.ArrayTree:
+    """Give every particle its own PRNG key, drawn from the search key.
+
+    `broadcast_tree` copies the environment state verbatim, PRNG key included. For a
+    stochastic environment model that is wrong twice over:
+
+      1. every particle draws the *same* transition, so the search cannot average over
+         the model's randomness at all. Algorithm 1 of the SPO paper samples
+         `s_{i+1} ~ T_model(s_i, a_i)`; one shared key makes all N samples identical.
+      2. that key belongs to the *live* environment, so the model reproduces exactly
+         the transition that is about to happen. The search stops planning under
+         uncertainty and plans against a known future.
+
+    States that carry no key are returned untouched, so this is a no-op for every
+    deterministic environment.
+    """
+    key_paths = [
+        path
+        for path, _ in jax.tree_util.tree_leaves_with_path(particle_states)
+        if _is_rng_key_path(path)
+    ]
+    if not key_paths:
+        return particle_states
+
+    subkeys = jax.random.split(rng_key, len(key_paths))
+    per_path = dict(zip(key_paths, subkeys))
+
+    def rekey(path: Tuple[Any, ...], leaf: chex.Array) -> chex.Array:
+        subkey = per_path.get(path)
+        if subkey is None:
+            return leaf
+        return jax.random.split(subkey, leaf.shape[0] * num_particles).reshape(leaf.shape)
+
+    return jax.tree_util.tree_map_with_path(rekey, particle_states)
+
+
 def make_root_fn(
     actor_apply_fn: ActorApply,
     critic_apply_fn: CriticApply,
@@ -181,7 +230,7 @@ def make_root_fn(
             SPORootFnOutput containing initial particle states, actions, values and logits.
         """
 
-        sample_key, noise_key = jax.random.split(rng_key, 2)
+        sample_key, noise_key, rekey_key = jax.random.split(rng_key, 3)
         # Run the actor and critic network on the current observation
         pi = actor_apply_fn(params.actor_params.online, observation)
         prior_logits = pi.logits
@@ -212,6 +261,12 @@ def make_root_fn(
         # We then broadcast the environment state so each particle has a copy and we do the same
         # for the critic value. This is all on the axis=1 so the shape is (batch, num particles, *)
         particle_env_states = broadcast_tree(env_state, (config.system.num_particles,), axis=1)
+        # Give every particle its OWN key, drawn from the search key. Without this the
+        # particles share the live environment's key: for a stochastic model they all
+        # draw the same transition, and that transition is the one about to happen.
+        particle_env_states = _rekey_particles(
+            particle_env_states, rekey_key, config.system.num_particles
+        )
         value = broadcast_tree(value, (config.system.num_particles,), axis=1)
         # For each sampled action, we get the log prob from the prior policy.
         # This is not strictly necessary to have.
