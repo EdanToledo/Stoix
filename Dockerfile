@@ -31,6 +31,6 @@ RUN uv sync
 # Need to use specific cuda versions for jax
 ARG USE_CUDA=true
 RUN if [ "$USE_CUDA" = true ] ; \
-    then pip install "jax[cuda12]>=0.4.25" -f "https://storage.googleapis.com/jax-releases/jax_cuda_releases.html" ; \
+    then uv pip install "jax[cuda12]>=0.4.25" -f "https://storage.googleapis.com/jax-releases/jax_cuda_releases.html" ; \
     fi
 EXPOSE 6006
